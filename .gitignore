@@ -1,0 +1,32 @@
+# 기본적으로 프로젝트 루트의 모든 항목을 제외하고, 실행·빌드에 필요한 파일만 허용한다.
+/*
+
+# 저장소 메타/문서/빌드 설정
+!/.gitignore
+!/README.md
+!/LICENSE
+!/requirements.txt
+!/build.ps1
+!/.github/
+!/.github/**
+
+# 에디터 소스와 PyInstaller 빌드 설정
+!/CDS_SaveEditor.pyw
+!/CDS3_SaveEditor.spec
+
+# 실행과 빌드에 필요한 모든 리소스
+!/Resources/
+!/Resources/**
+
+# 명시적 제외: 빌드 산출물, 임시 분석 파일, Python 캐시, 사용자 세이브
+/dist/
+/build/
+/temp/
+/__pycache__/
+*.py[cod]
+*.spec.bak
+*.log
+*.bak
+*.tmp
+SAVEDATA.CDS
+SAVEDATA*.CDS
