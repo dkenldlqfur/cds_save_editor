@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>대항해시대 3 - 전 세계 주점 여급 공식 도감 (127명)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0d1117;
+            --bg-card: #161b22;
+            --bg-card-hover: #1c2128;
+            --border-color: #30363d;
+            --border-gold: #d29922;
+            --accent-gold: #f1e05a;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-pink: #f778ba;
+            --accent-purple: #bc8cff;
+            --accent-cyan: #39c5bb;
+            --accent-red: #ff7b72;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            padding: 24px 20px 60px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-title-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .header h1 {
+            font-family: 'Outfit', 'Noto Sans KR', sans-serif;
+            font-size: 26px;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+        }
+
+        .header-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .stat-badge {
+            background: rgba(56, 139, 253, 0.15);
+            border: 1px solid rgba(56, 139, 253, 0.4);
+            color: var(--accent-blue);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .view-btn-group {
+            display: flex;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .view-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .view-btn.active {
+            background: var(--accent-blue);
+            color: #ffffff;
+        }
+
+        /* Guide Card */
+        .guide-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+        }
+
+        .guide-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .guide-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent-gold);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .guide-title.compat-title {
+            color: #f778ba;
+        }
+
+        .guide-toggle-icon {
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: rgba(255,255,255,0.06);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .guide-table-wrap {
+            margin-top: 14px;
+            overflow-x: auto;
+        }
+
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .guide-table th, .guide-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(48, 54, 61, 0.6);
+        }
+
+        .guide-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .guide-row {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .guide-row:hover {
+            background: rgba(56, 139, 253, 0.08);
+        }
+
+        .guide-row.selected-trait {
+            background: rgba(241, 224, 90, 0.12) !important;
+        }
+
+        .guide-row.selected-compat {
+            background: rgba(247, 120, 186, 0.15) !important;
+        }
+
+        .guide-select-btn {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            background: rgba(88, 166, 255, 0.15);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            padding: 4px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .guide-select-btn:hover {
+            background: rgba(88, 166, 255, 0.25);
+            border-color: var(--accent-blue);
+        }
+
+        .guide-select-btn.selected-trait {
+            background: #e3b341 !important;
+            border-color: #f1e05a !important;
+            color: #0d1117 !important;
+            font-weight: 700 !important;
+            box-shadow: 0 0 10px rgba(241, 224, 90, 0.4) !important;
+        }
+
+        /* 핑크 계열 상성 선택 버튼 & 하이라이트 */
+        .guide-select-btn.selected-compat {
+            background: #f778ba !important;
+            border-color: #ff9bd8 !important;
+            color: #0d1117 !important;
+            font-weight: 700 !important;
+            box-shadow: 0 0 12px rgba(247, 120, 186, 0.5) !important;
+        }
+
+        /* Control Panel */
+        .controls-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 240px;
+        }
+
+        .search-input {
+            width: 100%;
+            background: rgba(22, 27, 34, 0.9);
+            border: 1px solid var(--border-color);
+            color: #ffffff;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .select-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .custom-select {
+            background: rgba(22, 27, 34, 0.9);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .custom-select:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .sort-select {
+            border-color: rgba(241, 224, 90, 0.4);
+            font-weight: 600;
+            color: var(--accent-gold);
+        }
+
+        .reset-btn {
+            background: rgba(248, 81, 73, 0.12);
+            border: 1px solid rgba(248, 81, 73, 0.4);
+            color: #ff7b72;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .reset-btn:hover {
+            background: rgba(248, 81, 73, 0.25);
+        }
+
+        /* Chips Section */
+        .chips-section {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding-top: 12px;
+            border-top: 1px dashed rgba(48, 54, 61, 0.6);
+        }
+
+        .chip-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .chip-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .chip-limit-badge {
+            font-family: 'Outfit', sans-serif;
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            background: rgba(56, 139, 253, 0.12);
+            color: var(--accent-blue);
+            border: 1px solid rgba(56, 139, 253, 0.3);
+        }
+
+        .chips-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .chip-btn {
+            background: rgba(22, 27, 34, 0.9);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .chip-btn:hover {
+            border-color: var(--text-primary);
+            color: var(--text-primary);
+            background: rgba(33, 38, 45, 0.95);
+        }
+
+        .chip-btn.selected-compat {
+            background: rgba(247, 120, 186, 0.2);
+            border-color: #f778ba;
+            color: #ff9bd8;
+            font-weight: 700;
+            box-shadow: 0 0 8px rgba(247, 120, 186, 0.3);
+        }
+
+        .chip-btn.selected-trait {
+            background: rgba(241, 224, 90, 0.2);
+            border-color: var(--accent-gold);
+            color: var(--accent-gold);
+            font-weight: 700;
+            box-shadow: 0 0 8px rgba(241, 224, 90, 0.2);
+        }
+
+        .chip-btn.selected-lang {
+            background: rgba(63, 185, 80, 0.2);
+            border-color: var(--accent-green);
+            color: #7ee787;
+            font-weight: 700;
+            box-shadow: 0 0 8px rgba(63, 185, 80, 0.2);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #1f6feb;
+            color: #ffffff;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.2s ease;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Gallery Grid View */
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(88, 166, 255, 0.5);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .card.card-perfect {
+            border-color: rgba(247, 120, 186, 0.7) !important;
+            box-shadow: 0 4px 20px rgba(247, 120, 186, 0.25) !important;
+        }
+
+        .card.card-good {
+            border-color: rgba(227, 179, 65, 0.6) !important;
+            box-shadow: 0 4px 16px rgba(227, 179, 65, 0.2) !important;
+        }
+
+        .card.card-normal {
+            border-color: rgba(56, 139, 253, 0.3);
+        }
+
+        .card.card-bad {
+            border-color: rgba(248, 81, 73, 0.25);
+        }
+
+        .card-header {
+            padding: 14px 16px;
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.15);
+            border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+        }
+
+        .portrait-wrap {
+            width: 80px;
+            height: 96px;
+            background: #111;
+            border-radius: 8px;
+            border: 2px solid #30363d;
+            overflow: hidden;
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .portrait-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            image-rendering: pixelated;
+        }
+
+        .card-main-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .card-id-badge {
+            font-family: 'Outfit', monospace;
+            font-size: 11px;
+            color: var(--accent-blue);
+            background: rgba(88, 166, 255, 0.12);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 4px;
+            font-weight: 700;
+        }
+
+        .compat-badge {
+            font-family: 'Outfit', 'Noto Sans KR', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            margin-left: 4px;
+        }
+
+        .compat-badge.perfect {
+            background: linear-gradient(135deg, rgba(247, 120, 186, 0.35), rgba(219, 97, 162, 0.5));
+            color: #ff9bd8;
+            border: 1px solid rgba(247, 120, 186, 0.8);
+            box-shadow: 0 0 10px rgba(247, 120, 186, 0.4);
+        }
+
+        .compat-badge.good {
+            background: linear-gradient(135deg, rgba(227, 179, 65, 0.25), rgba(241, 224, 90, 0.4));
+            color: #f8e870;
+            border: 1px solid rgba(227, 179, 65, 0.8);
+            box-shadow: 0 0 8px rgba(227, 179, 65, 0.3);
+        }
+
+        .compat-badge.normal {
+            background: rgba(56, 139, 253, 0.15);
+            color: #79c0ff;
+            border: 1px solid rgba(56, 139, 253, 0.4);
+        }
+
+        .compat-badge.bad {
+            background: rgba(248, 81, 73, 0.12);
+            color: #ff7b72;
+            border: 1px solid rgba(248, 81, 73, 0.35);
+        }
+
+        body.hide-compat #guideCompatCard,
+        body.hide-compat #compatChipGroup,
+        body.hide-compat .compat-sort-option,
+        body.hide-compat .compat-badge,
+        body.hide-compat .compat-column {
+            display: none !important;
+        }
+
+        .card-name {
+            font-size: 17px;
+            font-weight: 700;
+            color: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-city {
+            font-size: 13px;
+            color: var(--accent-gold);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .card-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1;
+            font-size: 13px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed rgba(48, 54, 61, 0.4);
+            padding-bottom: 6px;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .info-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .zodiac-badge, .blood-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .zodiac-badge {
+            background: rgba(188, 140, 255, 0.15);
+            color: var(--accent-purple);
+            border: 1px solid rgba(188, 140, 255, 0.3);
+        }
+
+        .blood-badge {
+            background: rgba(248, 81, 73, 0.15);
+            color: #ff7b72;
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            margin-left: 4px;
+        }
+
+        .trait-tag {
+            background: rgba(241, 224, 90, 0.12);
+            color: var(--accent-gold);
+            border: 1px solid rgba(241, 224, 90, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .langs-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+
+        .langs-title {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .langs-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .lang-tag {
+            background: rgba(63, 185, 80, 0.12);
+            color: #7ee787;
+            border: 1px solid rgba(63, 185, 80, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        /* Table View */
+        .table-view-wrap {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow-x: auto;
+            display: none;
+        }
+
+        .main-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .main-table th, .main-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        .main-table th {
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-secondary);
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .main-table th:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .main-table th.sort-asc::after {
+            content: " ▲";
+            color: var(--accent-gold);
+        }
+
+        .main-table th.sort-desc::after {
+            content: " ▼";
+            color: var(--accent-gold);
+        }
+
+        .main-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .table-thumb {
+            width: 36px;
+            height: 44px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            object-fit: cover;
+            image-rendering: pixelated;
+        }
+
+        /* Footer info */
+        .footer-info {
+            margin-top: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Toast Notification -->
+        <div id="toast" class="toast"></div>
+
+        <!-- Header -->
+        <div class="header">
+            <div class="header-title-wrap">
+                <h1>대항해시대 3 주점 여급 공식 도감 (127명)</h1>
+                <p class="header-desc">대항해시대 3의 전 세계 127명 모든 여급의 상세 데이터베이스 (등장년도, 별자리, 혈액형, 성격/특징, 공식 14종 전수 언어, 운명의 반려자 판정)</p>
+            </div>
+            <div class="header-stats">
+                <div class="stat-badge">총 127명</div>
+                <div class="view-btn-group">
+                    <button id="btnGallery" class="view-btn active" onclick="setViewMode('gallery')">갤러리</button>
+                    <button id="btnTable" class="view-btn" onclick="setViewMode('table')">테이블</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1. Fortune-teller spouse guidance card -->
+        <div id="guideCompatCard" class="guide-card">
+            <div class="guide-header" onclick="toggleGuideCompat()">
+                <div class="guide-title compat-title">
+                    <span>운명의 반려자 판정 기준 (클릭 시 접기/펼치기)</span>
+                </div>
+                <span id="guideCompatToggleIcon" class="guide-toggle-icon">접기</span>
+            </div>
+            <div id="guideCompatTableWrap" class="guide-table-wrap">
+                <table class="guide-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 170px;">판정</th>
+                            <th>확인된 기준</th>
+                            <th style="width: 120px; text-align: center; white-space: nowrap;">필터 선택</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="guide-row guide-compat-row" data-compat="destined" onclick="toggleCompat('destined')">
+                            <td><span class="compat-badge perfect">운명의 반려자</span></td>
+                            <td>여급의 반려자 비교 코드가 주인공의 표시 얼굴 코드와 일치합니다. 주인공은 36세부터 얼굴 코드에 16을 더해 비교합니다.</td>
+                            <td style="text-align:center; white-space:nowrap;">
+                                <span class="guide-select-btn guide-compat-btn" data-compat="destined">선택 (토글)</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 2. Personality Effects Card (Separately Collapsible) -->
+        <div class="guide-card">
+            <div class="guide-header" onclick="toggleGuideTraits()">
+                <div class="guide-title">
+                    <span>여급 8대 성격 / 특징 시스템 효과 요약 (클릭 시 접기/펼치기)</span>
+                </div>
+                <span id="guideTraitsToggleIcon" class="guide-toggle-icon">접기</span>
+            </div>
+            <div id="guideTraitsTableWrap" class="guide-table-wrap">
+                <table class="guide-table">
+                    <thead>
+                        <tr>
+                            <th>성격</th>
+                            <th style="width: 120px; text-align: center; white-space: nowrap;">필터 선택</th>
+                        </tr>
+                    </thead>
+                    <tbody id="guideTraitsTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Search & Filters -->
+        <div class="controls-card">
+            <div class="filter-row">
+                <div class="search-box">
+                    <input type="text" id="searchInput" class="search-input" placeholder="여급 이름, 도시명 검색..." oninput="applyFilters()">
+                </div>
+                <div class="select-group">
+                    <select id="sortSelect" class="custom-select sort-select" onchange="onSortDropdownChanged()">
+                        <option value="id_asc">정렬: ID 번호순 (0~126)</option>
+                        <option class="compat-sort-option" value="compat_asc">정렬: 운명의 반려자 우선</option>
+                        <option value="year_asc">정렬: 등장년도 빠른순 (1480년~)</option>
+                        <option value="year_desc">정렬: 등장년도 늦은순 (~1525년)</option>
+                        <option value="name_asc">정렬: 이름 가나다순 (A-Z)</option>
+                        <option value="city_asc">정렬: 도시명순 (가나다)</option>
+                        <option value="zodiac_asc">정렬: 별자리순</option>
+                        <option value="blood_asc">정렬: 혈액형순</option>
+                    </select>
+
+                    <select id="cityFilter" class="custom-select" onchange="applyFilters()">
+                        <option value="">모든 도시 (전체)</option>
+                    </select>
+                    <select id="zodiacFilter" class="custom-select" onchange="applyFilters()">
+                        <option value="">모든 별자리 (전체)</option>
+                    </select>
+                    <select id="bloodFilter" class="custom-select" onchange="applyFilters()">
+                        <option value="">모든 혈액형 (전체)</option>
+                        <option value="A">A형</option>
+                        <option value="B">B형</option>
+                        <option value="O">O형</option>
+                        <option value="AB">AB형</option>
+                    </select>
+                    <button id="resetButton" class="reset-btn" onclick="resetFilters()">초기화</button>
+                </div>
+            </div>
+
+            <!-- Multi-select Filter Chips -->
+            <div class="chips-section">
+                <!-- Compatibility Chips -->
+                <div id="compatChipGroup" class="chip-group">
+                    <div class="chip-group-header">
+                        <span>운명의 반려자 안내 선택</span>
+                        <span id="compatCountBadge" class="chip-limit-badge">전체 (미선택 시 모두 표시)</span>
+                    </div>
+                    <div id="compatChips" class="chips-container"></div>
+                </div>
+
+                <!-- Traits Chips (Max 1) -->
+                <div class="chip-group">
+                    <div class="chip-group-header">
+                        <span>성격 / 특징 선택 (최대 1개)</span>
+                        <span id="traitCountBadge" class="chip-limit-badge">0 / 1개 선택됨</span>
+                    </div>
+                    <div id="traitChips" class="chips-container"></div>
+                </div>
+
+                <!-- Languages Chips (Max 5) -->
+                <div class="chip-group">
+                    <div class="chip-group-header">
+                        <span>전수 언어 선택 (최대 5개)</span>
+                        <span id="langCountBadge" class="chip-limit-badge">0 / 5개 선택됨</span>
+                    </div>
+                    <div id="langChips" class="chips-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gallery View -->
+        <div id="galleryView" class="gallery-grid"></div>
+
+        <!-- Table View -->
+        <div id="tableView" class="table-view-wrap">
+            <table class="main-table">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;" onclick="sortTable('id')">No</th>
+                        <th style="width: 60px;" onclick="sortTable('id_hex')">ID</th>
+                        <th style="width: 50px;">초상화</th>
+                        <th id="tableHeaderName" onclick="sortTable('name')">이름</th>
+                        <th class="compat-column" onclick="sortTable('compat_score')">운명의 반려자</th>
+                        <th id="tableHeaderCity" onclick="sortTable('city')">등장 도시</th>
+                        <th id="tableHeaderYear" onclick="sortTable('year')">등장년도</th>
+                        <th id="tableHeaderZodiac" onclick="sortTable('zodiac')">별자리</th>
+                        <th id="tableHeaderBlood" onclick="sortTable('blood')">혈액형</th>
+                        <th id="tableHeaderPersonality">성격 / 특징</th>
+                        <th id="tableHeaderLanguages">전수 언어</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- No Results -->
+        <div id="noResults" style="display:none; text-align:center; padding: 48px 0; color: var(--text-secondary);">
+            <p style="font-size: 16px; font-weight: 600;">조건에 일치하는 여급이 없습니다.</p>
+            <p style="font-size: 13px; margin-top: 4px;">필터 조건을 변경하거나 초기화 버튼을 눌러주세요.</p>
+        </div>
+
+        <!-- Footer Info -->
+        <div class="footer-info">
+            <div>조건 일치: <strong id="visibleCount" style="color:var(--accent-blue);">127</strong>명</div>
+            <div>소속 도시: <strong style="color:var(--accent-gold);">68</strong>개 항구</div>
+            <div>공식 전수 언어: <strong style="color:var(--accent-green);">14</strong>종</div>
+        </div>
+    </div>
+
+    <script>
+        let BARMAIDS = [];
+        let UI_TEXTS = {};
+        let ZODIAC_NAMES = [];
+
+        function ui(key, fallback) {
+            return UI_TEXTS[key] || fallback;
+        }
+
+        async function loadUiTexts() {
+            const response = await fetch('data/ui_texts.json', { cache: 'no-store' });
+            if (!response.ok) throw new Error(`UI 문자열 로드 실패: ${response.status}`);
+            const data = await response.json();
+            UI_TEXTS = data.texts || {};
+        }
+
+        function applySharedUiTexts() {
+            const labels = {
+                tableHeaderName: ['ui_0062', '이름'],
+                tableHeaderCity: ['ui_0063', '등장 도시'],
+                tableHeaderYear: ['ui_0064', '등장년도'],
+                tableHeaderZodiac: ['ui_0065', '별자리'],
+                tableHeaderBlood: ['ui_0066', '혈액형'],
+                tableHeaderPersonality: ['ui_0067', '성격 / 특징'],
+                tableHeaderLanguages: ['ui_0068', '전수 언어'],
+                resetButton: ['ui_0263', '초기화'],
+            };
+            Object.entries(labels).forEach(([id, [key, fallback]]) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = ui(key, fallback);
+            });
+        }
+
+        async function loadBarmaids() {
+            const [response, cityResponse, gameStringsResponse] = await Promise.all([
+                fetch('data/master_data.json', { cache: 'no-store' }),
+                fetch('data/city_data.json', { cache: 'no-store' }),
+                fetch('data/game_strings.json', { cache: 'no-store' }),
+            ]);
+            if (!response.ok) throw new Error(`여급 데이터 로드 실패: ${response.status}`);
+            if (!cityResponse.ok) throw new Error(`도시 데이터 로드 실패: ${cityResponse.status}`);
+            if (!gameStringsResponse.ok) throw new Error(`게임 문자열 로드 실패: ${gameStringsResponse.status}`);
+            const [data, cityData, gameStrings] = await Promise.all([response.json(), cityResponse.json(), gameStringsResponse.json()]);
+            const cityNameById = new Map(cityData.records.map((city, cityId) => [cityId, city.name]));
+            const languageNames = data.skills_data.slice(13, 27).map(skill => skill[0]);
+            ZODIAC_NAMES = gameStrings.zodiac_names;
+            BARMAIDS = data.barmaid_database.map(b => {
+                const personality = (b.personality_ids ?? [])
+                    .map(id => data.personality_names[id] ?? '')
+                    .filter(Boolean)
+                    .filter(Boolean)
+                    .join(', ');
+                return {
+                    ...b,
+                    personality,
+                    city: cityNameById.get(b.city_id) ?? '',
+                    zodiac: gameStrings.zodiac_names[b.zodiac_id] ?? '',
+                    blood: (data.blood_names[b.blood_id] ?? '').replace(/형$/, ''),
+                    id_hex: `0x${b.id.toString(16).toUpperCase().padStart(2, '0')}`,
+                    save_code: `0x${b.save_code.toString(16).toUpperCase()}`,
+                    traits: personality.split(/,\s*/),
+                    languages: languageNames.filter((_, bit) => b.language_flags & (1 << bit)),
+                    lang_str: languageNames.filter((_, bit) => b.language_flags & (1 << bit)).join(' '),
+                    img: `faces/barmaids/barmaid_${String(b.id).padStart(3, '0')}.png`,
+                };
+            });
+        }
+
+        const PERSONALITY_GUIDE = {"냉냉한": {"name": "냉냉한", "color": "#8b949e"}, "강인한": {"name": "강인한", "color": "#e3b341"}, "의지가 강한": {"name": "의지가 강한", "color": "#3fb950"}, "용감한": {"name": "용감한", "color": "#ff7b72"}, "친절한": {"name": "친절한", "color": "#bc8cff"}, "로맨틱한": {"name": "로맨틱한", "color": "#f778ba"}, "섬세한": {"name": "섬세한", "color": "#58a6ff"}, "견실한": {"name": "견실한", "color": "#39c5bb"}};
+        const COMPAT_TIERS = {"destined": {"name": "운명의 반려자", "color": "#f778ba"}};
+        const OFFICIAL_LANGS = ["스페인어", "포르투갈어", "로망스어", "게르만어", "슬라브·그리스어", "아랍어", "페르시아어", "힌두어", "중국어", "위굴어", "동아시아토착어", "동남아시아토착어", "아프리카토착어", "중남미토착어"];
+
+        let currentSort = { key: 'id', order: 'asc' };
+        let currentView = 'gallery';
+        let guideCompatOpen = true;
+        let guideTraitsOpen = true;
+
+        const selectedCompats = new Set();
+        const selectedTraits = new Set();
+        const selectedLangs = new Set();
+
+        const MAX_TRAITS = 1;
+        const MAX_LANGS = 5;
+
+        // 에디터가 URL 쿼리로 전달하는 주인공 얼굴 코드와 현재 나이.
+        const pageParams = new URLSearchParams(window.location.search);
+        const faceParam = Number(pageParams.get('face'));
+        const ageParam = Number(pageParams.get('age'));
+        const showCompatibility = Number.isInteger(faceParam) && Number.isInteger(ageParam);
+        const playerFortuneFaceCode = showCompatibility ? faceParam + (ageParam >= 36 ? 16 : 0) : null;
+
+        function getCompatInfo(barmaidFortuneFaceCode) {
+            if (playerFortuneFaceCode === null || barmaidFortuneFaceCode === undefined) {
+                return { tier: 'none', label: '-', badgeCls: '', cardCls: '', score: 99 };
+            }
+            if (barmaidFortuneFaceCode === playerFortuneFaceCode) {
+                return { tier: 'destined', label: '운명의 반려자', badgeCls: 'perfect', cardCls: 'card-perfect', score: 0 };
+            }
+            return { tier: 'none', label: '', badgeCls: '', cardCls: '', score: 1 };
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2200);
+        }
+
+        function toggleGuideCompat() {
+            guideCompatOpen = !guideCompatOpen;
+            document.getElementById('guideCompatTableWrap').style.display = guideCompatOpen ? 'block' : 'none';
+            document.getElementById('guideCompatToggleIcon').textContent = guideCompatOpen ? '접기' : '펼치기';
+        }
+
+        function toggleGuideTraits() {
+            guideTraitsOpen = !guideTraitsOpen;
+            document.getElementById('guideTraitsTableWrap').style.display = guideTraitsOpen ? 'block' : 'none';
+            document.getElementById('guideTraitsToggleIcon').textContent = guideTraitsOpen ? '접기' : '펼치기';
+        }
+
+        function toggleCompat(tier) {
+            if (selectedCompats.has(tier)) {
+                selectedCompats.delete(tier);
+            } else {
+                selectedCompats.add(tier);
+            }
+            updateChipsUI();
+            applyFilters();
+        }
+
+        function toggleTrait(trait) {
+            if (selectedTraits.has(trait)) {
+                selectedTraits.delete(trait);
+            } else {
+                if (selectedTraits.size >= MAX_TRAITS) {
+                    selectedTraits.clear();
+                }
+                selectedTraits.add(trait);
+            }
+            updateChipsUI();
+            applyFilters();
+        }
+
+        function toggleLang(lang) {
+            if (selectedLangs.has(lang)) {
+                selectedLangs.delete(lang);
+            } else {
+                if (selectedLangs.size >= MAX_LANGS) {
+                    showToast(`전수 언어는 최대 ${MAX_LANGS}개까지만 선택할 수 있습니다.`);
+                    return;
+                }
+                selectedLangs.add(lang);
+            }
+            updateChipsUI();
+            applyFilters();
+        }
+
+        function updateChipsUI() {
+            // 1. 상성 칩 & 상단 상성 테이블 동기화 (핑크 테마)
+            document.querySelectorAll('#compatChips .chip-btn').forEach(btn => {
+                const tier = btn.dataset.val;
+                btn.classList.toggle('selected-compat', selectedCompats.has(tier));
+            });
+            document.getElementById('compatCountBadge').textContent = selectedCompats.size === 0 ? '전체 (미선택 시 모두 표시)' : `${selectedCompats.size}개 등급 선택됨`;
+
+            document.querySelectorAll('.guide-compat-row').forEach(row => {
+                const tier = row.dataset.compat;
+                const isSel = selectedCompats.has(tier);
+                row.classList.toggle('selected-compat', isSel);
+                const btn = row.querySelector('.guide-compat-btn');
+                if (btn) {
+                    btn.classList.toggle('selected-compat', isSel);
+                    btn.textContent = isSel ? '선택됨' : '선택 (토글)';
+                }
+            });
+
+            // 2. 성격/특징 칩 & 상단 성격 테이블 동기화 (노란색 골드 테마)
+            document.querySelectorAll('#traitChips .chip-btn').forEach(btn => {
+                const trait = btn.dataset.val;
+                btn.classList.toggle('selected-trait', selectedTraits.has(trait));
+            });
+            document.getElementById('traitCountBadge').textContent = `${selectedTraits.size} / ${MAX_TRAITS}개 선택됨`;
+
+            document.querySelectorAll('#guideTraitsTableBody .guide-row').forEach(row => {
+                const trait = row.dataset.trait;
+                const isSel = selectedTraits.has(trait);
+                row.classList.toggle('selected-trait', isSel);
+                const btn = row.querySelector('.guide-select-btn');
+                if (btn) {
+                    btn.classList.toggle('selected-trait', isSel);
+                    btn.textContent = isSel ? '선택됨' : '선택 (토글)';
+                }
+            });
+
+            // 3. 언어 칩 동기화 (초록색 그린 테마)
+            document.querySelectorAll('#langChips .chip-btn').forEach(btn => {
+                const lang = btn.dataset.val;
+                btn.classList.toggle('selected-lang', selectedLangs.has(lang));
+            });
+            document.getElementById('langCountBadge').textContent = `${selectedLangs.size} / ${MAX_LANGS}개 선택됨`;
+        }
+
+        function initGuide() {
+            const guideTraitsBody = document.getElementById('guideTraitsTableBody');
+            guideTraitsBody.innerHTML = Object.entries(PERSONALITY_GUIDE).map(([k, v]) => `
+                <tr class="guide-row" data-trait="${k}" onclick="toggleTrait('${k}')">
+                    <td style="font-weight:700; color: ${v.color};">
+                        ${v.name}
+                    </td>
+                    <td style="text-align:center; white-space:nowrap;">
+                        <span class="guide-select-btn" data-trait="${k}">선택 (토글)</span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function initChips() {
+            const compatContainer = document.getElementById('compatChips');
+            compatContainer.innerHTML = Object.entries(COMPAT_TIERS).map(([k, v]) => `
+                <button class="chip-btn" data-val="${k}" onclick="toggleCompat('${k}')">
+                    <span>${v.name}</span>
+                </button>
+            `).join('');
+
+            const traitContainer = document.getElementById('traitChips');
+            traitContainer.innerHTML = Object.entries(PERSONALITY_GUIDE).map(([k, v]) => `
+                <button class="chip-btn" data-val="${k}" onclick="toggleTrait('${k}')">
+                    <span>${k}</span>
+                </button>
+            `).join('');
+
+            const langContainer = document.getElementById('langChips');
+            langContainer.innerHTML = OFFICIAL_LANGS.map(l => `
+                <button class="chip-btn" data-val="${l}" onclick="toggleLang('${l}')">
+                    <span>${l}</span>
+                </button>
+            `).join('');
+        }
+
+        function initFilters() {
+            const cities = Array.from(new Set(BARMAIDS.map(b => b.city))).sort();
+            const citySelect = document.getElementById('cityFilter');
+            cities.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                citySelect.appendChild(opt);
+            });
+
+            const zodiacs = ZODIAC_NAMES;
+            const zodiacSelect = document.getElementById('zodiacFilter');
+            zodiacs.forEach(z => {
+                const opt = document.createElement('option');
+                opt.value = z;
+                opt.textContent = z;
+                zodiacSelect.appendChild(opt);
+            });
+        }
+
+        function setViewMode(mode) {
+            currentView = mode;
+            document.getElementById('btnGallery').classList.toggle('active', mode === 'gallery');
+            document.getElementById('btnTable').classList.toggle('active', mode === 'table');
+            document.getElementById('galleryView').style.display = mode === 'gallery' ? 'grid' : 'none';
+            document.getElementById('tableView').style.display = mode === 'table' ? 'block' : 'none';
+            render();
+        }
+
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('cityFilter').value = '';
+            document.getElementById('zodiacFilter').value = '';
+            document.getElementById('bloodFilter').value = '';
+            document.getElementById('sortSelect').value = 'id_asc';
+            currentSort = { key: 'id', order: 'asc' };
+            selectedCompats.clear();
+            selectedTraits.clear();
+            selectedLangs.clear();
+            updateChipsUI();
+            applyFilters();
+        }
+
+        function onSortDropdownChanged() {
+            const val = document.getElementById('sortSelect').value;
+            const parts = val.split('_');
+            currentSort = { key: parts[0], order: parts[1] };
+            updateTableSortHeaders();
+            render();
+        }
+
+        function updateTableSortHeaders() {
+            document.querySelectorAll('th').forEach(th => th.classList.remove('sort-asc', 'sort-desc'));
+            const th = document.querySelector(`th[onclick="sortTable('${currentSort.key}')"]`);
+            if (th) {
+                th.classList.add(currentSort.order === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        }
+
+        function sortTable(key) {
+            if (currentSort.key === key) {
+                currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.order = 'asc';
+            }
+            const matchVal = `${currentSort.key}_${currentSort.order}`;
+            const sortSelect = document.getElementById('sortSelect');
+            for (let opt of sortSelect.options) {
+                if (opt.value === matchVal) {
+                    sortSelect.value = matchVal;
+                    break;
+                }
+            }
+            updateTableSortHeaders();
+            render();
+        }
+
+        function getFilteredList() {
+            const q = document.getElementById('searchInput').value.trim().toLowerCase();
+            const city = document.getElementById('cityFilter').value;
+            const zodiac = document.getElementById('zodiacFilter').value;
+            const blood = document.getElementById('bloodFilter').value;
+
+            return BARMAIDS.map(b => {
+                const cInfo = getCompatInfo(b.fortune_face_code);
+                return Object.assign({}, b, {
+                    compat_tier: cInfo.tier,
+                    compat_label: cInfo.label,
+                    compat_badgeCls: cInfo.badgeCls,
+                    compat_cardCls: cInfo.cardCls,
+                    compat_score: cInfo.score
+                });
+            }).filter(b => {
+                if (city && b.city !== city) return false;
+                if (zodiac && b.zodiac !== zodiac) return false;
+                if (blood && b.blood !== blood) return false;
+
+                if (selectedCompats.size > 0) {
+                    if (!selectedCompats.has(b.compat_tier)) return false;
+                }
+
+                if (selectedTraits.size > 0) {
+                    for (const t of selectedTraits) {
+                        if (!b.traits.includes(t)) return false;
+                    }
+                }
+
+                if (selectedLangs.size > 0) {
+                    for (const l of selectedLangs) {
+                        if (!b.languages.includes(l)) return false;
+                    }
+                }
+
+                if (q) {
+                    const fullText = (b.name + ' ' + b.city + ' ' + b.lang_str + ' ' + b.personality + ' ' + b.zodiac + ' ' + b.id_hex + ' ' + b.compat_label).toLowerCase();
+                    if (!fullText.includes(q)) return false;
+                }
+                return true;
+            }).sort((a, b) => {
+                let vA = a[currentSort.key];
+                let vB = b[currentSort.key];
+                if (typeof vA === 'string') {
+                    return currentSort.order === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+                }
+                return currentSort.order === 'asc' ? vA - vB : vB - vA;
+            });
+        }
+
+        function render() {
+            const list = getFilteredList();
+            document.getElementById('visibleCount').textContent = list.length;
+            document.getElementById('noResults').style.display = list.length === 0 ? 'block' : 'none';
+
+            if (currentView === 'gallery') {
+                const galleryEl = document.getElementById('galleryView');
+                galleryEl.innerHTML = list.map(b => {
+                    const compatBadge = showCompatibility && b.compat_tier === 'destined'
+                        ? `<span class="compat-badge ${b.compat_badgeCls}">${b.compat_label}</span>` : '';
+
+                    return `
+                        <div class="card ${showCompatibility ? b.compat_cardCls : ''}">
+                            <div class="card-header">
+                                <div class="portrait-wrap">
+                                    <img src="${b.img}" alt="${b.name}">
+                                </div>
+                                <div class="card-main-info">
+                                    <div>
+                                        <span class="card-id-badge">#${String(b.id + 1).padStart(3, '0')} (${b.id_hex})</span>
+                                        ${compatBadge}
+                                    </div>
+                                    <div class="card-name">${b.name}</div>
+                                    <div class="card-city">${b.city}</div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="info-row">
+                                    <span class="info-label">등장년도</span>
+                                    <span class="info-val" style="color:var(--accent-gold); font-weight:700;">${b.year}년</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">별자리 / 혈액형</span>
+                                    <div>
+                                        <span class="zodiac-badge">${b.zodiac}</span>
+                                        <span class="blood-badge">${b.blood}형</span>
+                                    </div>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">성격 / 특징</span>
+                                    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                        ${b.traits.map(t => `<span class="trait-tag" onclick="toggleTrait('${t}')">${t}</span>`).join('')}
+                                    </div>
+                                </div>
+                                <div class="langs-box">
+                                    <div class="langs-title">전수 언어</div>
+                                    <div class="langs-tags">
+                                        ${b.languages.map(l => `<span class="lang-tag" onclick="toggleLang('${l}')">${l}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                const tableBody = document.getElementById('tableBody');
+                tableBody.innerHTML = list.map(b => {
+                    const compatBadge = showCompatibility && b.compat_tier === 'destined'
+                        ? `<span class="compat-badge ${b.compat_badgeCls}">${b.compat_label}</span>` : '';
+
+                    return `
+                        <tr>
+                            <td style="font-weight:700; font-family:'Outfit'; color:var(--text-secondary);">${b.id + 1}</td>
+                            <td style="font-family:'Outfit'; color:var(--accent-blue);">${b.id_hex}</td>
+                            <td><img class="table-thumb" src="${b.img}" alt="${b.name}"></td>
+                            <td style="font-weight:700; color:#fff; font-size:14px;">
+                                ${b.name}
+                            </td>
+                            <td class="compat-column">${compatBadge}</td>
+                            <td style="color:var(--accent-gold); font-weight:600;">${b.city}</td>
+                            <td style="color:var(--accent-gold); font-weight:700;">${b.year}년</td>
+                            <td><span class="zodiac-badge">${b.zodiac}</span></td>
+                            <td><span class="blood-badge">${b.blood}형</span></td>
+                            <td>
+                                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                    ${b.traits.map(t => `<span class="trait-tag" onclick="toggleTrait('${t}')">${t}</span>`).join('')}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="langs-tags">
+                                    ${b.languages.map(l => `<span class="lang-tag">${l}</span>`).join('')}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        function applyFilters() {
+            render();
+        }
+
+        // JSON 데이터를 읽은 뒤에만 화면을 구성한다.
+        Promise.all([loadBarmaids(), loadUiTexts()]).then(() => {
+            applySharedUiTexts();
+            initGuide();
+            initChips();
+            initFilters();
+            render();
+        }).catch(error => {
+            console.error(error);
+            document.getElementById('noResults').style.display = 'block';
+            document.getElementById('noResults').innerHTML = '<p style="font-size:16px; font-weight:600;">여급 데이터를 불러오지 못했습니다.</p>';
+        });
+    </script>
+</body>
+</html>

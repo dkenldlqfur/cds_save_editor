@@ -1,0 +1,177 @@
+{
+  "discovery_category_names": [
+    "지리",
+    "역사",
+    "보물",
+    "종교",
+    "교역품",
+    "미신",
+    "생물",
+    "민족"
+  ],
+  "group_titles": {
+    "fleet_list": " 내 함선 목록 ",
+    "fleet_editor": " 함선 정보 ",
+    "fleet_basic": " 함선 기본 정보 ",
+    "city_list": " 도시 목록 ",
+    "city_save": " 도시 정보 ",
+    "city_basic": " 도시 기본 정보 ",
+    "profile_player": "ui_0155",
+    "profile_spouse": "ui_0157",
+    "profile_stats": "ui_0159",
+    "profile_money": " 자금 & 명성치 ",
+    "skills_technical": " 기술 ",
+    "skills_language": " 언어 ",
+    "items_pocket": " 소지품 ",
+    "items_storage": " 보관함 ",
+    "items_catalog": " 전체 아이템 도감 "
+  },
+  "tab_titles": {
+    "profile": "ui_0118",
+    "skills": "기술 & 언어",
+    "fleet": "함대",
+    "cities": "ui_0354",
+    "items": "소지품 & 보관함",
+    "discoveries": "발견물 도감",
+    "events": "이벤트 플래그"
+  },
+  "tree_column_titles": {
+    "barmaid": {
+      "index": "ui_0346",
+      "game_id": "ui_0347",
+      "name": "ui_0062",
+      "city": "ui_0063",
+      "appearance_year": "ui_0064",
+      "zodiac": "ui_0065",
+      "blood": "ui_0066",
+      "personality": "ui_0067",
+      "languages": "ui_0068"
+    },
+    "fleet": {"index": "No.", "name": "ui_0062"},
+    "fleet_basic": {"field": "ui_0348", "base_value": "ui_0378"},
+    "cities": {"index": "ui_0346", "name": "ui_0354", "field": "ui_0348", "base_value": "ui_0378", "saved_value": "저장값"},
+    "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "description": "설명"},
+    "money": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "최대 한도"},
+    "tech": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
+    "language": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
+    "pocket_storage": {"slot": "슬롯", "game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351"},
+    "catalog": {"game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351", "sell_price": "매각가 (G)"},
+    "discovery": {"index": "ui_0346", "game_id": "ui_0347", "category": "ui_0351", "name": "ui_0062", "status": "진행 상태", "found_date": "발견 일자", "reported_date": "보고 일자", "reporter": "발견자 / 발표자"},
+    "event": {"game_id": "ui_0347", "name": "ui_0062", "status": "상태"}
+  },
+  "item_catalog_category_ids": [
+    -1,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    -2,
+    8,
+    6,
+    7
+  ],
+  "profile_stat_definitions": [
+      [
+        "체력",
+        "생명력 초기값 / 일기토 HP"
+    ],
+    [
+      "지력",
+      "학술/유물 발견 및 학습력"
+    ],
+    [
+      "무력",
+      "백병전 및 일기토 공격력"
+    ],
+    [
+      "매력",
+      "동료 고용 및 설득/교섭력"
+    ],
+    [
+      "운",
+      "육상 조우 및 일부 이벤트 확률"
+    ],
+      [
+        "신앙심",
+        "항해·탐험 중 사고 발생 확률"
+      ],
+      [
+        "생명력",
+        "현재 생존력"
+      ]
+  ],
+  "money_definitions": [
+    [
+      "소지금",
+      99999999
+    ],
+    [
+      "저금",
+      99999999
+    ],
+    [
+      "빚",
+      99999999
+    ],
+    [
+      "명성치",
+      99999
+    ],
+    [
+      "악명치",
+      99999
+    ]
+  ],
+  "event_batch_status_options": [
+    "ui_0185",
+    "ui_0186"
+  ],
+  "shop_purchasable_item_ids": [
+    5,
+    6,
+    7,
+    11,
+    12,
+    13,
+    14,
+    17,
+    19,
+    20,
+    22,
+    23,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73
+  ]
+}
