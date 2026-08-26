@@ -31,8 +31,8 @@
     "skills": "기술 & 언어",
     "fleet": "함대",
     "cities": "ui_0354",
-    "items": "소지품 & 보관함",
-    "discoveries": "발견물 도감",
+    "items": "아이템",
+    "discoveries": "발견물",
     "events": "이벤트 플래그"
   },
   "tree_column_titles": {
@@ -50,13 +50,13 @@
     "fleet": {"index": "No.", "name": "ui_0062"},
     "fleet_basic": {"field": "ui_0348", "base_value": "ui_0378"},
     "cities": {"index": "ui_0346", "name": "ui_0354", "field": "ui_0348", "base_value": "ui_0378", "saved_value": "저장값"},
-    "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "description": "설명"},
+    "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "최대 한도"},
     "money": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "최대 한도"},
     "tech": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
     "language": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
     "pocket_storage": {"slot": "슬롯", "game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351"},
     "catalog": {"game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351", "sell_price": "매각가 (G)"},
-    "discovery": {"index": "ui_0346", "game_id": "ui_0347", "category": "ui_0351", "name": "ui_0062", "status": "진행 상태", "found_date": "발견 일자", "reported_date": "보고 일자", "reporter": "발견자 / 발표자"},
+    "discovery": {"index": "ui_0346", "game_id": "ui_0347", "category": "ui_0351", "name": "ui_0062", "hint_state": "힌트 상태", "status": "진행 상태", "found_date": "발견 일자", "reported_date": "보고 일자", "reporter": "발견자 / 발표자"},
     "event": {"game_id": "ui_0347", "name": "ui_0062", "status": "상태"}
   },
   "item_catalog_category_ids": [
@@ -112,16 +112,16 @@
       99999999
     ],
     [
-      "빚",
+      "계약금",
       99999999
     ],
     [
       "명성치",
-      99999
+      9999999
     ],
     [
       "악명치",
-      99999
+      9999999
     ]
   ],
   "event_batch_status_options": [

@@ -47,7 +47,7 @@ exe = EXE(
     splash,
     splash.binaries,
     [],
-    name=f'CDS3_SaveEditor_v{_app_version}',
+    name='CDS_SaveEditor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
