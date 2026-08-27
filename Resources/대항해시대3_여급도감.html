@@ -908,16 +908,30 @@
     </div>
 
     <script>
+        const DATA_URLS = {
+            master: 'data/master_data.json',
+            cities: 'data/city_data.json',
+            gameStrings: 'data/game_strings.json',
+            uiTexts: 'data/ui_texts.json',
+        };
+        const PERSONALITY_COLORS = ['#8b949e', '#e3b341', '#3fb950', '#ff7b72', '#bc8cff', '#f778ba', '#58a6ff', '#39c5bb'];
+        const MAX_TRAITS = 1;
+        const MAX_LANGS = 5;
+
         let BARMAIDS = [];
         let UI_TEXTS = {};
         let ZODIAC_NAMES = [];
+        let PERSONALITY_GUIDE = {};
+        let COMPAT_TIERS = {};
+        let OFFICIAL_LANGS = [];
 
-        function ui(key, fallback) {
-            return UI_TEXTS[key] || fallback;
+        function ui(key, fallback, ...values) {
+            const text = UI_TEXTS[key] || fallback;
+            return values.reduce((result, value, index) => result.replaceAll(`{${index}}`, value), text);
         }
 
         async function loadUiTexts() {
-            const response = await fetch('data/ui_texts.json', { cache: 'no-store' });
+            const response = await fetch(DATA_URLS.uiTexts, { cache: 'no-store' });
             if (!response.ok) throw new Error(`UI 문자열 로드 실패: ${response.status}`);
             const data = await response.json();
             UI_TEXTS = data.texts || {};
@@ -942,9 +956,9 @@
 
         async function loadBarmaids() {
             const [response, cityResponse, gameStringsResponse] = await Promise.all([
-                fetch('data/master_data.json', { cache: 'no-store' }),
-                fetch('data/city_data.json', { cache: 'no-store' }),
-                fetch('data/game_strings.json', { cache: 'no-store' }),
+                fetch(DATA_URLS.master, { cache: 'no-store' }),
+                fetch(DATA_URLS.cities, { cache: 'no-store' }),
+                fetch(DATA_URLS.gameStrings, { cache: 'no-store' }),
             ]);
             if (!response.ok) throw new Error(`여급 데이터 로드 실패: ${response.status}`);
             if (!cityResponse.ok) throw new Error(`도시 데이터 로드 실패: ${cityResponse.status}`);
@@ -953,12 +967,21 @@
             const cityNameById = new Map(cityData.records.map((city, cityId) => [cityId, city.name]));
             const languageNames = data.skills_data.slice(13, 27).map(skill => skill[0]);
             ZODIAC_NAMES = gameStrings.zodiac_names;
+            OFFICIAL_LANGS = languageNames;
+            PERSONALITY_GUIDE = Object.fromEntries(data.personality_names.map((name, id) => [name, {
+                name,
+                color: PERSONALITY_COLORS[id] || 'var(--text-secondary)',
+            }]));
+            COMPAT_TIERS = {
+                destined: { name: ui('ui_0272', '운명의 반려자'), color: '#f778ba' },
+            };
             BARMAIDS = data.barmaid_database.map(b => {
                 const personality = (b.personality_ids ?? [])
                     .map(id => data.personality_names[id] ?? '')
                     .filter(Boolean)
                     .filter(Boolean)
                     .join(', ');
+                const languages = languageNames.filter((_, bit) => b.language_flags & (1 << bit));
                 return {
                     ...b,
                     personality,
@@ -968,16 +991,12 @@
                     id_hex: `0x${b.id.toString(16).toUpperCase().padStart(2, '0')}`,
                     save_code: `0x${b.save_code.toString(16).toUpperCase()}`,
                     traits: personality.split(/,\s*/),
-                    languages: languageNames.filter((_, bit) => b.language_flags & (1 << bit)),
-                    lang_str: languageNames.filter((_, bit) => b.language_flags & (1 << bit)).join(' '),
+                    languages,
+                    lang_str: languages.join(' '),
                     img: `faces/barmaids/barmaid_${String(b.id).padStart(3, '0')}.png`,
                 };
             });
         }
-
-        const PERSONALITY_GUIDE = {"냉냉한": {"name": "냉냉한", "color": "#8b949e"}, "강인한": {"name": "강인한", "color": "#e3b341"}, "의지가 강한": {"name": "의지가 강한", "color": "#3fb950"}, "용감한": {"name": "용감한", "color": "#ff7b72"}, "친절한": {"name": "친절한", "color": "#bc8cff"}, "로맨틱한": {"name": "로맨틱한", "color": "#f778ba"}, "섬세한": {"name": "섬세한", "color": "#58a6ff"}, "견실한": {"name": "견실한", "color": "#39c5bb"}};
-        const COMPAT_TIERS = {"destined": {"name": "운명의 반려자", "color": "#f778ba"}};
-        const OFFICIAL_LANGS = ["스페인어", "포르투갈어", "로망스어", "게르만어", "슬라브·그리스어", "아랍어", "페르시아어", "힌두어", "중국어", "위굴어", "동아시아토착어", "동남아시아토착어", "아프리카토착어", "중남미토착어"];
 
         let currentSort = { key: 'id', order: 'asc' };
         let currentView = 'gallery';
@@ -987,9 +1006,6 @@
         const selectedCompats = new Set();
         const selectedTraits = new Set();
         const selectedLangs = new Set();
-
-        const MAX_TRAITS = 1;
-        const MAX_LANGS = 5;
 
         // 에디터가 URL 쿼리로 전달하는 주인공 얼굴 코드와 현재 나이.
         const pageParams = new URLSearchParams(window.location.search);
@@ -1003,7 +1019,7 @@
                 return { tier: 'none', label: '-', badgeCls: '', cardCls: '', score: 99 };
             }
             if (barmaidFortuneFaceCode === playerFortuneFaceCode) {
-                return { tier: 'destined', label: '운명의 반려자', badgeCls: 'perfect', cardCls: 'card-perfect', score: 0 };
+                return { tier: 'destined', label: COMPAT_TIERS.destined.name, badgeCls: 'perfect', cardCls: 'card-perfect', score: 0 };
             }
             return { tier: 'none', label: '', badgeCls: '', cardCls: '', score: 1 };
         }
@@ -1017,17 +1033,17 @@
             }, 2200);
         }
 
-        function toggleGuideCompat() {
-            guideCompatOpen = !guideCompatOpen;
-            document.getElementById('guideCompatTableWrap').style.display = guideCompatOpen ? 'block' : 'none';
-            document.getElementById('guideCompatToggleIcon').textContent = guideCompatOpen ? '접기' : '펼치기';
+        function toggleGuide(section) {
+            const isCompatibility = section === 'compat';
+            const isOpen = isCompatibility ? !guideCompatOpen : !guideTraitsOpen;
+            if (isCompatibility) guideCompatOpen = isOpen;
+            else guideTraitsOpen = isOpen;
+            document.getElementById(isCompatibility ? 'guideCompatTableWrap' : 'guideTraitsTableWrap').style.display = isOpen ? 'block' : 'none';
+            document.getElementById(isCompatibility ? 'guideCompatToggleIcon' : 'guideTraitsToggleIcon').textContent = isOpen ? ui('ui_0515', '접기') : ui('ui_0516', '펼치기');
         }
 
-        function toggleGuideTraits() {
-            guideTraitsOpen = !guideTraitsOpen;
-            document.getElementById('guideTraitsTableWrap').style.display = guideTraitsOpen ? 'block' : 'none';
-            document.getElementById('guideTraitsToggleIcon').textContent = guideTraitsOpen ? '접기' : '펼치기';
-        }
+        const toggleGuideCompat = () => toggleGuide('compat');
+        const toggleGuideTraits = () => toggleGuide('traits');
 
         function toggleCompat(tier) {
             if (selectedCompats.has(tier)) {
@@ -1057,7 +1073,7 @@
                 selectedLangs.delete(lang);
             } else {
                 if (selectedLangs.size >= MAX_LANGS) {
-                    showToast(`전수 언어는 최대 ${MAX_LANGS}개까지만 선택할 수 있습니다.`);
+                    showToast(ui('ui_0517', '전수 언어는 최대 {0}개까지만 선택할 수 있습니다.', MAX_LANGS));
                     return;
                 }
                 selectedLangs.add(lang);
@@ -1072,7 +1088,9 @@
                 const tier = btn.dataset.val;
                 btn.classList.toggle('selected-compat', selectedCompats.has(tier));
             });
-            document.getElementById('compatCountBadge').textContent = selectedCompats.size === 0 ? '전체 (미선택 시 모두 표시)' : `${selectedCompats.size}개 등급 선택됨`;
+            document.getElementById('compatCountBadge').textContent = selectedCompats.size === 0
+                ? ui('ui_0519', '전체 (미선택 시 모두 표시)')
+                : ui('ui_0520', '{0}개 등급 선택됨', selectedCompats.size);
 
             document.querySelectorAll('.guide-compat-row').forEach(row => {
                 const tier = row.dataset.compat;
@@ -1081,7 +1099,7 @@
                 const btn = row.querySelector('.guide-compat-btn');
                 if (btn) {
                     btn.classList.toggle('selected-compat', isSel);
-                    btn.textContent = isSel ? '선택됨' : '선택 (토글)';
+                    btn.textContent = isSel ? ui('ui_0521', '선택됨') : ui('ui_0518', '선택 (토글)');
                 }
             });
 
@@ -1090,7 +1108,7 @@
                 const trait = btn.dataset.val;
                 btn.classList.toggle('selected-trait', selectedTraits.has(trait));
             });
-            document.getElementById('traitCountBadge').textContent = `${selectedTraits.size} / ${MAX_TRAITS}개 선택됨`;
+            document.getElementById('traitCountBadge').textContent = ui('ui_0522', '{0} / {1}개 선택됨', selectedTraits.size, MAX_TRAITS);
 
             document.querySelectorAll('#guideTraitsTableBody .guide-row').forEach(row => {
                 const trait = row.dataset.trait;
@@ -1099,7 +1117,7 @@
                 const btn = row.querySelector('.guide-select-btn');
                 if (btn) {
                     btn.classList.toggle('selected-trait', isSel);
-                    btn.textContent = isSel ? '선택됨' : '선택 (토글)';
+                    btn.textContent = isSel ? ui('ui_0521', '선택됨') : ui('ui_0518', '선택 (토글)');
                 }
             });
 
@@ -1108,7 +1126,7 @@
                 const lang = btn.dataset.val;
                 btn.classList.toggle('selected-lang', selectedLangs.has(lang));
             });
-            document.getElementById('langCountBadge').textContent = `${selectedLangs.size} / ${MAX_LANGS}개 선택됨`;
+            document.getElementById('langCountBadge').textContent = ui('ui_0522', '{0} / {1}개 선택됨', selectedLangs.size, MAX_LANGS);
         }
 
         function initGuide() {
@@ -1119,7 +1137,7 @@
                         ${v.name}
                     </td>
                     <td style="text-align:center; white-space:nowrap;">
-                        <span class="guide-select-btn" data-trait="${k}">선택 (토글)</span>
+                        <span class="guide-select-btn" data-trait="${k}">${ui('ui_0518', '선택 (토글)')}</span>
                     </td>
                 </tr>
             `).join('');
@@ -1277,6 +1295,31 @@
             });
         }
 
+        function renderCompatBadge(barmaid) {
+            return showCompatibility && barmaid.compat_tier === 'destined'
+                ? `<span class="compat-badge ${barmaid.compat_badgeCls}">${barmaid.compat_label}</span>` : '';
+        }
+
+        function renderTags(values, className, onClick = '') {
+            return values.map(value => `<span class="${className}"${onClick ? ` onclick="${onClick}('${value}')"` : ''}>${value}</span>`).join('');
+        }
+
+        function renderPersonalityTags(barmaid) {
+            return renderTags(barmaid.traits, 'trait-tag', 'toggleTrait');
+        }
+
+        function renderLanguageTags(barmaid, interactive = false) {
+            return renderTags(barmaid.languages, 'lang-tag', interactive ? 'toggleLang' : '');
+        }
+
+        function formatYear(year) {
+            return `${year}${ui('ui_0233', '년')}`;
+        }
+
+        function formatBlood(blood) {
+            return `${blood}${ui('ui_0523', '형')}`;
+        }
+
         function render() {
             const list = getFilteredList();
             document.getElementById('visibleCount').textContent = list.length;
@@ -1285,8 +1328,7 @@
             if (currentView === 'gallery') {
                 const galleryEl = document.getElementById('galleryView');
                 galleryEl.innerHTML = list.map(b => {
-                    const compatBadge = showCompatibility && b.compat_tier === 'destined'
-                        ? `<span class="compat-badge ${b.compat_badgeCls}">${b.compat_label}</span>` : '';
+                    const compatBadge = renderCompatBadge(b);
 
                     return `
                         <div class="card ${showCompatibility ? b.compat_cardCls : ''}">
@@ -1306,25 +1348,25 @@
                             <div class="card-body">
                                 <div class="info-row">
                                     <span class="info-label">등장년도</span>
-                                    <span class="info-val" style="color:var(--accent-gold); font-weight:700;">${b.year}년</span>
+                                    <span class="info-val" style="color:var(--accent-gold); font-weight:700;">${formatYear(b.year)}</span>
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">별자리 / 혈액형</span>
                                     <div>
                                         <span class="zodiac-badge">${b.zodiac}</span>
-                                        <span class="blood-badge">${b.blood}형</span>
+                                        <span class="blood-badge">${formatBlood(b.blood)}</span>
                                     </div>
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">성격 / 특징</span>
                                     <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                                        ${b.traits.map(t => `<span class="trait-tag" onclick="toggleTrait('${t}')">${t}</span>`).join('')}
+                                        ${renderPersonalityTags(b)}
                                     </div>
                                 </div>
                                 <div class="langs-box">
                                     <div class="langs-title">전수 언어</div>
                                     <div class="langs-tags">
-                                        ${b.languages.map(l => `<span class="lang-tag" onclick="toggleLang('${l}')">${l}</span>`).join('')}
+                                        ${renderLanguageTags(b, true)}
                                     </div>
                                 </div>
                             </div>
@@ -1334,8 +1376,7 @@
             } else {
                 const tableBody = document.getElementById('tableBody');
                 tableBody.innerHTML = list.map(b => {
-                    const compatBadge = showCompatibility && b.compat_tier === 'destined'
-                        ? `<span class="compat-badge ${b.compat_badgeCls}">${b.compat_label}</span>` : '';
+                    const compatBadge = renderCompatBadge(b);
 
                     return `
                         <tr>
@@ -1347,17 +1388,17 @@
                             </td>
                             <td class="compat-column">${compatBadge}</td>
                             <td style="color:var(--accent-gold); font-weight:600;">${b.city}</td>
-                            <td style="color:var(--accent-gold); font-weight:700;">${b.year}년</td>
+                            <td style="color:var(--accent-gold); font-weight:700;">${formatYear(b.year)}</td>
                             <td><span class="zodiac-badge">${b.zodiac}</span></td>
-                            <td><span class="blood-badge">${b.blood}형</span></td>
+                            <td><span class="blood-badge">${formatBlood(b.blood)}</span></td>
                             <td>
                                 <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                                    ${b.traits.map(t => `<span class="trait-tag" onclick="toggleTrait('${t}')">${t}</span>`).join('')}
+                                ${renderPersonalityTags(b)}
                                 </div>
                             </td>
                             <td>
                                 <div class="langs-tags">
-                                    ${b.languages.map(l => `<span class="lang-tag">${l}</span>`).join('')}
+                                    ${renderLanguageTags(b)}
                                 </div>
                             </td>
                         </tr>
@@ -1370,14 +1411,19 @@
             render();
         }
 
-        // JSON 데이터를 읽은 뒤에만 화면을 구성한다.
-        Promise.all([loadBarmaids(), loadUiTexts()]).then(() => {
+        // 공용 UI를 먼저 읽은 뒤 게임 데이터에 적용한다. 여급 데이터 초기화에도
+        // 공용 문구(운명의 반려자)가 쓰이므로 병렬 로드하지 않는다.
+        async function initializeGuide() {
+            await loadUiTexts();
+            await loadBarmaids();
             applySharedUiTexts();
             initGuide();
             initChips();
             initFilters();
             render();
-        }).catch(error => {
+        }
+
+        initializeGuide().catch(error => {
             console.error(error);
             document.getElementById('noResults').style.display = 'block';
             document.getElementById('noResults').innerHTML = '<p style="font-size:16px; font-weight:600;">여급 데이터를 불러오지 못했습니다.</p>';

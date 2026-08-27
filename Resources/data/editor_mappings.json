@@ -9,6 +9,11 @@
     "생물",
     "민족"
   ],
+  "discovery_search_aliases": {
+    "제로니모": "제도니모",
+    "제도니모": "제로니모",
+    "헤로니모": "제도니모"
+  },
   "group_titles": {
     "fleet_list": " 내 함선 목록 ",
     "fleet_editor": " 함선 정보 ",
@@ -50,8 +55,8 @@
     "fleet": {"index": "No.", "name": "ui_0062"},
     "fleet_basic": {"field": "ui_0348", "base_value": "ui_0378"},
     "cities": {"index": "ui_0346", "name": "ui_0354", "field": "ui_0348", "base_value": "ui_0378", "saved_value": "저장값"},
-    "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "최대 한도"},
-    "money": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "최대 한도"},
+    "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "ui_0512"},
+    "money": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "ui_0512"},
     "tech": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
     "language": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
     "pocket_storage": {"slot": "슬롯", "game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351"},

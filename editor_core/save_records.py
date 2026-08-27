@@ -7,6 +7,7 @@ Tkinter나 게임 데이터 JSON에 의존하지 않아, 저장 구조를 다루
 from __future__ import annotations
 
 import struct
+from dataclasses import dataclass
 
 
 VALUE_FORMATS = {
@@ -24,6 +25,46 @@ VALUE_LIMITS = {
     'i16': (-0x8000, 0x7FFF),
     'i32': (-0x80000000, 0x7FFFFFFF),
 }
+
+
+@dataclass(frozen=True)
+class RecordTableLayout:
+    """세이브 파일 안에 연속 저장된 고정 길이 레코드 배열의 레이아웃."""
+
+    base_offset: int
+    record_size: int
+    record_count: int
+
+    def offset(self, record_index: int) -> int:
+        """레코드 순번에 대응하는 시작 오프셋을 반환한다."""
+        return record_offset(self.base_offset, self.record_size, record_index)
+
+    @property
+    def end_offset(self) -> int:
+        """마지막 레코드 바로 다음의 오프셋을 반환한다."""
+        return self.base_offset + self.record_size * self.record_count
+
+    def contains(self, buffer: bytes | bytearray, record_index: int) -> bool:
+        """지정한 전체 레코드가 버퍼 안에 존재하는지 확인한다."""
+        offset = self.offset(record_index)
+        return 0 <= record_index < self.record_count and offset + self.record_size <= len(buffer)
+
+    def can_reset(self, buffer: bytes | bytearray, original_buffer: bytes | bytearray) -> bool:
+        """전체 테이블을 원본 버퍼로 되돌릴 수 있는지 확인한다."""
+        return self.end_offset <= len(buffer) and self.end_offset <= len(original_buffer)
+
+    def is_changed(self, buffer: bytes | bytearray, original_buffer: bytes | bytearray) -> bool:
+        """테이블이 최초 로드 상태와 다른지 반환한다."""
+        return self.can_reset(buffer, original_buffer) and (
+            buffer[self.base_offset:self.end_offset] != original_buffer[self.base_offset:self.end_offset]
+        )
+
+    def reset(self, buffer: bytearray, original_buffer: bytes | bytearray) -> bool:
+        """테이블 전체를 최초 로드 상태로 복원한다."""
+        if not self.can_reset(buffer, original_buffer):
+            return False
+        buffer[self.base_offset:self.end_offset] = original_buffer[self.base_offset:self.end_offset]
+        return True
 
 
 def record_offset(base_offset: int, record_size: int, index: int) -> int:
