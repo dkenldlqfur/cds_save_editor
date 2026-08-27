@@ -438,6 +438,9 @@ UPDATE_ASSET_NAME = str(UPDATE_CONFIG.get('asset_name', 'CDS_SaveEditor_v{versio
 UPDATE_EXECUTABLE_NAME = 'CDS_SaveEditor.exe'
 UPDATE_LATEST_URL = (f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest'
                      if UPDATE_REPOSITORY else '')
+UPDATE_RELEASES_URL = (f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases?per_page=100'
+                       if UPDATE_REPOSITORY else '')
+UPDATE_HISTORY_MIN_VERSION = (1, 0, 0)
 _PHOTO_CACHE: dict = {}
 
 
@@ -2482,13 +2485,84 @@ class CDS3SaveEditorApp:
             return None
         return version, str(notice.get('notes', '')).strip()
 
+    @staticmethod
+    def _format_update_history(releases):
+        """GitHub 정식 릴리즈를 v1.0.0 이상 최신순의 읽기용 텍스트로 만든다."""
+        history = []
+        for release in releases:
+            if not isinstance(release, dict) or release.get('draft') or release.get('prerelease'):
+                continue
+            tag = str(release.get('tag_name', '')).strip().lstrip('vV')
+            version = parse_release_version(tag)
+            if version is None or version < UPDATE_HISTORY_MIN_VERSION:
+                continue
+            notes = str(release.get('body', '')).strip() or ui('ui_0452')
+            history.append((version, tag, notes))
+        history.sort(key=lambda entry: entry[0], reverse=True)
+        return '\n\n'.join(f'v{tag}\n{notes}' for _version, tag, notes in history)
+
+    def _show_update_history_dialog(self, updated_version, history_text):
+        """업데이트 완료 후 전체 릴리즈 이력을 스크롤 가능한 창으로 표시한다."""
+        # 자동 업데이트 직후에는 메인 창이 아직 최초 배치를 끝내지 않았을 수 있다.
+        # 좌표를 읽기 전에 레이아웃을 확정해야 팝업이 에디터 중앙에 배치된다.
+        self.root.update_idletasks()
+        dialog = tk.Toplevel(self.root)
+        dialog.title(APP_TITLE)
+        dialog.transient(self.root)
+        dialog.resizable(True, True)
+        width, height = 620, 460
+        # geometry() 좌표계는 winfo_rootx/y()가 아니라 창 외곽의 winfo_x/y()와
+        # 같은 기준이다. 후자를 써야 Windows 제목 표시줄/테두리만큼 치우치지 않는다.
+        x = self.root.winfo_x() + max(0, (self.root.winfo_width() - width) // 2)
+        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - height) // 2)
+        dialog.geometry(f'{width}x{height}+{x}+{y}')
+        dialog.minsize(440, 260)
+
+        tk.Label(dialog, text=ui('ui_0510', updated_version), font=('Malgun Gothic', 10, 'bold')).pack(
+            anchor='w', padx=12, pady=(12, 6))
+        body = tk.Frame(dialog)
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
+        scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL)
+        text = tk.Text(body, wrap=tk.WORD, font=('Malgun Gothic', 9), yscrollcommand=scrollbar.set,
+                       padx=8, pady=7, relief=tk.SOLID, borderwidth=1)
+        scrollbar.config(command=text.yview)
+        text.insert('1.0', history_text or ui('ui_0452'))
+        text.configure(state=tk.DISABLED)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        actions = tk.Frame(dialog)
+        actions.pack(pady=(0, 12))
+        EditorButton(actions, text=ui('ui_0511'), width=9, command=dialog.destroy).pack()
+        dialog.protocol('WM_DELETE_WINDOW', dialog.destroy)
+        dialog.focus_set()
+
     def _show_update_notice(self):
-        """자동 업데이트로 재시작된 경우에만 해당 릴리즈의 변경 내역을 안내한다."""
+        """업데이트 후 v1.0.0 이상 전체 릴리즈 이력을 비동기로 표시한다."""
         if self._update_notice is None:
             return
         version, notes = self._update_notice
         self._update_notice = None
-        messagebox.showinfo(APP_TITLE, ui('ui_0451', version, notes or ui('ui_0452')))
+
+        def worker():
+            history_text = ''
+            try:
+                request = Request(UPDATE_RELEASES_URL, headers={
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': f'CDS-SaveEditor/{APP_VERSION}',
+                })
+                with urlopen(request, timeout=8) as response:
+                    releases = json.loads(response.read().decode('utf-8'))
+                if not isinstance(releases, list):
+                    raise ValueError('Invalid release history response')
+                history_text = self._format_update_history(releases)
+            except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+                history_text = f'v{version}\n{notes or ui("ui_0452")}'
+            try:
+                self.root.after(0, lambda: self._show_update_history_dialog(version, history_text))
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, name='update-history', daemon=True).start()
 
     def _set_update_button_state(self, state):
         try:
