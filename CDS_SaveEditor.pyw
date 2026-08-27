@@ -17,6 +17,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import zipfile
 from functools import lru_cache
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -394,7 +395,8 @@ PERSON_REPUTATION_MAX = 0xFFFF
 APP_TITLE = f'대항해시대 3 세이브 에디터 v{APP_VERSION}'
 UPDATE_CONFIG = APP_CONFIG.get('update', {})
 UPDATE_REPOSITORY = str(UPDATE_CONFIG.get('repository', '')).strip()
-UPDATE_ASSET_NAME = str(UPDATE_CONFIG.get('asset_name', 'CDS_SaveEditor.exe')).strip()
+UPDATE_ASSET_NAME = str(UPDATE_CONFIG.get('asset_name', 'CDS_SaveEditor_v{version}.zip')).strip()
+UPDATE_EXECUTABLE_NAME = 'CDS_SaveEditor.exe'
 UPDATE_LATEST_URL = (f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest'
                      if UPDATE_REPOSITORY else '')
 _PHOTO_CACHE: dict = {}
@@ -2369,13 +2371,50 @@ class CDS3SaveEditorApp:
 
     @staticmethod
     def _release_asset(release):
-        """Release 자산에서 배포 EXE를 찾고, 예전 파일명도 호환 처리한다."""
+        """Release 자산에서 해당 버전의 ZIP 배포 파일을 찾는다."""
         assets = release.get('assets', []) if isinstance(release, dict) else []
+        release_version = str(release.get('tag_name', '')).strip().lstrip('vV')
+        configured_asset_name = (UPDATE_ASSET_NAME.format(version=release_version)
+                                 if release_version and '{version}' in UPDATE_ASSET_NAME
+                                 else UPDATE_ASSET_NAME)
+        versioned_asset_name = (f'CDS_SaveEditor_v{release_version}.zip'
+                                if release_version else '')
         for asset in assets:
-            if asset.get('name') == UPDATE_ASSET_NAME:
+            if asset.get('name') in (configured_asset_name, versioned_asset_name):
                 return asset
         return next((asset for asset in assets
-                     if str(asset.get('name', '')).lower().endswith('.exe')), None)
+                     if str(asset.get('name', '')).lower().endswith('.zip')), None)
+
+    @staticmethod
+    def _extract_update_executable(archive_path):
+        """배포 ZIP 안의 단일 실행 파일을 임시 폴더로 안전하게 푼다."""
+        extract_directory = tempfile.mkdtemp(prefix='CDS_SaveEditor_update_')
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                candidates = [info for info in archive.infolist()
+                              if not info.is_dir()
+                              and os.path.basename(info.filename).lower() == UPDATE_EXECUTABLE_NAME.lower()]
+                if len(candidates) != 1:
+                    raise ValueError('업데이트 ZIP 안에서 CDS_SaveEditor.exe 파일을 하나만 찾을 수 있어야 합니다.')
+                info = candidates[0]
+                destination = os.path.abspath(os.path.join(extract_directory, info.filename))
+                if os.path.commonpath((extract_directory, destination)) != extract_directory:
+                    raise ValueError('업데이트 ZIP의 파일 경로가 올바르지 않습니다.')
+                archive.extract(info, extract_directory)
+            if not os.path.isfile(destination):
+                raise ValueError('업데이트 ZIP에서 실행 파일을 추출하지 못했습니다.')
+            return destination
+        except (OSError, ValueError, zipfile.BadZipFile):
+            try:
+                for root, directories, filenames in os.walk(extract_directory, topdown=False):
+                    for filename in filenames:
+                        os.remove(os.path.join(root, filename))
+                    for directory in directories:
+                        os.rmdir(os.path.join(root, directory))
+                os.rmdir(extract_directory)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _consume_update_notice():
@@ -2489,7 +2528,7 @@ class CDS3SaveEditorApp:
             self.lbl_status.config(text=ui('ui_0117'))
 
     def download_and_install_update(self, asset, release):
-        """새 EXE를 내려받아 해시를 검증한 뒤 종료 후 교체를 예약한다."""
+        """새 ZIP을 내려받아 해시를 검증·압축 해제한 뒤 종료 후 교체를 예약한다."""
         if self._update_download_in_progress:
             return
         if not getattr(sys, 'frozen', False):
@@ -2502,6 +2541,7 @@ class CDS3SaveEditorApp:
 
         def worker():
             partial_path = None
+            download_path = None
             try:
                 asset_name = os.path.basename(str(asset.get('name', UPDATE_ASSET_NAME))) or UPDATE_ASSET_NAME
                 partial_path = os.path.join(tempfile.gettempdir(), f'{asset_name}.{os.getpid()}.part')
@@ -2522,11 +2562,18 @@ class CDS3SaveEditorApp:
                 if expected_digest.startswith('sha256:') and digest.hexdigest().lower() != expected_digest[7:].lower():
                     raise ValueError('다운로드 파일의 SHA-256 검증에 실패했습니다.')
                 os.replace(partial_path, download_path)
-                self.root.after(0, lambda: self._launch_update_replacer(download_path, release))
-            except (HTTPError, URLError, TimeoutError, OSError, ValueError) as error:
-                if partial_path and os.path.exists(partial_path):
+                extracted_exe_path = self._extract_update_executable(download_path)
+                try:
+                    os.remove(download_path)
+                except OSError:
+                    pass
+                self.root.after(0, lambda: self._launch_update_replacer(extracted_exe_path, release))
+            except (HTTPError, URLError, TimeoutError, OSError, ValueError, zipfile.BadZipFile) as error:
+                for path in (partial_path, download_path):
+                    if not path or not os.path.exists(path):
+                        continue
                     try:
-                        os.remove(partial_path)
+                        os.remove(path)
                     except OSError:
                         pass
                 try:
@@ -2562,6 +2609,7 @@ class CDS3SaveEditorApp:
                 f'set "UPDATE_SOURCE={download_path}"',
                 f'set "UPDATE_TARGET={target_path}"',
                 f'set "UPDATE_NOTICE={notice_path}"',
+                f'set "UPDATE_DIRECTORY={os.path.dirname(download_path)}"',
                 ':replace_editor',
                 'move /Y "%UPDATE_SOURCE%" "%UPDATE_TARGET%" >nul 2>nul',
                 'if errorlevel 1 (',
@@ -2569,6 +2617,7 @@ class CDS3SaveEditorApp:
                 '  goto replace_editor',
                 ')',
                 'start "" "%UPDATE_TARGET%" --update-notice "%UPDATE_NOTICE%"',
+                'rmdir "%UPDATE_DIRECTORY%" 2>nul',
                 'del "%~f0"',
             ))
             with open(script_path, 'w', encoding='mbcs', newline='') as script_file:
