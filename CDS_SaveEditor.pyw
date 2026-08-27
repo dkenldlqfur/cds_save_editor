@@ -25,6 +25,17 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import tkinter.font as tkfont
 
+from editor_core.save_records import (
+    read_character_name,
+    read_character_stat_values,
+    read_value,
+    record_offset,
+    write_value,
+)
+from editor_core.fleet_records import mast_count, pack_mast_slots
+from editor_core.tab_layout import configure_equal_columns
+from editor_core.treeview import clear_rows
+
 
 class EditorButton(tk.Button):
     """화면 전체에서 같은 높이를 유지하는 공통 버튼."""
@@ -64,7 +75,8 @@ def load_json_resource(filename, data_directory=True):
                     return json.load(f)
             except FileNotFoundError:
                 continue
-    raise FileNotFoundError(f'필수 데이터 파일을 찾을 수 없습니다: {filename}')
+    # UI 문자열 자체가 아직 로드되기 전에도 호출될 수 있으므로 파일명만 넘긴다.
+    raise FileNotFoundError(filename)
 
 
 GAME_MASTER_DATA = load_json_resource('master_data.json')
@@ -85,6 +97,20 @@ UI_TEXTS = load_json_resource('ui_texts.json')['texts']
 # preference_flags는 화면용으로 재배열된 값이므로, 게임 EXE를 찾으면
 # 반드시 이 순서의 원본 값을 우선한다.
 SPONSOR_EXE_PREFERENCE_NAMES = ('지리', '역사', '보물', '종교', '교역품', '미신', '생물', '민족')
+# 후원자 알현의 요구 명성 배율은 직업이 아니라 해당 후원자가 있는 시설 객체가 정한다.
+# CDS_95.EXE: 시설 객체의 알현 전처리(vtbl+0x08) → 0x0044E740.
+SPONSOR_FAME_MULTIPLIER_BY_BUILDING = {
+    2: 100,  # 왕궁
+    3: 80,   # 교회
+    12: 70,  # 저택
+    13: 70,  # 상관
+    14: 70,  # 대사관
+    15: 70,  # 학자저택
+}
+SPONSOR_BUILDING_NAME_BY_ID = {
+    int(building_id): UI_TEXTS.get(name, name)
+    for building_id, name in CITY_DATA['facility_names'].items()
+}
 
 
 def normalized_sponsor_preference_to_exe(mask):
@@ -203,13 +229,15 @@ def inventory_full_message(location_key, capacity):
     return inventory_text('ui_0288', location_key), inventory_text('ui_0289', location_key, capacity)
 
 
-DISCOVERY_STATE_TEXT_KEYS = {0: 'ui_0112', 1: 'ui_0110', 2: 'ui_0071'}
-DISCOVERY_STATE_ACTION_KEYS = {0: 'ui_0111', 1: 'ui_0110', 2: 'ui_0109'}
+# 발견물 상태는 세이브 상태 마커와 1:1로 대응한다.
+# 0x00(미등장), 0x0C(미발견), 0x4C(발견), 0xCC(보고 완료)
+DISCOVERY_STATE_TEXT_KEYS = {0: 'ui_0466', 1: 'ui_0112', 2: 'ui_0110', 3: 'ui_0071'}
+DISCOVERY_STATE_ACTION_KEYS = {0: 'ui_0467', 1: 'ui_0111', 2: 'ui_0110', 3: 'ui_0109'}
 
 
 def discovery_state_text(state, action=False, menu=False):
     """세이브의 발견물 상태값을 화면용 문구 하나로 변환한다."""
-    if menu and state == 0:
+    if menu and state == 1:
         return ui('ui_0184')
     key_map = DISCOVERY_STATE_ACTION_KEYS if action else DISCOVERY_STATE_TEXT_KEYS
     return ui(key_map.get(state, DISCOVERY_STATE_TEXT_KEYS[0]))
@@ -225,7 +253,7 @@ def discovery_state_from_text(text):
 
 
 def discovery_status_options(include_all=False):
-    options = [discovery_state_text(state) for state in (2, 1, 0)]
+    options = [discovery_state_text(state) for state in (3, 2, 1, 0)]
     return [ui('ui_0291'), *options] if include_all else options
 
 
@@ -240,10 +268,10 @@ def hint_state_text(buffer, hint_id):
         return UI_EMPTY_VALUE
     state = buffer[offset]
     if state & 0x02:
-        return '발견 완료'
+        return ui('ui_0471')
     if state & 0x01:
-        return '획득'
-    return '미획득'
+        return ui('ui_0472')
+    return ui('ui_0473')
 
 
 def event_state_text(state, menu=False):
@@ -334,6 +362,17 @@ for _discovery_no, _item_id in DISCOVERY_REWARD_ITEM_IDS.items():
     REWARD_DISCOVERIES_BY_ITEM.setdefault(_item_id, []).append(_discovery_no)
 JOB_NAMES = GAME_MASTER_DATA['job_names']
 NATION_NAMES = GAME_MASTER_DATA['nation_names']
+PERSON_STAT_NAMES = tuple(name for name, _description in EDITOR_MAPPINGS['profile_stat_definitions']) + (
+    ui('ui_0496'), ui('ui_0508'))
+PERSON_TAB_TITLES = (ui('ui_0406'), ui('ui_0385'), ui('ui_0407'), ui('ui_0388'), ui('ui_0389'))
+PERSON_BASIC_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True),
+                        (ui('ui_0378'), 170, 'w', True))
+PERSON_STAT_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True),
+                       (ui('ui_0350'), 100, 'center', False))
+PERSON_FAME_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True),
+                       (ui('ui_0350'), 120, 'e', True))
+PERSON_LEVEL_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 170, 'w', True),
+                        (ui('ui_0490'), 100, 'center', False))
 BASIC_NATIONS = NATION_NAMES[:2]
 SEA_MONSTERS = GAME_MASTER_DATA['sea_monsters']
 SKILLS_DATA = [
@@ -413,7 +452,7 @@ def parse_release_version(value):
 class CalendarDatePicker(tk.Frame):
     """날짜를 직접 입력하지 않고 팝업 달력에서 고르는 컨트롤."""
 
-    WEEKDAYS = ('일', '월', '화', '수', '목', '금', '토')
+    WEEKDAYS = tuple(ui(f'ui_{index:04d}') for index in range(474, 481))
 
     def __init__(self, parent, get_date, set_date, font=None, min_year=1000, max_year=3000,
                  display_width=14):
@@ -436,7 +475,7 @@ class CalendarDatePicker(tk.Frame):
     def refresh(self):
         try:
             year, month, day = (int(value) for value in self._get_date())
-            self.button.config(text=f'{year}년 {month}월 {day}일   ▾')
+            self.button.config(text=ui('ui_0481', year, month, day))
         except (TypeError, ValueError, tk.TclError):
             self.button.config(text=f"{ui('ui_0401')}   ▾")
 
@@ -1701,12 +1740,14 @@ class DiscoveryInfoModal(tk.Toplevel):
         btn_f.pack(side=tk.BOTTOM, fill=tk.X)
         action_f = tk.Frame(btn_f, bg='#F0F0F0')
         action_f.pack(anchor='center')
-        btn_rep = EditorButton(action_f, text=discovery_state_text(2, action=True), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', padx=6, pady=3, command=lambda: self._do_change(2))
+        btn_rep = EditorButton(action_f, text=discovery_state_text(3, action=True), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', padx=6, pady=3, command=lambda: self._do_change(3))
         btn_rep.pack(side=tk.LEFT, padx=3)
-        btn_disc = EditorButton(action_f, text=discovery_state_text(1, action=True), font=('Malgun Gothic', 9), bg='#E8F0FE', fg='#1A73E8', padx=6, pady=3, command=lambda: self._do_change(1))
+        btn_disc = EditorButton(action_f, text=discovery_state_text(2, action=True), font=('Malgun Gothic', 9), bg='#E8F0FE', fg='#1A73E8', padx=6, pady=3, command=lambda: self._do_change(2))
         btn_disc.pack(side=tk.LEFT, padx=3)
-        btn_undisc = EditorButton(action_f, text=discovery_state_text(0, action=True), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(0))
+        btn_undisc = EditorButton(action_f, text=discovery_state_text(1, action=True), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(1))
         btn_undisc.pack(side=tk.LEFT, padx=3)
+        btn_unspawn = EditorButton(action_f, text=discovery_state_text(0, action=True), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(0))
+        btn_unspawn.pack(side=tk.LEFT, padx=3)
         self.btn_hint_toggle = None
         if self.on_hint_toggle_callback or self.on_contract_cancel_callback:
             self.btn_hint_toggle = EditorButton(
@@ -1776,7 +1817,7 @@ class DiscoveryInfoModal(tk.Toplevel):
             self._show_discovery_image()
         self.lbl_value.config(text=ui('ui_0013', disc_info['value']))
         st_text = discovery_state_text(current_state)
-        st_fg = '#137333' if current_state == 2 else '#1A73E8' if current_state == 1 else '#5F6368'
+        st_fg = '#137333' if current_state == 3 else '#1A73E8' if current_state == 2 else '#5F6368'
         self.lbl_state.config(text=ui('ui_0014', st_text), fg=st_fg)
         if self.btn_hint_toggle is not None:
             hint_id = int(disc_info.get('hint_id', -1))
@@ -2321,7 +2362,6 @@ class CDS3SaveEditorApp:
         self.pocket_ids = []
         self.storage_ids = []
         self.discovery_state = [0] * len(self.discovery_db)
-        self.discovery_original_state = list(self.discovery_state)
         self.discovery_discoverer = [''] * len(self.discovery_db)
         self.discovery_disc_date = [UI_EMPTY_VALUE] * len(self.discovery_db)
         self.discovery_rep_date = [UI_EMPTY_VALUE] * len(self.discovery_db)
@@ -2395,14 +2435,14 @@ class CDS3SaveEditorApp:
                               if not info.is_dir()
                               and os.path.basename(info.filename).lower() == UPDATE_EXECUTABLE_NAME.lower()]
                 if len(candidates) != 1:
-                    raise ValueError('업데이트 ZIP 안에서 CDS_SaveEditor.exe 파일을 하나만 찾을 수 있어야 합니다.')
+                    raise ValueError(ui('ui_0482'))
                 info = candidates[0]
                 destination = os.path.abspath(os.path.join(extract_directory, info.filename))
                 if os.path.commonpath((extract_directory, destination)) != extract_directory:
-                    raise ValueError('업데이트 ZIP의 파일 경로가 올바르지 않습니다.')
+                    raise ValueError(ui('ui_0483'))
                 archive.extract(info, extract_directory)
             if not os.path.isfile(destination):
-                raise ValueError('업데이트 ZIP에서 실행 파일을 추출하지 못했습니다.')
+                raise ValueError(ui('ui_0484'))
             return destination
         except (OSError, ValueError, zipfile.BadZipFile):
             try:
@@ -2560,7 +2600,7 @@ class CDS3SaveEditorApp:
                         digest.update(chunk)
                 expected_digest = str(asset.get('digest', ''))
                 if expected_digest.startswith('sha256:') and digest.hexdigest().lower() != expected_digest[7:].lower():
-                    raise ValueError('다운로드 파일의 SHA-256 검증에 실패했습니다.')
+                    raise ValueError(ui('ui_0485'))
                 os.replace(partial_path, download_path)
                 extracted_exe_path = self._extract_update_executable(download_path)
                 try:
@@ -2640,63 +2680,6 @@ class CDS3SaveEditorApp:
         style.configure('Treeview.Heading', font=('Malgun Gothic', 9, 'bold'))
         style.configure('Treeview', rowheight=22, font=('Malgun Gothic', 9))
 
-    def _enable_notebook_redraw_batching(self):
-        """기존 화면을 유지한 채 새 탭을 뒤에서 모두 그린 뒤 보여 준다."""
-        self._notebook_redraw_pending = False
-        self._notebook_transition_overlay = None
-
-        def on_tab_press(event):
-            notebook = event.widget
-            try:
-                if notebook.identify(event.x, event.y) != 'tab' or self._notebook_redraw_pending:
-                    return
-                self._notebook_redraw_pending = True
-                # 별도 네이티브 자식 컨트롤은 WM_SETREDRAW를 무시할 수 있다.
-                # 현재 화면의 스냅샷을 잠시 덮어 둬야 새 탭의 모든 컨트롤이
-                # 준비되기 전의 순차 그리기가 보이지 않는다.
-                self._show_notebook_transition_overlay(notebook)
-            except (tk.TclError, OSError, ImportError):
-                self._notebook_redraw_pending = False
-
-        def walk(widget):
-            for child in widget.winfo_children():
-                if isinstance(child, ttk.Notebook):
-                    # 위젯 바인딩은 ttk 클래스의 탭 선택 처리보다 먼저 실행된다.
-                    child.bind('<ButtonPress-1>', on_tab_press, add='+')
-                walk(child)
-        walk(self.root)
-
-    def _finish_notebook_redraw_batch(self):
-        self._notebook_redraw_pending = False
-        try:
-            overlay, self._notebook_transition_overlay = self._notebook_transition_overlay, None
-            if overlay is not None and overlay.winfo_exists():
-                overlay.destroy()
-        except tk.TclError:
-            pass
-
-    def _show_notebook_transition_overlay(self, notebook):
-        """클릭한 Notebook 영역만 90ms 유지해 탭 전환의 중간 프레임을 가린다."""
-        from PIL import ImageGrab, ImageTk
-        self.root.update_idletasks()
-        x, y = notebook.winfo_rootx(), notebook.winfo_rooty()
-        width, height = notebook.winfo_width(), notebook.winfo_height()
-        if width <= 1 or height <= 1:
-            self.root.after_idle(self._finish_notebook_redraw_batch)
-            return
-        image = ImageGrab.grab(bbox=(x, y, x + width, y + height))
-        overlay = tk.Toplevel(self.root)
-        overlay.overrideredirect(True)
-        overlay.transient(self.root)
-        overlay.attributes('-topmost', True)
-        overlay.geometry(f'{width}x{height}+{x}+{y}')
-        photo = ImageTk.PhotoImage(image)
-        label = tk.Label(overlay, image=photo, borderwidth=0, highlightthickness=0)
-        label.image = photo
-        label.pack(fill=tk.BOTH, expand=True)
-        overlay.lift()
-        self._notebook_transition_overlay = overlay
-        self.root.after(90, self._finish_notebook_redraw_batch)
     def apply_hardware_acceleration(self):
         return None
 
@@ -3039,9 +3022,7 @@ class CDS3SaveEditorApp:
     def build_fleet_tab(self):
         """Build the fleet list, editor, and read-only ship-base information panes."""
         parent = self.tab_fleet
-        for column in range(3):
-            parent.columnconfigure(column, weight=1, uniform='fleet_columns')
-        parent.rowconfigure(0, weight=1)
+        configure_equal_columns(parent, 3, 'fleet_columns')
 
         left = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_list'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=6)
         left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
@@ -3257,24 +3238,18 @@ class CDS3SaveEditorApp:
     def _on_fleet_basic_motion(self, event):
         """계수 행에서 실제 조선소 계산식을 안내한다."""
         row = self.lst_fleet_basic.identify_row(event.y)
-        if getattr(self, '_fleet_basic_tooltip_row', None) != row:
+        is_field_column = self.lst_fleet_basic.identify_column(event.x) == '#1'
+        if getattr(self, '_fleet_basic_tooltip_row', None) != row or not is_field_column:
             self._hide_fleet_basic_tooltip()
+        if not is_field_column:
+            return
         if row == 'base_capacity':
             tooltip_text = self._fleet_base_capacity_tooltip()
         else:
             tooltip_text = None
         tooltip_texts = {
-            'unknown_38': (
-                '함선 가격 계산식\n'
-                '기본 구매가 = 가격 계수 × 600 G\n'
-                '실제 구매가 = 기본 구매가 × 도시 시세 ÷ 100'
-            ),
-            'shipyard_requirement': (
-                '함선 출시 연도 계산식\n'
-                '출시 가능 연도 = 1476 + 출시 계수 − (도시 규모 × 5)\n'
-                '현재 연도가 이 값 이상일 때 조선소에 표시됩니다.\n'
-                '규모 1 기준 출시 연도 = 1471 + 출시 계수'
-            ),
+            'unknown_38': ui('ui_0486'),
+            'shipyard_requirement': ui('ui_0487'),
         }
         tooltip_text = tooltip_text or tooltip_texts.get(row)
         if tooltip_text is None:
@@ -3564,7 +3539,7 @@ class CDS3SaveEditorApp:
     @staticmethod
     def _fleet_mast_count(value):
         """Return the number of installed masts from the three 2-bit mast slots."""
-        return sum(1 for index in range(3) if ((value >> (index * 2)) & 0x03) != 0)
+        return mast_count(value)
 
     @staticmethod
     def _fleet_visible_capacity(stored_capacity, cannon_count):
@@ -4045,12 +4020,10 @@ class CDS3SaveEditorApp:
                 'figurehead': self._fleet_combo_code(
                     self.fleet_edit_vars['figurehead'].get(), self._fleet_figurehead_map()),
             }
-            mast = 0
-            for index, key in enumerate(('mast_main', 'mast_sub', 'mast_stern')):
-                mast |= self._fleet_combo_code(
-                    self.fleet_edit_vars[key].get(),
-                    self._fleet_mast_name_map()) << (index * 2)
-            values['mast'] = mast
+            values['mast'] = pack_mast_slots(
+                self._fleet_combo_code(self.fleet_edit_vars[key].get(), self._fleet_mast_name_map())
+                for key in ('mast_main', 'mast_sub', 'mast_stern')
+            )
             for current_key, maximum_key, label in (
                 ('current_power', 'max_power', fleet_label('ui_0130', 'ui_0131')),
                 ('current_durability', 'max_durability', fleet_label('ui_0130', 'ui_0134')),
@@ -4163,18 +4136,10 @@ class CDS3SaveEditorApp:
     # 도시 선택/자동 적용 때마다 만들지 않도록 레코드 메타데이터를 클래스 단위로
     # 재사용한다.
     CITY_FIELD_BY_KEY = {definition[0]: definition for definition in CITY_FIELD_DEFINITIONS}
-    CITY_VALUE_FORMATS = {'u8': '<B', 'u16': '<H', 'u32': '<I', 'i16': '<h', 'i32': '<i'}
-    CITY_VALUE_LIMITS = {
-        'u8': (0, 0xFF), 'u16': (0, 0xFFFF), 'u32': (0, 0xFFFFFFFF),
-        'i16': (-0x8000, 0x7FFF), 'i32': (-0x80000000, 0x7FFFFFFF),
-    }
-
     def build_cities_tab(self):
         """Build a save-city editor alongside the EXE-derived city defaults."""
         parent = self.tab_cities
-        for column in range(3):
-            parent.columnconfigure(column, weight=1, uniform='city_columns')
-        parent.rowconfigure(0, weight=1)
+        configure_equal_columns(parent, 3, 'city_columns')
         left = tk.LabelFrame(parent, text=GROUP_TITLES['city_list'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=6)
         left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
         city_filter = tk.Frame(left)
@@ -4396,17 +4361,15 @@ class CDS3SaveEditorApp:
 
     @classmethod
     def _city_record_offset(cls, city_index):
-        return cls.CITY_SAVE_OFFSET + city_index * cls.CITY_RECORD_SIZE
+        return record_offset(cls.CITY_SAVE_OFFSET, cls.CITY_RECORD_SIZE, city_index)
 
     @staticmethod
     def _city_read(buffer, offset, kind):
-        return struct.unpack_from(CDS3SaveEditorApp.CITY_VALUE_FORMATS[kind], buffer, offset)[0]
+        return read_value(buffer, offset, kind)
 
     @staticmethod
     def _city_write(buffer, offset, kind, value):
-        low, high = CDS3SaveEditorApp.CITY_VALUE_LIMITS[kind]
-        struct.pack_into(CDS3SaveEditorApp.CITY_VALUE_FORMATS[kind], buffer, offset,
-                         max(low, min(high, int(value))))
+        write_value(buffer, offset, kind, value)
 
     @staticmethod
     def _city_field_label(definition):
@@ -4481,12 +4444,7 @@ class CDS3SaveEditorApp:
             return
         market_price = price * market // 100
         buy_price = market_price * 3 // 2
-        tooltip_text = (
-            '특산품 최종 구매가 계산식\n'
-            '시세 반영 가격 = 특산품 가격 × 도시 시세 ÷ 100 (소수점 버림)\n'
-            '최종 구매가 = 시세 반영 가격 × 3 ÷ 2 (소수점 버림)\n'
-            f'현재: {price} × {market} ÷ 100 = {market_price} → {market_price} × 3 ÷ 2 = {buy_price} G'
-        )
+        tooltip_text = ui('ui_0488', price, market, market_price, buy_price)
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
@@ -4534,7 +4492,14 @@ class CDS3SaveEditorApp:
 
     @staticmethod
     def _city_default_value(record, definition):
-        _key, _text_key, _offset, _kind, default_key, *optional_index = definition
+        key, _text_key, _offset, _kind, default_key, *optional_index = definition
+        if key == 'value_c':
+            # CDS_95.EXE 도시 기본 레코드(+0x38)는 공급량 표(20~1000)의
+            # 색인이다. 도시 규모 기반의 공용 교역품 공급량이 아니다.
+            supplies = CITY_DATA.get('default_specialty_supplies', ())
+            city_index = int(record['index'])
+            if 0 <= city_index < len(supplies):
+                return int(supplies[city_index])
         value = record[default_key]
         return value[optional_index[0]] if optional_index else value
 
@@ -4727,20 +4692,6 @@ class CDS3SaveEditorApp:
         selection = self.lst_cities.selection() if hasattr(self, 'lst_cities') else ()
         return int(selection[0]) if selection else None
 
-
-    @staticmethod
-    def _open_editable_combo_dropdown(combo, should_open=True):
-        """검색 입력 뒤 후보 목록을 표시한다. 키 입력 처리가 끝난 뒤 실행해야 한다."""
-        if not should_open:
-            return
-
-        def post_dropdown():
-            try:
-                if combo.winfo_exists() and combo.focus_get() == combo:
-                    combo.event_generate('<Alt-Down>')
-            except tk.TclError:
-                pass
-        combo.after_idle(post_dropdown)
 
     def _city_good_id_from_text(self, value):
         """목록의 정확한 항목 또는 유일한 이름 입력을 시장 품목 ID로 변환한다."""
@@ -4989,9 +4940,7 @@ class CDS3SaveEditorApp:
         # 윈도우 네이티브 이름 입력칸(기본 9pt)과 맞춰 상단 모든 행을 9pt로 통일한다.
         LBL_FONT = ('Malgun Gothic', 9)
         VAL_FONT = ('Malgun Gothic', 9)
-        parent.columnconfigure(0, weight=1, uniform='profile_columns')
-        parent.columnconfigure(1, weight=1, uniform='profile_columns')
-        parent.rowconfigure(0, weight=1)
+        configure_equal_columns(parent, 2, 'profile_columns')
         profile_left = tk.LabelFrame(parent, text=ui('ui_0414'), font=('Malgun Gothic', 9, 'bold'), padx=4, pady=4)
         profile_left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=4)
         # 상단 신상 영역은 고정 높이, 하단 Notebook은 남은 높이를 사용한다.
@@ -5431,7 +5380,7 @@ class CDS3SaveEditorApp:
             body = tk.Frame(page, padx=8, pady=6)
             body.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
             self._person_detail_bodies.append(body)
-        self._person_detail_titles = (ui('ui_0406'), ui('ui_0385'), ui('ui_0407'), ui('ui_0388'), ui('ui_0389'))
+        self._person_detail_titles = PERSON_TAB_TITLES
         self._person_batch_spinners = {}
         for detail_index, maximum, width, label_text in (
                 (1, 255, 5, ui('ui_0390', 255)),
@@ -5452,29 +5401,34 @@ class CDS3SaveEditorApp:
             self._person_batch_spinners[detail_index] = spinner
         basic_tree = self._make_officer_tree(
             self._person_detail_bodies[0], ('index', 'field', 'value'),
-            (('No', 38, 'center', False), ('항목', 120, 'w', True), ('기본값', 170, 'w', True)), 8,
+            ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8,
             frame_padx=0, frame_pady=0, pack_pady=2)
         stats_tree = self._make_officer_tree(
             self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'),
-            (('No', 35, 'center', False), ('항목', 115, 'center', False), ('수치', 90, 'center', False),
+            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False),
              (TREE_COLUMN_TITLES['stats']['maximum'], 115, 'center', True)), 7,
             frame_padx=0, frame_pady=0, pack_pady=2)
         fame_tree = self._make_officer_tree(
             self._person_detail_bodies[2], ('index', 'field', 'value', 'maximum'),
-            (('No', 35, 'center', False), ('항목', 145, 'center', False), ('수치', 135, 'e', False),
+            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 145, 'center', False), (ui('ui_0350'), 135, 'e', False),
              (TREE_COLUMN_TITLES['money']['maximum'], 115, 'center', True)), 5,
             frame_padx=0, frame_pady=0, pack_pady=2)
         skill_tree = self._make_officer_tree(
             self._person_detail_bodies[3], ('index', 'field', 'value'),
-            (('No', 35, 'center', False), ('항목', 190, 'w', True), ('레벨', 150, 'center', False)), 13,
+            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 190, 'w', True), (ui('ui_0490'), 150, 'center', False)), 13,
             frame_padx=0, frame_pady=0, pack_pady=2)
         language_tree = self._make_officer_tree(
             self._person_detail_bodies[4], ('index', 'field', 'value'),
-            (('No', 35, 'center', False), ('항목', 195, 'w', True), ('레벨', 155, 'center', False)), 14,
+            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 195, 'w', True), (ui('ui_0490'), 155, 'center', False)), 14,
             frame_padx=0, frame_pady=0, pack_pady=2)
         self._person_detail_trees = (basic_tree, stats_tree, fame_tree, skill_tree, language_tree)
         self.tree_person_details = self._person_detail_trees[0]
         self.tree_person_stats = self._person_detail_trees[1]
+        self._sponsor_fame_tooltip = None
+        self._sponsor_fame_tooltip_row = None
+        self.tree_person_details.bind('<Motion>', self._on_sponsor_fame_motion, add='+')
+        self.tree_person_details.bind('<Leave>', self._hide_sponsor_fame_tooltip, add='+')
+        self.tree_person_details.bind('<ButtonPress>', self._hide_sponsor_fame_tooltip, add='+')
         self._person_hire_cost_tooltip = None
         self._person_hire_cost_tooltip_row = None
         self.tree_person_stats.bind('<Motion>', self._on_person_detail_motion, add='+')
@@ -5502,7 +5456,7 @@ class CDS3SaveEditorApp:
             for page, title in zip(pages, self._person_detail_titles):
                 tabs.add(page, text=title)
         else:
-            tabs.add(pages[0], text='정보')
+            tabs.add(pages[0], text=ui('ui_0489'))
             for page in pages[1:]:
                 # 최초 구성에서는 아직 Notebook에 추가되지 않은 페이지가 있다.
                 if str(page) in tabs.tabs():
@@ -5693,10 +5647,11 @@ class CDS3SaveEditorApp:
         kind = self._person_active_type
         role_mode = kind in self._crew_profiles or kind == 'unhireable'
         self._set_person_detail_mode(role_mode)
-        for detail_tree in self._person_detail_trees:
-            detail_tree.delete(*detail_tree.get_children())
+        clear_rows(*self._person_detail_trees)
         tree = self.tree_person_details
         tree.tag_configure('fortune_spouse', background='#FCE4EC')
+        # 상세 목록과 툴팁은 목록 선택 이벤트의 지연 여부와 무관하게 같은 후원자를 가리켜야 한다.
+        self._person_detail_sponsor_id = None
         self._person_face_photo = None
         self._person_face_label.config(image='', bg='#222222')
         rows, image_path = [], None
@@ -5708,19 +5663,21 @@ class CDS3SaveEditorApp:
                 fortune_face_code = self._get_wife_fortune_face_code()
                 fortune_text = (ui('ui_0272') if fortune_face_code is not None and
                                 is_fortune_spouse(barmaid, fortune_face_code) else ui('ui_0277'))
-                rows = ((ui('ui_0062'), barmaid['name']), ('도시', get_barmaid_city_name(barmaid)),
-                        (ui('ui_0432'), f"{barmaid['year']}년"), (ui('ui_0399').rstrip(':'), get_barmaid_zodiac_name(barmaid)),
-                        (ui('ui_0230').rstrip(':'), get_barmaid_blood_name(barmaid)), ('성격', get_barmaid_personality(barmaid)),
-                        (ui('ui_0061'), fortune_text), ('전수 언어', languages))
+                rows = ((ui('ui_0062'), barmaid['name']), (ui('ui_0354'), get_barmaid_city_name(barmaid)),
+                        (ui('ui_0432'), f"{barmaid['year']}{ui('ui_0233')}"), (ui('ui_0399').rstrip(':'), get_barmaid_zodiac_name(barmaid)),
+                        (ui('ui_0230').rstrip(':'), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)),
+                        (ui('ui_0061'), fortune_text), (ui('ui_0068'), languages))
                 image_path = get_barmaid_image_path(barmaid['id'])
         elif kind == 'sponsor' and item_id:
             sponsor = SPONSOR_BY_ID.get(int(item_id))
             if sponsor:
+                self._person_detail_sponsor_id = int(sponsor['id'])
                 preferences = self._sponsor_preference_names(sponsor)
                 retire = int(sponsor['retirement_year'])
-                rows = ((ui('ui_0062'), sponsor['name']), ('도시', sponsor['city']), ('국적', sponsor['nation']),
-                        ('직업', sponsor['job']), (ui('ui_0432'), f"{sponsor['appearance_year']}년"),
-                        (ui('ui_0433'), f'{retire}년' if retire else '-'), (ui('ui_0434'), f"{sponsor['wealth']:,} G"),
+                rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']),
+                        (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), f"{sponsor['appearance_year']}{ui('ui_0233')}"),
+                        (ui('ui_0433'), f"{retire}{ui('ui_0233')}" if retire else '-'), (ui('ui_0434'), str(int(sponsor['wealth_factor']))),
+                        (ui('ui_0464'), str(int(sponsor['power']))),
                         (ui('ui_0431'), preferences))
                 image_path = get_sponsor_image_path(sponsor['id'])
         elif role_mode and item_id not in ('', None, '__none__'):
@@ -5742,6 +5699,65 @@ class CDS3SaveEditorApp:
         if not role_mode:
             self._schedule_treeview_autofit(tree)
 
+    def _on_sponsor_fame_motion(self, event):
+        """후원자 명성 계수 행에 알현 요구 명성 계산식을 표시한다."""
+        tree = self.tree_person_details
+        row = tree.identify_row(event.y)
+        is_field_column = tree.identify_column(event.x) == '#2'
+        values = tree.item(row, 'values') if row else ()
+        is_sponsor_field = (
+            is_field_column and self._person_active_type == 'sponsor' and len(values) >= 3 and
+            values[1] in (ui('ui_0464'), ui('ui_0434')))
+        if getattr(self, '_sponsor_fame_tooltip_row', None) != row or not is_sponsor_field:
+            self._hide_sponsor_fame_tooltip()
+        if not is_sponsor_field or self._sponsor_fame_tooltip is not None:
+            return
+        try:
+            coefficient = int(values[2])
+        except (IndexError, TypeError, ValueError):
+            coefficient = 0
+        tooltip = tk.Toplevel(self.root)
+        tooltip.wm_overrideredirect(True)
+        tooltip.attributes('-topmost', True)
+        sponsor_id = getattr(self, '_person_detail_sponsor_id', None)
+        sponsor = SPONSOR_BY_ID.get(int(sponsor_id)) if sponsor_id is not None else None
+        if values[1] == ui('ui_0434'):
+            tooltip_text = ui('ui_0468', coefficient, coefficient * 10000)
+        else:
+            building_id = int(sponsor.get('building_id', -1)) if sponsor else -1
+            multiplier = SPONSOR_FAME_MULTIPLIER_BY_BUILDING.get(building_id, 0)
+            building_name = SPONSOR_BUILDING_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
+            required_fame = coefficient * multiplier
+            tooltip_text = ui('ui_0465', building_name, coefficient, multiplier, required_fame)
+        tk.Label(tooltip, text=tooltip_text,
+                 justify='left', anchor='w',
+                 bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
+                 padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
+        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        self._sponsor_fame_tooltip = tooltip
+        self._sponsor_fame_tooltip_row = row
+
+    def _hide_sponsor_fame_tooltip(self, _event=None):
+        tooltip = getattr(self, '_sponsor_fame_tooltip', None)
+        self._sponsor_fame_tooltip = None
+        self._sponsor_fame_tooltip_row = None
+        if tooltip is not None:
+            try:
+                tooltip.destroy()
+            except tk.TclError:
+                pass
+
+    @staticmethod
+    def _character_stat_rows(record, record_offset):
+        """인물 레코드의 공통 능력치 필드를 화면 표시 순서로 읽는다."""
+        values = read_character_stat_values(record, record_offset, CHARACTER_SPECIAL_STAT_OFFSET)
+        return tuple(zip(PERSON_STAT_NAMES, values))
+
+    @staticmethod
+    def _character_record_name(record, record_offset, fallback=UI_EMPTY_VALUE):
+        """세이브 인물 레코드의 성·이름 필드를 읽고 비어 있으면 기본명을 반환한다."""
+        return read_character_name(record, record_offset, fallback)
+
     def _populate_person_snapshot_details(self, character_id, include_hire_state=True):
         """통합 인물 상세 탭을 마지막 저장/로드 스냅샷으로 채운다."""
         snapshot = getattr(self, 'person_display_buffer', None)
@@ -5752,9 +5768,7 @@ class CDS3SaveEditorApp:
             return
 
         record = snapshot
-        first_name = record[record_offset + 0x32:record_offset + 0x32 + 20].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        last_name = record[record_offset + 0x45:record_offset + 0x45 + 19].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        name = ' '.join(part for part in (first_name, last_name) if part) or character.get('name', UI_EMPTY_VALUE)
+        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
         # 세이브 레코드의 나이는 저장 당시의 값이다. EXE는 해가 바뀔 때마다
@@ -5773,19 +5787,19 @@ class CDS3SaveEditorApp:
         raw_hire_state = record[record_offset + 0x62]
         # 고용 중 여부는 레코드의 원시 상태값이 아니라 세이브의 역할 슬롯으로 판정한다.
         hire_state = 3 if character_id in self._active_role_character_ids(snapshot) else raw_hire_state
-        city_name = '함대 소속' if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
-        building_name = {4: '주점', 5: '여관'}.get(building_id, '-')
+        city_name = ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
+        building_name = {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, UI_EMPTY_VALUE)
         blood_name = BLOOD_NAMES[blood_id] if 0 <= blood_id < len(BLOOD_NAMES) else UI_EMPTY_VALUE
 
         basic_rows = [
-            ('이름', name),
-            ('나이', f'{age}세'),
-            (ui('ui_0463'), '미등장' if age < 18 else '은퇴' if age > 60 else '등장'),
-            ('혈액형', blood_name),
-            ('국적', NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
-            ('직업', JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
-            ('출현 도시', city_name),
-            ('건물', building_name),
+            (ui('ui_0062'), name),
+            (ui('ui_0493'), ui('ui_0502', age)),
+            (ui('ui_0463'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0499')),
+            (ui('ui_0066'), blood_name),
+            (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
+            (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
+            (ui('ui_0494'), city_name),
+            (ui('ui_0409'), building_name),
         ]
         if include_hire_state:
             if hire_state == 2:
@@ -5799,24 +5813,18 @@ class CDS3SaveEditorApp:
                 2: ui('ui_0404'),
                 3: ui('ui_0405'),
             }.get(hire_state, str(hire_state))
-            basic_rows.append(('고용 상태', hire_text))
+            basic_rows.append((ui('ui_0495'), hire_text))
         for index, row in enumerate(basic_rows):
             self._person_detail_trees[0].insert('', tk.END, values=(index, *row))
 
-        stat_rows = (
-            ('체력', record[record_offset + 0x00]), ('지력', record[record_offset + 0x01]),
-            ('무력', record[record_offset + 0x02]), ('매력', record[record_offset + 0x03]),
-            ('운', record[record_offset + 0x04]), ('신앙심', record[record_offset + 0x05]),
-            ('고용비 계수', record[record_offset + 0x66]),
-            ('생명력', struct.unpack_from('<I', record, record_offset + CHARACTER_SPECIAL_STAT_OFFSET)[0]),
-        )
+        stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
             maximum = CHARACTER_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else 255
             self._person_detail_trees[1].insert('', tk.END, values=(index, *row, maximum))
         self._person_detail_trees[2].insert('', tk.END, values=(
-            0, '명성', f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
+            0, ui('ui_0407'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
         self._person_detail_trees[2].insert('', tk.END, values=(
-            1, '악명', f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
+            1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (self._person_detail_trees[3], index) if index < 13 else (self._person_detail_trees[4], index - 13)
             target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
@@ -5826,8 +5834,9 @@ class CDS3SaveEditorApp:
         """능력치 탭의 고용비 계수 항목에서만 계산식 툴팁을 표시한다."""
         tree = self.tree_person_stats
         row = tree.identify_row(event.y)
+        is_field_column = tree.identify_column(event.x) == '#2'
         values = tree.item(row, 'values') if row else ()
-        is_hire_cost = len(values) >= 2 and values[1] == '고용비 계수'
+        is_hire_cost = is_field_column and len(values) >= 2 and values[1] == ui('ui_0496')
         if getattr(self, '_person_hire_cost_tooltip_row', None) != row or not is_hire_cost:
             self._hide_person_hire_cost_tooltip()
         if not is_hire_cost or self._person_hire_cost_tooltip is not None:
@@ -6016,14 +6025,14 @@ class CDS3SaveEditorApp:
         details = ttk.Notebook(page, style='Editor.TNotebook')
         details.grid(row=1, column=0, sticky='nsew', padx=3, pady=(0, 4))
         pages = [ttk.Frame(page) for _ in range(5)]
-        for tab, title in zip(pages, (ui('ui_0406'), ui('ui_0385'), ui('ui_0407'), ui('ui_0388'), ui('ui_0389'))):
+        for tab, title in zip(pages, PERSON_TAB_TITLES):
             details.add(tab, text=title)
         trees = (
-            self._make_officer_tree(pages[0], ('index', 'field', 'value'), (('No', 38, 'center', False), ('항목', 120, 'w', True), ('기본값', 170, 'w', True)), 7),
-            self._make_officer_tree(pages[1], ('index', 'field', 'value'), (('No', 38, 'center', False), ('항목', 150, 'w', True), ('수치', 100, 'center', False)), 8),
-            self._make_officer_tree(pages[2], ('index', 'field', 'value'), (('No', 38, 'center', False), ('항목', 150, 'w', True), ('수치', 100, 'center', False)), 2),
-            self._make_officer_tree(pages[3], ('index', 'field', 'value'), (('No', 38, 'center', False), ('항목', 150, 'w', True), ('레벨', 100, 'center', False)), 13),
-            self._make_officer_tree(pages[4], ('index', 'field', 'value'), (('No', 38, 'center', False), ('항목', 150, 'w', True), ('레벨', 100, 'center', False)), 12),
+            self._make_officer_tree(pages[0], ('index', 'field', 'value'), PERSON_BASIC_COLUMNS, 7),
+            self._make_officer_tree(pages[1], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 8),
+            self._make_officer_tree(pages[2], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 2),
+            self._make_officer_tree(pages[3], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 13),
+            self._make_officer_tree(pages[4], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 12),
         )
         self._crew_profiles[key] = {'offset': role_offset, 'name': role_name, 'category': category,
                                     'query': query, 'tree': tree, 'trees': trees,
@@ -6102,7 +6111,7 @@ class CDS3SaveEditorApp:
             self._officer_selected_id = None
             self._officer_preview_id = None
         self._refresh_role_display(key)
-        self.lbl_status.config(text=f"{profile['name']}을(를) 해제했습니다.")
+        self.lbl_status.config(text=ui('ui_0505', profile['name']))
 
     def assign_role(self, key, character_id):
         """네 역할에 공통으로 적용되는 즉시 지정 처리다.
@@ -6147,17 +6156,16 @@ class CDS3SaveEditorApp:
         name = CHARACTER_BY_ID[character_id].get('name', character_id)
         if moved_from:
             previous_role_names = ', '.join(self._crew_profiles[moved_key]['name'] for moved_key in moved_from)
-            self.lbl_status.config(text=f'{name}: {previous_role_names} → {role_name}(으)로 변경했습니다.')
+            self.lbl_status.config(text=ui('ui_0506', name, previous_role_names, role_name))
         else:
-            self.lbl_status.config(text=f'{role_name}을(를) {name}(으)로 변경했습니다.')
+            self.lbl_status.config(text=ui('ui_0507', role_name, name))
 
     def refresh_crew_display(self, key):
         profile = self._crew_profiles.get(key)
         if profile is None:
             return
         trees = profile['trees']
-        for tree in trees:
-            tree.delete(*tree.get_children())
+        clear_rows(*trees)
         profile['face_photo'] = None
         profile['face_label'].config(image='', bg='#222222')
         if not self.file_buffer:
@@ -6194,20 +6202,18 @@ class CDS3SaveEditorApp:
         city_id = record[record_offset + 0x2E]
         building_id = record[record_offset + 0x30]
         hire_state = self._character_hire_state(character_id, character, record_offset)
-        first_name = record[record_offset + 0x32:record_offset + 0x32 + 20].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        last_name = record[record_offset + 0x45:record_offset + 0x45 + 19].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        name = ' '.join(part for part in (first_name, last_name) if part) or character.get('name', UI_EMPTY_VALUE)
-        basic_rows = ((ui('ui_0062'), name), ('나이', f'{age}세'),
-                      ('국적', NATION_NAMES[int(character.get('nation_id', -1))] if 0 <= int(character.get('nation_id', -1)) < len(NATION_NAMES) else UI_EMPTY_VALUE),
-                      ('직업', JOB_NAMES[int(character.get('job_id', -1))] if 0 <= int(character.get('job_id', -1)) < len(JOB_NAMES) else UI_EMPTY_VALUE),
-                      (ui('ui_0354'), '함대 소속' if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)),
+        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
+        basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)),
+                      (ui('ui_0491'), NATION_NAMES[int(character.get('nation_id', -1))] if 0 <= int(character.get('nation_id', -1)) < len(NATION_NAMES) else UI_EMPTY_VALUE),
+                      (ui('ui_0492'), JOB_NAMES[int(character.get('job_id', -1))] if 0 <= int(character.get('job_id', -1)) < len(JOB_NAMES) else UI_EMPTY_VALUE),
+                      (ui('ui_0354'), ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)),
                       (ui('ui_0409'), {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, '-')),
                       (ui('ui_0410'), {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)))
         for index, row in enumerate(basic_rows): trees[0].insert('', tk.END, values=(index, *row))
-        stats = (('체력', record[record_offset]), ('지력', record[record_offset+1]), ('무력', record[record_offset+2]), ('매력', record[record_offset+3]), ('운', record[record_offset+4]), ('신앙심', record[record_offset+5]), ('고용비 계수', record[record_offset+0x66]), ('생명력', struct.unpack_from('<I', record, record_offset + CHARACTER_SPECIAL_STAT_OFFSET)[0]))
+        stats = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stats): trees[1].insert('', tk.END, values=(index, *row))
-        trees[2].insert('', tk.END, values=(0, '명성', f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}"))
-        trees[2].insert('', tk.END, values=(1, '악명', f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}"))
+        trees[2].insert('', tk.END, values=(0, ui('ui_0407'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}"))
+        trees[2].insert('', tk.END, values=(1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}"))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (trees[3], index) if index < 13 else (trees[4], index - 13)
             target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
@@ -6322,26 +6328,26 @@ class CDS3SaveEditorApp:
         self.officer_page_fame = ttk.Frame(page)
         self.officer_page_tech = ttk.Frame(page)
         self.officer_page_lang = ttk.Frame(page)
-        for tab, title in ((self.officer_page_basic, '기본 정보'), (self.officer_page_stats, '능력치'), (self.officer_page_fame, '명성'),
-                           (self.officer_page_tech, '기술'), (self.officer_page_lang, '언어')):
+        for tab, title in zip((self.officer_page_basic, self.officer_page_stats, self.officer_page_fame,
+                               self.officer_page_tech, self.officer_page_lang), PERSON_TAB_TITLES):
             self.officer_details.add(tab, text=title)
         self.officer_details.grid(row=1, column=0, sticky='nsew', padx=3, pady=(0, 4))
 
         self.tree_officer_basic = self._make_officer_tree(
             self.officer_page_basic, ('index', 'field', 'value'),
-            (('No', 38, 'center', False), ('항목', 120, 'w', True), ('기본값', 170, 'w', True)), 7)
+            PERSON_BASIC_COLUMNS, 7)
         self.tree_officer_stats = self._make_officer_tree(
             self.officer_page_stats, ('index', 'field', 'value'),
-            (('No', 38, 'center', False), ('항목', 150, 'w', True), ('수치', 100, 'center', False)), 8)
+            PERSON_STAT_COLUMNS, 8)
         self.tree_officer_fame = self._make_officer_tree(
             self.officer_page_fame, ('index', 'field', 'value'),
-            (('No', 38, 'center', False), ('항목', 150, 'w', True), ('수치', 120, 'e', True)), 2)
+            PERSON_FAME_COLUMNS, 2)
         self.tree_officer_tech = self._make_officer_tree(
             self.officer_page_tech, ('index', 'field', 'level'),
-            (('No', 38, 'center', False), ('항목', 170, 'w', True), ('레벨', 90, 'center', False)), 8)
+            PERSON_LEVEL_COLUMNS, 8)
         self.tree_officer_lang = self._make_officer_tree(
             self.officer_page_lang, ('index', 'field', 'level'),
-            (('No', 38, 'center', False), ('항목', 180, 'w', True), ('레벨', 90, 'center', False)), 8)
+            PERSON_LEVEL_COLUMNS, 8)
 
     @staticmethod
     def _make_officer_tree(parent, columns, definitions, height, *, frame_padx=8, frame_pady=6,
@@ -6371,7 +6377,7 @@ class CDS3SaveEditorApp:
                 selected_hire = self._officer_hire_filter_codes[category_index]
         tree.delete(*tree.get_children())
         tree.insert('', tk.END, iid='__none__', values=('-', ui('ui_0319')))
-        if query == '없음':
+        if query == ui('ui_0319').casefold():
             query = ''
         hire_states = self._character_hire_states()
         for character_id, name, name_key in self._character_search_index:
@@ -6435,9 +6441,7 @@ class CDS3SaveEditorApp:
         """세이브의 부관 참조(0xA5)를 읽어 읽기 전용 인물 탭을 갱신한다."""
         trees = tuple(getattr(self, name, None) for name in (
             'tree_officer_basic', 'tree_officer_stats', 'tree_officer_fame', 'tree_officer_tech', 'tree_officer_lang'))
-        for tree in trees:
-            if tree is not None:
-                tree.delete(*tree.get_children())
+        clear_rows(*trees)
         empty_labels = ('lbl_officer_nation', 'lbl_officer_job',
                         'lbl_officer_age', 'lbl_officer_city', 'lbl_officer_hire',
                         'lbl_officer_appearance')
@@ -6487,9 +6491,7 @@ class CDS3SaveEditorApp:
 
         record = self.file_buffer
         character = CHARACTER_BY_ID.get(character_id, {})
-        first_name = record[record_offset + 0x32:record_offset + 0x32 + 20].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        last_name = record[record_offset + 0x45:record_offset + 0x45 + 19].split(b'\0')[0].decode('cp949', errors='ignore').strip()
-        name = ' '.join(part for part in (first_name, last_name) if part) or character.get('name', UI_EMPTY_VALUE)
+        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
         age = struct.unpack_from('<b', record, record_offset + 0x5C)[0]
@@ -6499,19 +6501,19 @@ class CDS3SaveEditorApp:
         city_id = record[record_offset + 0x2E]
         building_id = record[record_offset + 0x30]
         hire_state = 3 if is_current_officer else record[record_offset + 0x62]
-        city_name = '함대 소속' if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
-        building_name = {4: '주점', 5: '여관'}.get(building_id, '')
-        hire_text = {1: '대화 가능', 2: '고용 가능', 3: '고용 중'}.get(hire_state, UI_EMPTY_VALUE)
+        city_name = ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
+        building_name = {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, '')
+        hire_text = {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)
         if not is_preview:
             self._officer_selected_id = character_id
         basic_rows = (
-            ('이름', name),
-            ('나이', f'{age}세'),
-            ('국적', NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
-            ('직업', JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
-            ('도시', city_name),
-            ('건물', building_name or '-'),
-            ('고용', hire_text),
+            (ui('ui_0062'), name),
+            (ui('ui_0493'), ui('ui_0502', age)),
+            (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
+            (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
+            (ui('ui_0354'), city_name),
+            (ui('ui_0409'), building_name or '-'),
+            (ui('ui_0410'), hire_text),
         )
         for index, (field, value) in enumerate(basic_rows):
             self.tree_officer_basic.insert('', tk.END, values=(index, field, value))
@@ -6523,22 +6525,13 @@ class CDS3SaveEditorApp:
                 self.officer_face_photo = photo
                 self.lbl_officer_face.config(image=photo)
 
-        stat_rows = (
-            ('체력', record[record_offset + 0x00]),
-            ('지력', record[record_offset + 0x01]),
-            ('무력', record[record_offset + 0x02]),
-            ('매력', record[record_offset + 0x03]),
-            ('운', record[record_offset + 0x04]),
-            ('신앙심', record[record_offset + 0x05]),
-            ('고용비 계수', record[record_offset + 0x66]),
-            ('생명력', struct.unpack_from('<I', record, record_offset + CHARACTER_SPECIAL_STAT_OFFSET)[0]),
-        )
+        stat_rows = self._character_stat_rows(record, record_offset)
         for index, (stat_name, value) in enumerate(stat_rows):
             self.tree_officer_stats.insert('', tk.END, values=(index, stat_name, value))
         fame = struct.unpack_from('<H', record, record_offset + 0x26)[0]
         infamy = struct.unpack_from('<H', record, record_offset + 0x2A)[0]
-        self.tree_officer_fame.insert('', tk.END, values=(0, '명성', f'{fame:,}'))
-        self.tree_officer_fame.insert('', tk.END, values=(1, '악명', f'{infamy:,}'))
+        self.tree_officer_fame.insert('', tk.END, values=(0, ui('ui_0407'), f'{fame:,}'))
+        self.tree_officer_fame.insert('', tk.END, values=(1, ui('ui_0497'), f'{infamy:,}'))
         for skill_index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target_tree = self.tree_officer_tech if skill_index < 13 else self.tree_officer_lang
             row_number = skill_index if skill_index < 13 else skill_index - 13
@@ -6618,8 +6611,8 @@ class CDS3SaveEditorApp:
             # 아직 상세 표가 구성되지 않은 경우에만 전체 표시를 갱신한다.
             self._refresh_role_display(key)
             return
-        tree.item(rows[1], values=(1, '나이', f'{age}세' if age >= 0 else '미등장'))
-        tree.item(rows[7], values=(7, ui('ui_0411'), '미등장' if age < 18 else '은퇴' if age > 60 else '등장'))
+        tree.item(rows[1], values=(1, ui('ui_0493'), ui('ui_0502', age) if age >= 0 else ui('ui_0466')))
+        tree.item(rows[7], values=(7, ui('ui_0411'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0499')))
 
     def _refresh_birth_zodiac(self):
         """주인공 생일 입력값에 맞춰 별자리 표시를 갱신한다."""
@@ -6715,20 +6708,21 @@ class CDS3SaveEditorApp:
             return
         tree.delete(*tree.get_children())
         if barmaid is None:
-            for index, field in enumerate(('도시', '등장', '별자리', '혈액형', '성격', ui('ui_0061'), '전수 언어')):
+            for index, field in enumerate((ui('ui_0354'), ui('ui_0411'), ui('ui_0065'), ui('ui_0066'),
+                                           ui('ui_0501'), ui('ui_0061'), ui('ui_0068'))):
                 tree.insert('', tk.END, values=(index, field, '-'))
             return
         flags = int(barmaid.get('language_flags', 0))
         languages = [name for bit, name in enumerate(LANGUAGE_NAMES) if flags & (1 << bit)]
         fortune = self.lbl_wife_compat.cget('text') if hasattr(self, 'lbl_wife_compat') else '-'
         rows = (
-            ('도시', get_barmaid_city_name(barmaid)),
-            ('등장', f"{barmaid['year']}년"),
-            ('별자리', get_barmaid_zodiac_name(barmaid)),
-            ('혈액형', get_barmaid_blood_name(barmaid)),
-            ('성격', get_barmaid_personality(barmaid)),
+            (ui('ui_0354'), get_barmaid_city_name(barmaid)),
+            (ui('ui_0411'), f"{barmaid['year']}{ui('ui_0233')}"),
+            (ui('ui_0065'), get_barmaid_zodiac_name(barmaid)),
+            (ui('ui_0066'), get_barmaid_blood_name(barmaid)),
+            (ui('ui_0501'), get_barmaid_personality(barmaid)),
             (ui('ui_0061'), fortune or '-'),
-            ('전수 언어', ', '.join(languages) if languages else '-'),
+            (ui('ui_0068'), ', '.join(languages) if languages else '-'),
         )
         for index, (field, value) in enumerate(rows):
             tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
@@ -6799,7 +6793,7 @@ class CDS3SaveEditorApp:
                 self._set_wife_detail_fields_visible(True)
                 self.wife_face_box.place(x=0, y=4)
                 self.lbl_wife_city.config(text=get_barmaid_city_name(b))
-                self.lbl_wife_year.config(text=f"{b['year']}년")
+                self.lbl_wife_year.config(text=f"{b['year']}{ui('ui_0233')}")
                 self.lbl_wife_zodiac.config(text=get_barmaid_zodiac_name(b))
                 self.lbl_wife_blood.config(text=get_barmaid_blood_name(b))
                 self.lbl_wife_personality.config(text=get_barmaid_personality(b))
@@ -6917,7 +6911,7 @@ class CDS3SaveEditorApp:
             pass
         tree.delete(*tree.get_children())
         tree.insert('', tk.END, iid='__none__', values=('-', ui('ui_0319')))
-        if query == '없음':
+        if query == ui('ui_0319').casefold():
             query = ''
         for barmaid in BARMAID_DATABASE:
             if query and query not in barmaid['name'].casefold():
@@ -7329,7 +7323,9 @@ class CDS3SaveEditorApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tk.Label(tooltip, text=stat_defs[index][1], justify='left', anchor='w',
+        tooltip_text = (ui('ui_0469', self.stat_values[0], self.stat_values[6])
+                        if index == 6 else stat_defs[index][1])
+        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w',
                  bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
                  padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
         tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
@@ -8250,10 +8246,10 @@ class CDS3SaveEditorApp:
         for i, d, search_key in self._discovery_search_index:
             st = discovery_states[i] if self.file_buffer else 0
             if self.file_buffer:
-                if st == 2:
+                if st == 3:
                     rep_cnt += 1
                 else:
-                    if st == 1:
+                    if st == 2:
                         disc_cnt += 1
             if category_filter is not None and d['category'] != category_filter:
                 continue
@@ -8268,7 +8264,7 @@ class CDS3SaveEditorApp:
                 hint_text = hint_state_text(self.file_buffer, d['hint_id'])
                 if active_contract_disc_index == int(d['index']):
                     hint_text = ui('ui_0458')
-                d_name = discovery_discoverers[i] if discovery_discoverers[i] else p_name if st > 0 else UI_EMPTY_VALUE
+                d_name = discovery_discoverers[i] if discovery_discoverers[i] else p_name if st > 1 else UI_EMPTY_VALUE
                 disc_d = discovery_dates[i]
                 rep_d = report_dates[i]
             else:
@@ -8295,13 +8291,13 @@ class CDS3SaveEditorApp:
             self.discovery_state[idx] = target_st
             p_name = self.get_player_full_name()
             cur_date_str = self.get_current_game_date_str()
-            if target_st == 2:
+            if target_st == 3:
                 self.discovery_discoverer[idx] = p_name
                 if self.discovery_disc_date[idx] == UI_EMPTY_VALUE:
                     self.discovery_disc_date[idx] = cur_date_str
                 self.discovery_rep_date[idx] = cur_date_str
             else:
-                if target_st == 1:
+                if target_st == 2:
                     self.discovery_discoverer[idx] = p_name
                     self.discovery_disc_date[idx] = cur_date_str
                     self.discovery_rep_date[idx] = UI_EMPTY_VALUE
@@ -8309,9 +8305,9 @@ class CDS3SaveEditorApp:
                     self.discovery_discoverer[idx] = ''
                     self.discovery_disc_date[idx] = UI_EMPTY_VALUE
                     self.discovery_rep_date[idx] = UI_EMPTY_VALUE
-            self.sync_sea_monster_from_discovery(self.discovery_db[idx]['index'], target_st > 0)
+            self.sync_sea_monster_from_discovery(self.discovery_db[idx]['index'], target_st > 1)
             contract_completed = (
-                target_st == 2 and
+                target_st == 3 and
                 self._complete_sponsor_contract_for_discovery(self.discovery_db[idx]['index']))
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
@@ -8319,13 +8315,13 @@ class CDS3SaveEditorApp:
             if contract_completed:
                 self.lbl_status.config(text=ui('ui_0461'))
     def cycle_selected_discovery_state(self, _event=None):
-        """Enter: 미발견 → 발견 → 보고 완료 → 미발견으로 즉시 전환한다."""
+        """Enter: 미등장 → 미발견 → 발견 → 보고 완료 순으로 즉시 전환한다."""
         if not self.file_buffer:
             return 'break'
         sel = self.tree_disc.selection()
         if sel:
             idx = int(sel[0])
-            self.set_discovery_single_state(idx, (self.discovery_state[idx] + 1) % 3)
+            self.set_discovery_single_state(idx, (self.discovery_state[idx] + 1) % 4)
         return 'break'
     def on_discovery_double_click(self, event):
         if not self.file_buffer:
@@ -8356,7 +8352,7 @@ class CDS3SaveEditorApp:
                     desc = DISCOVERY_DESCRIPTIONS.get(d['index'], '')
                     st = self.discovery_state[d_idx] if self.file_buffer else 0
                     p_name = self.get_player_full_name() if self.file_buffer else UI_EMPTY_VALUE
-                    d_name = self.discovery_discoverer[d_idx] if self.file_buffer and self.discovery_discoverer[d_idx] else p_name if st > 0 else UI_EMPTY_VALUE
+                    d_name = self.discovery_discoverer[d_idx] if self.file_buffer and self.discovery_discoverer[d_idx] else p_name if st > 1 else UI_EMPTY_VALUE
                     disc_d = self.discovery_disc_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
                     rep_d = self.discovery_rep_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
                     return (d, desc, st, disc_d, rep_d, d_name)
@@ -8431,6 +8427,7 @@ class CDS3SaveEditorApp:
         menu.add_command(label=discovery_state_text(0, menu=True), command=lambda: self.set_discovery_single_state(idx, 0))
         menu.add_command(label=discovery_state_text(1, menu=True), command=lambda: self.set_discovery_single_state(idx, 1))
         menu.add_command(label=discovery_state_text(2, menu=True), command=lambda: self.set_discovery_single_state(idx, 2))
+        menu.add_command(label=discovery_state_text(3, menu=True), command=lambda: self.set_discovery_single_state(idx, 3))
         menu.tk_popup(x, y)
     def apply_batch_discovery_state(self):
         if not self.file_buffer:
@@ -8470,13 +8467,13 @@ class CDS3SaveEditorApp:
             cur_date_str = self.get_current_game_date_str()
             for i in range(len(self.discovery_db)):
                 self.discovery_state[i] = target_st
-                if target_st == 2:
+                if target_st == 3:
                     self.discovery_discoverer[i] = p_name
                     if self.discovery_disc_date[i] == UI_EMPTY_VALUE:
                         self.discovery_disc_date[i] = cur_date_str
                     self.discovery_rep_date[i] = cur_date_str
                 else:
-                    if target_st == 1:
+                    if target_st == 2:
                         self.discovery_discoverer[i] = p_name
                         self.discovery_disc_date[i] = cur_date_str
                         self.discovery_rep_date[i] = UI_EMPTY_VALUE
@@ -8484,8 +8481,8 @@ class CDS3SaveEditorApp:
                         self.discovery_discoverer[i] = ''
                         self.discovery_disc_date[i] = UI_EMPTY_VALUE
                         self.discovery_rep_date[i] = UI_EMPTY_VALUE
-                self.sync_sea_monster_from_discovery(self.discovery_db[i]['index'], target_st > 0)
-                if target_st == 2:
+                self.sync_sea_monster_from_discovery(self.discovery_db[i]['index'], target_st > 1)
+                if target_st == 3:
                     self._complete_sponsor_contract_for_discovery(self.discovery_db[i]['index'])
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
@@ -8741,9 +8738,9 @@ class CDS3SaveEditorApp:
             for i, discovery in enumerate(self.discovery_db):
                 off = discovery['save_offset']
                 marker = self.file_buffer[off - 1]
-                # 세이브에 기록하는 상태 마커는 미발견 0x0C, 발견 0x4C,
-                # 보고 완료 0xCC이다. 상위 비트만 검사하면 기존 0x40/0xC0
-                # 형식도 함께 읽을 수 있다.
+                # 세이브의 상태 마커는 미등장 0x00, 미발견 0x0C, 발견 0x4C,
+                # 보고 완료 0xCC이다. 상위 비트 검사는 기존 0x40/0xC0 형식도
+                # 함께 읽기 위해 사용한다.
                 has_rep = (marker & 0xC0) == 0xC0
                 has_disc = (marker & 0x40) != 0
                 if has_disc:
@@ -8752,14 +8749,14 @@ class CDS3SaveEditorApp:
                 if has_rep:
                     ry = struct.unpack_from('<H', self.file_buffer, off + 134)[0]
                     self.discovery_rep_date[i] = format_game_date(ry if ry > 0 else gy, gm, gd)
-                    self.discovery_state[i] = 2
+                    self.discovery_state[i] = 3
                     self.discovery_discoverer[i] = read_cp949(self.file_buffer, off + 95, 18) or read_cp949(self.file_buffer, off + 1, 18)
                 elif has_disc:
+                    self.discovery_state[i] = 2
+                    self.discovery_discoverer[i] = read_cp949(self.file_buffer, off + 1, 18)
+                elif marker != 0:
                     self.discovery_state[i] = 1
                     self.discovery_discoverer[i] = read_cp949(self.file_buffer, off + 1, 18)
-            # 카바신전은 접근 차단 이벤트의 조건 플래그이므로, 사용자가 상태를
-            # 바꾸지 않았다면 저장 과정에서 해당 세이브 레코드를 건드리지 않는다.
-            self.discovery_original_state = list(self.discovery_state)
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
             self.refresh_fleet_list()
@@ -8806,7 +8803,7 @@ class CDS3SaveEditorApp:
                         with open(target_path, 'rb') as sf:
                             with open(bak_path, 'wb') as df:
                                 df.write(sf.read())
-                        bak_msg = f'\n(백업 파일 생성됨: {bak_path})'
+                        bak_msg = ui('ui_0509', bak_path)
                     except Exception as bak_err:
                         print('Backup creation error:', bak_err)
             first_bytes = self.txt_first_name.get().strip().encode('cp949')
@@ -8872,19 +8869,12 @@ class CDS3SaveEditorApp:
             cur_date_bytes = bytes([cur_y & 255, cur_y >> 8 & 255, 0, 0, 1, 0, 0, 0])
             for i, d in enumerate(self.discovery_db):
                 d_off = d['save_offset']
-                # 카바신전(No.63)은 미수정 상태면 원본 바이트를 그대로 보존한다.
-                # 그래야 일반 발견물 저장으로 인해 접근 차단 플래그가 바뀌지 않는다.
-                if (d['index'] == 63 and
-                        i < len(getattr(self, 'discovery_original_state', ())) and
-                        self.discovery_state[i] == self.discovery_original_state[i]):
-                    continue
                 if d_off + 164 <= len(self.file_buffer):
                     st = self.discovery_state[i]
                     marker_off = d_off - 1
-                    # 카바신전은 일반 미발견(0x0C)이 아니라 완전 미등록(0x00)
-                    # 상태여야 백과사전에 빈 항목으로 남지 않는다. 다음 발견물의
-                    # 공유 상태 마커(d_off + 163)는 보존한다.
-                    if d['index'] == 63 and st == 0:
+                    # 미등장은 미발견(0x0C)과 달리 레코드 전체가 미등록 형식이다.
+                    # 다음 발견물의 공유 상태 마커(d_off + 163)는 보존한다.
+                    if st == 0:
                         self.file_buffer[marker_off] = 0
                         self.file_buffer[d_off:d_off + 163] = b'\x00' * 163
                         # 일반 미발견 레코드와 동일하게 날짜 미설정 필드는 FF로
@@ -8893,7 +8883,7 @@ class CDS3SaveEditorApp:
                         self.file_buffer[d_off + 40:d_off + 48] = b'\xff' * 8
                         self.file_buffer[d_off + 134:d_off + 142] = b'\xff' * 8
                         continue
-                    if st == 2:
+                    if st == 3:
                         self.file_buffer[marker_off] = 204
                         self.file_buffer[d_off] = 1
                         self.file_buffer[d_off + 1:d_off + 19] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -8909,7 +8899,7 @@ class CDS3SaveEditorApp:
                         struct.pack_into('<H', self.file_buffer, d_off + 84, cur_y)
                         # d_off + 163은 다음 발견물의 상태 마커이므로 건드리지 않는다.
                     else:
-                        if st == 1:
+                        if st == 2:
                             self.file_buffer[marker_off] = 76
                             self.file_buffer[d_off] = 1
                             self.file_buffer[d_off + 1:d_off + 19] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
