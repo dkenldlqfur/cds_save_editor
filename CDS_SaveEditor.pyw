@@ -2656,6 +2656,10 @@ class CDS3SaveEditorApp:
                 '  timeout /t 1 /nobreak >nul',
                 '  goto replace_editor',
                 ')',
+                # PyInstaller 6.9+에서는 부모 EXE의 _PYI_* 환경을 상속한 재시작을
+                # 작업자 프로세스로 처리한다. 업데이트 후 새 EXE는 기존 one-file
+                # 인스턴스보다 오래 살아야 하므로 독립 인스턴스로 초기화해야 한다.
+                'set "PYINSTALLER_RESET_ENVIRONMENT=1"',
                 'start "" "%UPDATE_TARGET%" --update-notice "%UPDATE_NOTICE%"',
                 'rmdir "%UPDATE_DIRECTORY%" 2>nul',
                 'del "%~f0"',
