@@ -2547,7 +2547,6 @@ class CDS3SaveEditorApp:
         target_path = os.path.abspath(sys.executable)
         script_path = os.path.join(tempfile.gettempdir(), f'CDS_SaveEditor_update_{os.getpid()}.cmd')
         notice_path = os.path.join(tempfile.gettempdir(), f'CDS_SaveEditor_update_notice_{os.getpid()}.json')
-        pid = os.getpid()
         try:
             # 새 EXE는 이 일회용 파일을 읽어 업데이트 직후에만 릴리즈 노트를 표시한다.
             with open(notice_path, 'w', encoding='utf-8') as notice_file:
@@ -2555,24 +2554,28 @@ class CDS3SaveEditorApp:
                     'version': str(release.get('tag_name', '')).lstrip('vV'),
                     'notes': str(release.get('body', '')).strip(),
                 }, notice_file, ensure_ascii=False)
+            # PID를 폴링하면 PID가 재사용된 경우 영구 대기할 수 있다. 현재 EXE의
+            # 파일 잠금이 풀릴 때까지 실제 교체를 재시도하는 편이 안전하다.
             script = '\r\n'.join((
                 '@echo off',
                 'setlocal',
-                ':wait_for_editor',
-                f'tasklist /FI "PID eq {pid}" /NH | find "{pid}" >nul',
-                'if not errorlevel 1 (',
+                f'set "UPDATE_SOURCE={download_path}"',
+                f'set "UPDATE_TARGET={target_path}"',
+                f'set "UPDATE_NOTICE={notice_path}"',
+                ':replace_editor',
+                'move /Y "%UPDATE_SOURCE%" "%UPDATE_TARGET%" >nul 2>nul',
+                'if errorlevel 1 (',
                 '  timeout /t 1 /nobreak >nul',
-                '  goto wait_for_editor',
+                '  goto replace_editor',
                 ')',
-                f'move /Y "{download_path}" "{target_path}" >nul',
-                f'start "" "{target_path}" --update-notice "{notice_path}"',
+                'start "" "%UPDATE_TARGET%" --update-notice "%UPDATE_NOTICE%"',
                 'del "%~f0"',
             ))
             with open(script_path, 'w', encoding='mbcs', newline='') as script_file:
                 script_file.write(script)
             creationflags = (getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) |
-                             getattr(subprocess, 'DETACHED_PROCESS', 0))
-            subprocess.Popen(['cmd.exe', '/c', script_path], close_fds=True, creationflags=creationflags)
+                             getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            subprocess.Popen(['cmd.exe', '/d', '/c', script_path], close_fds=True, creationflags=creationflags)
         except (OSError, ValueError) as error:
             self._handle_update_download_error(error)
             return
