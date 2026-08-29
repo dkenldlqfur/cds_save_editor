@@ -617,6 +617,26 @@ class CalendarDatePicker(tk.Frame):
         self._shown_day = day
         self._render_days()
 
+    def _apply_calendar_field_while_typing(self, field):
+        """직접 입력 중인 날짜가 유효해지면 팝업의 날짜 격자만 즉시 갱신한다."""
+        variables = {
+            'year': self._year_var,
+            'month': self._month_var,
+            'day': self._day_var,
+        }
+        value = variables[field].get().strip()
+        if not value.isdigit():
+            return
+        # 연도는 네 자리를 입력하기 전에는 1·14·148처럼 중간값이므로 적용하지 않는다.
+        if field == 'year' and len(value) != 4:
+            return
+        if field == 'year':
+            self._apply_shown_year()
+        elif field == 'month':
+            self._apply_shown_month()
+        else:
+            self._apply_shown_day()
+
     def _choose_day(self, day):
         """달력에서 날짜만 선택한다. 적용은 하단 변경 버튼이 담당한다."""
         self._shown_day = day
@@ -624,6 +644,25 @@ class CalendarDatePicker(tk.Frame):
 
     def _confirm_date(self):
         """팝업에서 고른 임시 날짜를 실제 날짜 컨트롤에 적용한다."""
+        # 스핀박스에 직접 타이핑한 값은 Enter/포커스 이탈 전까지 _shown_*에
+        # 반영되지 않는다. 각 _apply_*는 달력을 다시 그리며 나머지 입력값을
+        # 초기화하므로, 여기서는 세 값을 모두 먼저 읽은 뒤 한 번에 확정한다.
+        try:
+            year = int(self._year_var.get())
+        except (TypeError, ValueError, tk.TclError):
+            year = self._shown_year
+        try:
+            month = int(self._month_var.get())
+        except (TypeError, ValueError, tk.TclError):
+            month = self._shown_month
+        try:
+            day = int(self._day_var.get())
+        except (TypeError, ValueError, tk.TclError):
+            day = self._shown_day
+        self._shown_year = min(self._max_year, max(self._min_year, year))
+        self._shown_month = min(12, max(1, month))
+        self._shown_day = min(
+            calendar.monthrange(self._shown_year, self._shown_month)[1], max(1, day))
         self._set_date(self._shown_year, self._shown_month, self._shown_day)
         self.refresh()
         self._close_popup()
@@ -644,6 +683,7 @@ class CalendarDatePicker(tk.Frame):
         year_spin.pack(side=tk.LEFT, padx=(8, 1))
         year_spin.bind('<Return>', self._apply_shown_year, add='+')
         year_spin.bind('<FocusOut>', self._apply_shown_year, add='+')
+        year_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('year'), add='+')
         tk.Label(header, text=ui('ui_0233'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 5))
         self._month_var = tk.StringVar(value=str(self._shown_month))
         month_spin = ttk.Spinbox(header, textvariable=self._month_var, from_=1, to=12, width=3, justify='center', command=self._apply_shown_month)
@@ -654,6 +694,7 @@ class CalendarDatePicker(tk.Frame):
         month_spin.pack(side=tk.LEFT)
         month_spin.bind('<Return>', self._apply_shown_month, add='+')
         month_spin.bind('<FocusOut>', self._apply_shown_month, add='+')
+        month_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('month'), add='+')
         tk.Label(header, text=ui('ui_0234'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 5))
         self._day_var = tk.StringVar(value=str(self._shown_day))
         day_spin = ttk.Spinbox(header, textvariable=self._day_var, from_=1, to=calendar.monthrange(self._shown_year, self._shown_month)[1], width=3, justify='center', command=self._apply_shown_day)
@@ -664,6 +705,8 @@ class CalendarDatePicker(tk.Frame):
         day_spin.configure(validate='key', validatecommand=(day_validate, '%P'))
         day_spin.pack(side=tk.LEFT)
         day_spin.bind('<Return>', self._apply_shown_day, add='+')
+        day_spin.bind('<FocusOut>', self._apply_shown_day, add='+')
+        day_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('day'), add='+')
         tk.Label(header, text=ui('ui_0235'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, expand=True)
         EditorButton(header, text=ui('ui_0514'), width=3, command=lambda: self._move_month(1)).pack(side=tk.RIGHT)
         self._day_spin = day_spin
@@ -2261,7 +2304,9 @@ class CDS3SaveEditorApp:
         x = max(0, (self.root.winfo_screenwidth() - window_width) // 2)
         y = max(0, (self.root.winfo_screenheight() - window_height) // 2)
         self.root.geometry(f'{window_width}x{window_height}+{x}+{y}')
-        self.root.resizable(False, False)
+        # 기본 크기는 유지하되 사용자가 창 크기를 조절할 수 있게 한다.
+        self.root.resizable(True, True)
+        self.root.minsize(window_width, window_height)
         possible_icons = []
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
                 possible_icons.append(os.path.join(sys._MEIPASS, 'Icon.ico'))
@@ -3218,12 +3263,14 @@ class CDS3SaveEditorApp:
                 widget.bind('<<ComboboxSelected>>', lambda _event: self._apply_fleet_live(), add='+')
             return widget
 
-        # 함선 종류는 이름보다 위에 두고, 같은 줄 오른쪽에 기함을 배치한다.
+        # 함선 종류는 이름보다 위에 두고, 다른 항목과 같은 라벨·입력 열을 쓴다.
+        tk.Label(editor, text=ui('ui_0126') + ':', anchor='e', font=('Malgun Gothic', 9)).grid(
+            row=1, column=0, sticky='e', padx=(0, 7), pady=3)
         fleet_type_row = tk.Frame(editor)
-        fleet_type_row.grid(row=1, column=0, columnspan=2, sticky='ew', pady=3)
-        tk.Label(fleet_type_row, text=ui('ui_0126') + ':', font=('Malgun Gothic', 9)).pack(
-            side=tk.LEFT, padx=(0, 7))
-        create_fleet_widget(fleet_type_row, 'ship_type').pack(side=tk.LEFT, fill=tk.X, expand=True)
+        fleet_type_row.grid(row=1, column=1, sticky='ew', pady=3)
+        # 기본 창 크기에서도 기함 체크박스가 잘리지 않도록 콤보박스의 최소 요청 폭을
+        # 줄인다. fill/expand는 유지하므로 넓은 창에서는 이전처럼 확장된다.
+        create_fleet_widget(fleet_type_row, 'ship_type', width=14).pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fleet_flagship_var = tk.BooleanVar(value=False)
         flagship_box = tk.Frame(fleet_type_row)
         flagship_box.pack(side=tk.RIGHT, padx=(8, 0))
@@ -3246,28 +3293,29 @@ class CDS3SaveEditorApp:
                 widget.grid(row=row, column=1, sticky='ew', pady=3)
             else:
                 pair = tk.Frame(editor)
+                # 최대·현재 영역을 정확히 반반으로 나눈다. 각 절반의 입력칸은
+                # 창을 넓힌 만큼 함께 커진다.
                 pair.grid(row=row, column=1, sticky='ew', pady=3)
-                # 최대/현재 입력칸은 같은 폭으로 고정한다. 함대 편집 영역의
-                # 오른쪽 여백을 확보해 스핀 버튼이 잘리지 않도록 56px로 맞춘다.
-                pair.columnconfigure(1, minsize=56)
-                pair.columnconfigure(2, weight=1)
-                tk.Label(pair, text=ui('ui_0129'), font=('Malgun Gothic', 9)).grid(
+                pair.columnconfigure(0, weight=1, uniform='fleet_pair_fields')
+                pair.columnconfigure(1, weight=1, uniform='fleet_pair_fields')
+                max_group = tk.Frame(pair)
+                max_group.grid(row=0, column=0, sticky='ew', padx=(0, 6))
+                max_group.columnconfigure(1, weight=1)
+                tk.Label(max_group, text=ui('ui_0129'), font=('Malgun Gothic', 9)).grid(
                     row=0, column=0, sticky='w', padx=(0, 3))
-                max_box = tk.Frame(pair, width=56, height=23)
-                max_box.grid(row=0, column=1, sticky='nsew')
+                max_box = tk.Frame(max_group, height=23)
+                max_box.grid(row=0, column=1, sticky='ew')
                 max_box.grid_propagate(False)
                 max_box.columnconfigure(0, weight=1)
                 max_box.rowconfigure(0, weight=1)
-                # ttk.Spinbox의 화살표 영역을 고려해 좁은 공통 슬롯 폭에 맞춘다.
                 create_fleet_widget(max_box, keys[0], width=3).grid(sticky='nsew')
-                # 현재 라벨과 입력칸을 한 묶음으로 우측 정렬한다. 별도 열로 나누면
-                # 남는 폭이 두 컨트롤 사이의 빈 공간으로 보인다.
                 current_group = tk.Frame(pair)
-                current_group.grid(row=0, column=2, columnspan=2, sticky='e')
-                tk.Label(current_group, text=ui('ui_0130'), anchor='e', font=('Malgun Gothic', 9)).pack(
-                    side=tk.LEFT, padx=(8, 3))
-                current_box = tk.Frame(current_group, width=56, height=23)
-                current_box.pack(side=tk.LEFT)
+                current_group.grid(row=0, column=1, sticky='ew', padx=(6, 0))
+                current_group.columnconfigure(1, weight=1)
+                tk.Label(current_group, text=ui('ui_0130'), anchor='e', font=('Malgun Gothic', 9)).grid(
+                    row=0, column=0, sticky='w', padx=(0, 3))
+                current_box = tk.Frame(current_group, height=23)
+                current_box.grid(row=0, column=1, sticky='ew')
                 current_box.grid_propagate(False)
                 current_box.columnconfigure(0, weight=1)
                 current_box.rowconfigure(0, weight=1)
@@ -4321,9 +4369,16 @@ class CDS3SaveEditorApp:
         self.cbo_city_status.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
 
         self._build_city_numeric_form_field(basic_tab, 5, 0, 'shipyard_level')
+        # 도시 규모는 기본 탭의 마지막 입력 행을 단독으로 사용하므로, 오른쪽의
+        # 남는 열까지 차지하게 해 창 확장 시 입력칸도 함께 넓어진다.
+        self.city_field_widgets['shipyard_level'].grid_configure(columnspan=3)
 
         facility_box = tk.LabelFrame(basic_tab, text=ui('ui_0343'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
         facility_box.grid(row=6, column=0, columnspan=4, sticky='ew', pady=(10, 0))
+        # 보유 시설의 세 열을 같은 비율로 늘려, 최대화 시 체크박스 위치도
+        # 그룹 폭에 맞춰 자연스럽게 분산되게 한다.
+        for column in range(3):
+            facility_box.columnconfigure(column, weight=1, uniform='city_facility_columns')
         self.city_facility_vars = {}
         self.city_facility_checks = {}
         for position, (bit, name) in enumerate(sorted(self.CITY_FACILITY_NAMES.items())):
@@ -4342,6 +4397,8 @@ class CDS3SaveEditorApp:
         self.city_ship_box = ship_box
         self.city_ship_vars = [tk.BooleanVar(value=False) for _ in range(8)]
         self.city_ship_checks = []
+        for column in range(2):
+            ship_box.columnconfigure(column, weight=1, uniform='city_ship_columns')
         for code, var in enumerate(self.city_ship_vars):
             checkbox = tk.Checkbutton(ship_box, text=self._fleet_ship_type_name(code), variable=var,
                                       font=('Malgun Gothic', 9),
@@ -4386,9 +4443,13 @@ class CDS3SaveEditorApp:
             self._build_city_supply_form_field(trade_tab, number + 5, f'economy_{number}')
 
         market_goods_box.columnconfigure(1, weight=1)
-        for tab in (basic_tab, market_tab, trade_tab):
-            tab.columnconfigure(1, weight=1)
-            tab.columnconfigure(3, weight=1)
+        # 각 탭이 실제로 사용하는 열만 가변으로 둔다. 이전에는 시장·조선과
+        # 교역 탭에도 사용하지 않는 1·3열의 가중치를 줘서, 내용이 탭 폭의
+        # 절반 정도에서 멈췄다.
+        basic_tab.columnconfigure(1, weight=1)
+        basic_tab.columnconfigure(3, weight=1)
+        market_tab.columnconfigure(0, weight=1)
+        trade_tab.columnconfigure(1, weight=1)
 
         right = tk.LabelFrame(parent, text=GROUP_TITLES['city_basic'], font=('Malgun Gothic', 9, 'bold'), padx=8, pady=8)
         right.grid(row=0, column=2, sticky='nsew', padx=(5, 10), pady=10)
@@ -5077,35 +5138,35 @@ class CDS3SaveEditorApp:
         grp_player.grid_columnconfigure(6, weight=1)
         COL_LBL_W = 55
         name_line = tk.Frame(f_p_right)
-        name_line.grid(row=0, column=1, columnspan=6, pady=(1, 1), sticky='w')
+        name_line.grid(row=0, column=1, columnspan=6, pady=(1, 1), sticky='ew')
         tk.Label(name_line, text=ui('ui_0226'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
         f_name = tk.Frame(name_line)
-        f_name.pack(side=tk.LEFT)
+        f_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Label(f_name, text=ui('ui_0227'), font=VAL_FONT, fg='#666666').pack(side=tk.LEFT)
         last_name_host = tk.Frame(f_name, width=116, height=23)
-        last_name_host.pack(side=tk.LEFT, padx=(3, 8))
+        last_name_host.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 8))
         self.txt_last_name = NativeWinEdit(last_name_host, self._update_player_restore_state, width=116, height=23)
         tk.Label(f_name, text=ui('ui_0228'), font=VAL_FONT, fg='#666666').pack(side=tk.LEFT)
         first_name_host = tk.Frame(f_name, width=116, height=23)
-        first_name_host.pack(side=tk.LEFT, padx=(3, 0))
+        first_name_host.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
         self.txt_first_name = NativeWinEdit(first_name_host, self._update_player_restore_state, width=116, height=23)
         nation_line = tk.Frame(f_p_right)
-        nation_line.grid(row=1, column=1, columnspan=6, pady=(2, 1), sticky='w')
+        nation_line.grid(row=1, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(nation_line, text=ui('ui_0231'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
         f_nat = tk.Frame(nation_line)
-        f_nat.pack(side=tk.LEFT)
+        f_nat.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_nation = ttk.Combobox(f_nat, values=BASIC_NATIONS, state='readonly', width=26, font=VAL_FONT)
-        self.cbo_nation.pack(side=tk.LEFT, padx=(0, 4))
+        self.cbo_nation.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.cbo_nation.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
         self.chk_all_nations = tk.BooleanVar(value=False)
         self.chk_nat_widget = tk.Checkbutton(f_nat, text=ui('ui_0156'), variable=self.chk_all_nations, command=self.toggle_all_nations, font=VAL_FONT)
         self.chk_nat_widget.pack(side=tk.LEFT)
         # 날짜를 먼저 두고, 직업·혈액형·별자리는 그 아래 한 행에 나란히 둔다.
         date_line = tk.Frame(f_p_right)
-        date_line.grid(row=2, column=1, columnspan=6, pady=(2, 1), sticky='w')
+        date_line.grid(row=2, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(date_line, text=ui('ui_0232'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(0, 4))
         f_birth = tk.Frame(date_line)
-        f_birth.pack(side=tk.LEFT)
+        f_birth.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.spn_birth_y = ttk.Spinbox(f_birth, from_=1000, to=3000, width=5)
         self.spn_birth_m = ttk.Spinbox(f_birth, from_=1, to=12, width=3)
         self.spn_birth_d = ttk.Spinbox(f_birth, from_=1, to=31, width=3)
@@ -5115,7 +5176,7 @@ class CDS3SaveEditorApp:
         self.birth_date_picker = CalendarDatePicker(
             f_birth, self._get_birth_date, self._set_birth_date_from_calendar, font=VAL_FONT,
         )
-        self.birth_date_picker.pack(side=tk.LEFT)
+        self.birth_date_picker.pack(side=tk.LEFT, fill=tk.X, expand=True)
         for spinner in (self.spn_birth_y, self.spn_birth_m, self.spn_birth_d):
             spinner.bind('<KeyRelease>', self._on_birth_date_changed, add='+')
             spinner.bind('<Return>', self._on_birth_date_changed, add='+')
@@ -5124,7 +5185,7 @@ class CDS3SaveEditorApp:
             spinner.bind('<<Decrement>>', self._on_birth_date_changed, add='+')
         tk.Label(date_line, text=ui('ui_0236'), font=LBL_FONT, anchor='e', fg='#1A73E8').pack(side=tk.LEFT, padx=(8, 2))
         f_game = tk.Frame(date_line)
-        f_game.pack(side=tk.LEFT)
+        f_game.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.spn_game_y = ttk.Spinbox(f_game, from_=1480, to=1559, width=5)
         self.spn_game_m = ttk.Spinbox(f_game, from_=1, to=12, width=3)
         self.spn_game_d = ttk.Spinbox(f_game, from_=1, to=31, width=3)
@@ -5141,26 +5202,26 @@ class CDS3SaveEditorApp:
             f_game, self._get_game_date, self._set_game_date_from_calendar,
             font=VAL_FONT, min_year=1480, max_year=1559,
         )
-        self.game_date_picker.pack(side=tk.LEFT)
+        self.game_date_picker.pack(side=tk.LEFT, fill=tk.X, expand=True)
         info_line = tk.Frame(f_p_right)
-        info_line.grid(row=3, column=1, columnspan=6, pady=(2, 1), sticky='w')
+        info_line.grid(row=3, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(info_line, text=ui('ui_0229'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(0, 4))
         self.cbo_job = ttk.Combobox(info_line, values=JOB_NAMES, state='readonly', width=9, font=VAL_FONT)
-        self.cbo_job.pack(side=tk.LEFT)
+        self.cbo_job.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_job.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
         tk.Label(info_line, text=ui('ui_0230'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(8, 2))
         self.cbo_blood = ttk.Combobox(info_line, values=BLOOD_NAMES, state='readonly', width=4, font=VAL_FONT)
-        self.cbo_blood.pack(side=tk.LEFT)
+        self.cbo_blood.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda e: self.update_wife_combo_options())
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
         tk.Label(info_line, text=ui('ui_0399'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(8, 2))
         self.lbl_birth_zodiac = tk.Label(info_line, text='', font=('Malgun Gothic', 9), fg='#000000', anchor='w')
-        self.lbl_birth_zodiac.pack(side=tk.LEFT)
+        self.lbl_birth_zodiac.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.sponsor_contract_line = tk.Frame(f_p_right)
         self.sponsor_contract_line.grid(row=4, column=1, columnspan=6, pady=(3, 1), sticky='ew')
         tk.Label(self.sponsor_contract_line, text=ui('ui_0448'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
         self.lbl_sponsor_contract = tk.Label(self.sponsor_contract_line, text='', font=VAL_FONT, anchor='w')
-        self.lbl_sponsor_contract.pack(side=tk.LEFT)
+        self.lbl_sponsor_contract.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.sponsor_remaining_line = tk.Frame(f_p_right)
         self.sponsor_remaining_line.grid(row=5, column=1, columnspan=6, pady=(2, 0), sticky='ew')
         self.lbl_sponsor_remaining_days = tk.Label(
@@ -5176,7 +5237,7 @@ class CDS3SaveEditorApp:
             command=self._apply_sponsor_remaining_days,
             validate='key', validatecommand=(sponsor_days_validate, '%P'),
         )
-        self.spn_sponsor_remaining_days.pack(side=tk.LEFT, padx=(0, 2))
+        self.spn_sponsor_remaining_days.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
         self.lbl_sponsor_remaining_day_unit.pack(side=tk.LEFT)
         self.spn_sponsor_remaining_days.bind('<Return>', self._apply_sponsor_remaining_days, add='+')
         self.spn_sponsor_remaining_days.bind('<FocusOut>', self._apply_sponsor_remaining_days, add='+')
@@ -7762,20 +7823,27 @@ class CDS3SaveEditorApp:
         self.tree_storage.bind('<BackSpace>', lambda e: self.delete_selected_storage_item())
         self.tree_storage.bind('<Button-3>', self.show_storage_context_menu)
         f_db = tk.LabelFrame(parent, text=GROUP_TITLES['items_catalog'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=4)
+        self.f_item_catalog = f_db
         f_db.place(x=8, y=6, width=456, height=546)
         f_filter = tk.Frame(f_db)
         f_filter.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_filter, text=ui('ui_0250')).pack(side=tk.LEFT, padx=3)
+        f_filter.columnconfigure(0, weight=1, uniform='item_filter_fields')
+        f_filter.columnconfigure(1, weight=1, uniform='item_filter_fields')
+        category_filter = tk.Frame(f_filter)
+        category_filter.grid(row=0, column=0, sticky='ew', padx=(3, 4))
+        tk.Label(category_filter, text=ui('ui_0250')).pack(side=tk.LEFT, padx=(0, 3))
         category_ids = EDITOR_MAPPINGS['item_catalog_category_ids']
         category_values = [ui('ui_0156') if category_id == -1 else ui('ui_0105') if category_id == -2 else ITEM_CATEGORY_NAMES[category_id]
                            for category_id in category_ids]
-        self.cbo_item_cat = ttk.Combobox(f_filter, values=category_values, state='readonly', width=13)
+        self.cbo_item_cat = ttk.Combobox(category_filter, values=category_values, state='readonly', width=13)
         self.cbo_item_cat.current(0)
-        self.cbo_item_cat.pack(side=tk.LEFT, padx=2)
+        self.cbo_item_cat.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_item_cat.bind('<<ComboboxSelected>>', lambda e: self.refresh_item_catalog())
-        tk.Label(f_filter, text=ui('ui_0251')).pack(side=tk.LEFT, padx=2)
-        item_search_host = tk.Frame(f_filter, width=108, height=23)
-        item_search_host.pack(side=tk.LEFT, padx=2)
+        search_filter = tk.Frame(f_filter)
+        search_filter.grid(row=0, column=1, sticky='ew', padx=(4, 3))
+        tk.Label(search_filter, text=ui('ui_0251')).pack(side=tk.LEFT, padx=(0, 3))
+        item_search_host = tk.Frame(search_filter, width=108, height=23)
+        item_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.txt_item_search = NativeWinEdit(
             item_search_host,
             lambda: self._schedule_search_refresh('items', self.refresh_item_catalog),
@@ -7795,7 +7863,35 @@ class CDS3SaveEditorApp:
         self.tree_catalog.bind('<Return>', lambda e: self.show_catalog_menu_for_selected())
         self.tree_catalog.bind('<Double-1>', self.on_catalog_double_click)
         self.tree_catalog.bind('<Button-3>', self.show_catalog_context_menu)
+        parent.bind('<Configure>', self._on_items_tab_configure, add='+')
+        self.root.after_idle(self._layout_items_tab)
         self.refresh_item_catalog()
+
+    def _on_items_tab_configure(self, event):
+        """아이템 탭의 3개 영역을 창의 현재 작업 영역 크기에 맞춘다."""
+        if event.widget is self.tab_items:
+            self._layout_items_tab(event.width, event.height)
+
+    def _layout_items_tab(self, width=None, height=None):
+        """도감·소지품·보관함을 2열 가변 레이아웃으로 배치한다."""
+        if width is None:
+            width = self.tab_items.winfo_width()
+        if height is None:
+            height = self.tab_items.winfo_height()
+        if width <= 1 or height <= 1:
+            return
+        margin_x, margin_y, gap_x, gap_y = 8, 6, 8, 6
+        column_width = max(1, (width - margin_x * 2 - gap_x) // 2)
+        content_height = max(1, height - margin_y * 2)
+        list_height = max(1, (content_height - gap_y) // 2)
+        right_x = margin_x + column_width + gap_x
+        bottom_y = margin_y + list_height + gap_y
+        self.f_item_catalog.place(x=margin_x, y=margin_y,
+                                  width=column_width, height=content_height)
+        self.f_pocket.place(x=right_x, y=margin_y,
+                            width=column_width, height=list_height)
+        self.f_storage.place(x=right_x, y=bottom_y,
+                             width=column_width, height=list_height)
     def get_item_info(self, item_id):
         if 0 <= item_id < len(self.item_db):
                 return self.item_db[item_id]
