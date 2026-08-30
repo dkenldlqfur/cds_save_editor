@@ -17,6 +17,7 @@ import re
 import subprocess
 import tempfile
 import threading
+from datetime import datetime
 import zipfile
 from functools import lru_cache
 from urllib.error import HTTPError, URLError
@@ -629,25 +630,29 @@ def get_barmaid_zodiac_name(barmaid):
     return GAME_STRINGS['zodiac_names'][zodiac_id] if 0 <= zodiac_id < len(GAME_STRINGS['zodiac_names']) else ''
 
 
-def get_birth_zodiac_name(month, day):
-    """양력 생일의 월·일을 게임의 별자리 명칭으로 변환한다."""
+def get_birth_zodiac_id(month, day):
+    """CDS_95.EXE의 12궁 경계일로 양력 생일을 별자리 번호로 변환한다."""
     try:
         month, day = int(month), int(day)
     except (TypeError, ValueError):
-        return ''
+        return -1
     if not 1 <= month <= 12 or not 1 <= day <= 31:
-        return ''
-    # 물병자리부터 시작하는 별자리 경계일. 1월 1~19일은 전년도 염소자리다.
-    boundaries = ((1, 20, 10), (2, 19, 11), (3, 21, 0), (4, 20, 1),
-                  (5, 21, 2), (6, 21, 3), (7, 23, 4), (8, 23, 5),
-                  (9, 23, 6), (10, 23, 7), (11, 23, 8), (12, 22, 9))
-    zodiac_id = 9
-    for boundary_month, boundary_day, candidate_id in boundaries:
-        if (month, day) >= (boundary_month, boundary_day):
-            zodiac_id = candidate_id
-        else:
-            break
-    return GAME_STRINGS['zodiac_names'][zodiac_id]
+        return -1
+    date_code = month * 100 + day
+    if date_code < 321:
+        date_code += 1200
+    for zodiac_id, (start, end) in enumerate(((321, 420), (421, 521), (522, 621), (622, 722),
+                                                (723, 822), (823, 923), (924, 1023), (1024, 1122),
+                                                (1123, 1221), (1222, 1320), (1321, 1418), (1419, 1520))):
+        if start <= date_code <= end:
+            return zodiac_id
+    return -1
+
+
+def get_birth_zodiac_name(month, day):
+    """양력 생일의 월·일을 게임의 별자리 명칭으로 변환한다."""
+    zodiac_id = get_birth_zodiac_id(month, day)
+    return GAME_STRINGS['zodiac_names'][zodiac_id] if 0 <= zodiac_id < len(GAME_STRINGS['zodiac_names']) else ''
 
 
 def get_barmaid_blood_name(barmaid):
@@ -1400,7 +1405,7 @@ def get_discovery_video_path(disc_index):
 
 
 def load_item_discovery_map():
-    """Resources/item_discovery_map.json에서 아이템→발견물 No. 연결을 읽는다."""
+    """Resources/data/item_discovery_map.json에서 아이템→발견물 No. 연결을 읽는다."""
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1409,23 +1414,20 @@ def load_item_discovery_map():
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
 
     for base_dir in base_dirs:
-        for path in (
-            os.path.join(base_dir, 'Resources', 'item_discovery_map.json'),
-            os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', 'item_discovery_map.json'),
-        ):
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                mapping = data.get('item_to_discovery_no', data)
-                return {int(item_id): int(discovery_no)
-                        for item_id, discovery_no in mapping.items()}
-            except (OSError, ValueError, TypeError, AttributeError):
-                continue
+        path = os.path.join(base_dir, 'Resources', 'data', 'item_discovery_map.json')
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            mapping = data.get('item_to_discovery_no', data)
+            return {int(item_id): int(discovery_no)
+                    for item_id, discovery_no in mapping.items()}
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
     return {}
 
 
 # 발견물 테이블의 보상 필드와는 별도로, 실제로 발견물 리소스를 공용으로
-# 쓰는 것이 확인된 항목만 Resources/item_discovery_map.json에 기록한다.
+# 쓰는 것이 확인된 항목만 Resources/data/item_discovery_map.json에 기록한다.
 ITEM_DISCOVERY_NO = load_item_discovery_map()
 
 def get_item_discovery_no(item_id):
@@ -5495,7 +5497,7 @@ class CDS3SaveEditorApp:
         self.chk_all_nations = tk.BooleanVar(value=False)
         self.chk_nat_widget = tk.Checkbutton(f_nat, text=ui('ui_0156'), variable=self.chk_all_nations, command=self.toggle_all_nations, font=VAL_FONT)
         self.chk_nat_widget.pack(side=tk.LEFT)
-        # 날짜를 먼저 두고, 직업·혈액형·별자리는 그 아래 한 행에 나란히 둔다.
+        # 날짜를 먼저 두고, 직업·혈액형·성격 버튼은 그 아래 한 행에 나란히 둔다.
         date_line = tk.Frame(f_p_right)
         date_line.grid(row=2, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(date_line, text=ui('ui_0232'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(0, 4))
@@ -5548,9 +5550,12 @@ class CDS3SaveEditorApp:
         self.cbo_blood.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda e: self.update_wife_combo_options())
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
-        tk.Label(info_line, text=ui('ui_0399'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(8, 2))
-        self.lbl_birth_zodiac = tk.Label(info_line, text='', font=('Malgun Gothic', 9), fg='#000000', anchor='w')
-        self.lbl_birth_zodiac.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.btn_player_personality = EditorButton(
+            info_line, text=ui('ui_0501'), font=VAL_FONT,
+            bg='#E8F0FE', fg='#1A73E8', activebackground='#D2E3FC', activeforeground='#174EA6',
+            command=self.open_player_personality_html,
+        )
+        self.btn_player_personality.pack(side=tk.LEFT, padx=(8, 0))
         self.sponsor_contract_line = tk.Frame(f_p_right)
         self.sponsor_contract_line.grid(row=4, column=1, columnspan=6, pady=(3, 1), sticky='ew')
         tk.Label(self.sponsor_contract_line, text=ui('ui_0448'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
@@ -5818,13 +5823,13 @@ class CDS3SaveEditorApp:
             search_host, lambda: self._schedule_search_refresh('person-browser', self._refresh_person_browser),
             width=120, height=23)
         self.cbo_person_search.set('')
-        # 인물 유형이 부인일 때만 검색창 바로 오른쪽에서 웹 도감을 연다.
-        self.person_barmaid_guide_host = tk.Frame(header, width=64, height=23)
+        # 인물 유형이 부인일 때만 검색창 바로 오른쪽에서 도감을 연다.
+        # 성격 버튼과 같은 두 글자 버튼 폭을 사용한다.
+        self.person_barmaid_guide_host = tk.Frame(header, width=48, height=23)
         self.person_barmaid_guide_host.pack_propagate(False)
         self.btn_person_barmaid_guide = EditorButton(
             self.person_barmaid_guide_host, text=ui('ui_0158'), font=('Malgun Gothic', 9),
             command=self.open_barmaid_guide_html, bg='#FFF8E1', fg='#B06000',
-            width=8, padx=4, pady=1,
         )
         self.btn_person_barmaid_guide.pack(fill=tk.BOTH, expand=True)
         self._update_person_barmaid_guide_visibility()
@@ -5955,15 +5960,22 @@ class CDS3SaveEditorApp:
         if button is None or host is None:
             return
         if self._person_active_type == 'spouse':
-            # 검색창은 유형·검색 라벨과 우측 웹 도감 사이의 남은 폭을 모두 쓴다.
-            # 버튼은 별도 RIGHT 영역으로 고정한다.
-            self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
-            if not host.winfo_manager():
-                host.pack(side=tk.RIGHT, padx=(5, 0), anchor=tk.S)
+            # Pack은 배치 순서에 따라 남은 폭을 계산한다. 검색창이 먼저 확장된
+            # 상태에서 오른쪽 버튼을 뒤늦게 넣으면 버튼이 수 px로 눌린다.
+            # 고정 폭 버튼을 먼저 배치하고 검색창이 나머지를 쓰게 한다.
+            if self.person_search_host.winfo_manager():
+                self.person_search_host.pack_forget()
+            if host.winfo_manager():
+                host.pack_forget()
+            host.pack(side=tk.RIGHT, padx=(5, 0), anchor=tk.S)
+            self.person_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor=tk.S)
         else:
             if host.winfo_manager():
                 host.pack_forget()
-            self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
+            if not self.person_search_host.winfo_manager():
+                self.person_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor=tk.S)
+            else:
+                self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
 
     def _set_person_assignment_buttons_visible(self):
         """배정 가능한 유형의 제거와 전체 인물 정보 되돌리기를 갱신한다."""
@@ -7426,6 +7438,57 @@ class CDS3SaveEditorApp:
         if previous_id != barmaid['id'] and not getattr(self, '_is_loading_save', False):
             self.lbl_status.config(text=ui('ui_0416', barmaid['name']))
 
+
+    def open_player_personality_html(self):
+        """현재 주인공 값을 넘겨 웹 성격 진단서를 연다."""
+        if not self.file_buffer:
+            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'))
+            return
+        try:
+            from functools import partial
+            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+            from urllib.parse import quote, urlencode
+            import webbrowser
+
+            birth_month, birth_day = int(self.spn_birth_m.get()), int(self.spn_birth_d.get())
+            game_year, game_month, game_day = (
+                int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()))
+            birth_year = int(self.spn_birth_y.get())
+            zodiac_id = get_birth_zodiac_id(birth_month, birth_day)
+            job_id = int(self.cbo_job.current())
+            face_id = int(self.player_face_id)
+            age = get_player_age(game_year, game_month, game_day, birth_year, birth_month, birth_day)
+            if zodiac_id < 0 or job_id < 0:
+                raise ValueError('주인공의 생일 또는 직업을 확인할 수 없습니다.')
+
+            candidates = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Resources', 'personality_diagnosis.html'),
+                os.path.join(getattr(sys, '_MEIPASS', ''), 'Resources', 'personality_diagnosis.html'),
+                os.path.join(os.path.dirname(sys.executable), 'Resources', 'personality_diagnosis.html'),
+            ]
+            target_path = next((path for path in candidates if path and os.path.exists(path)), None)
+            if target_path is None:
+                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'))
+                return
+            resource_root = os.path.dirname(target_path)
+            server = getattr(self, '_barmaid_web_server', None)
+            if server is None or getattr(self, '_barmaid_web_root', None) != resource_root:
+                class QuietResourceHandler(SimpleHTTPRequestHandler):
+                    def log_message(self, _format, *_args):
+                        pass
+
+                handler = partial(QuietResourceHandler, directory=resource_root)
+                server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
+                self._barmaid_web_server = server
+                self._barmaid_web_root = resource_root
+                import threading
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+
+            query = urlencode({'zodiac': zodiac_id, 'job': job_id, 'face': face_id, 'age': age})
+            filename = quote(os.path.basename(target_path))
+            webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?{query}')
+        except Exception as exc:
+            messagebox.showerror(ui('ui_0211'), ui('ui_0043', exc))
 
     def open_player_face_picker(self):
         # ***<module>.CDS3SaveEditorApp.open_player_face_picker: Failure: Different bytecode
@@ -9302,7 +9365,10 @@ class CDS3SaveEditorApp:
         try:
             bak_msg = ''
             if self.chk_auto_backup.get() and os.path.exists(target_path):
-                    bak_path = target_path + '.bak'
+                    target_dir, target_name = os.path.split(target_path)
+                    target_stem, target_ext = os.path.splitext(target_name)
+                    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bak_path = os.path.join(target_dir, f'{target_stem}_{stamp}{target_ext}')
                     try:
                         with open(target_path, 'rb') as sf:
                             with open(bak_path, 'wb') as df:
@@ -9435,7 +9501,11 @@ class CDS3SaveEditorApp:
             from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
             from urllib.parse import quote
             import webbrowser
-            candidates = [os.path.join(os.path.dirname(os.path.abspath(__file__)), '대항해시대3_여급도감.html'), os.path.join(getattr(sys, '_MEIPASS', ''), 'Resources', '대항해시대3_여급도감.html'), os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Resources', '대항해시대3_여급도감.html')]
+            candidates = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Resources', 'barmaids.html'),
+                os.path.join(getattr(sys, '_MEIPASS', ''), 'Resources', 'barmaids.html'),
+                os.path.join(os.path.dirname(sys.executable), 'Resources', 'barmaids.html'),
+            ]
             target_path = None
             for p in candidates:
                 if p and os.path.exists(p):
