@@ -21,9 +21,165 @@ import zipfile
 from functools import lru_cache
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+
+def enable_windows_per_monitor_dpi_awareness():
+    """OS 비트맵 확대 없이 창별 실제 DPI로 렌더링한다."""
+    try:
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
+
+
+enable_windows_per_monitor_dpi_awareness()
+
+
+def get_windows_dpi_scale(hwnd=0):
+    try:
+        user32 = ctypes.windll.user32
+        dpi = user32.GetDpiForWindow(hwnd) if hwnd else user32.GetDpiForSystem()
+        if dpi:
+            return dpi / 96.0
+    except Exception:
+        pass
+    return 1.0
+
+
+def get_windows_work_area_size():
+    """작업 표시줄을 제외한 현재 Windows 작업 영역 크기."""
+    try:
+        class Rect(ctypes.Structure):
+            _fields_ = [
+                ('left', ctypes.c_long), ('top', ctypes.c_long),
+                ('right', ctypes.c_long), ('bottom', ctypes.c_long),
+            ]
+        rect = Rect()
+        if ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(rect), 0):
+            return rect.right - rect.left, rect.bottom - rect.top
+    except Exception:
+        pass
+    return 0, 0
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import tkinter.font as tkfont
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = ImageTk = None
+
+
+# Tk는 글꼴·Button·Entry를 이미 현재 DPI에 맞춰 그린다. 반면 Frame 크기,
+# 절대 좌표, Treeview 열 폭은 자동 확대되지 않는다. 이 세 종류만 변환한다.
+_dpi_layout_scale = 1.0
+_raw_place_configure = None
+_raw_treeview_column = None
+
+
+def _dpi_px(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(value * _dpi_layout_scale)
+    if isinstance(value, (tuple, list)):
+        return type(value)(_dpi_px(item) for item in value)
+    return value
+
+
+def _dpi_options(options, names):
+    copied = dict(options)
+    for name in names:
+        if name in copied:
+            copied[name] = _dpi_px(copied[name])
+    return copied
+
+
+def _install_fixed_layout_dpi_scaling():
+    """자동 확대되지 않는 고정 레이아웃 값만 DPI 비율로 바꾼다."""
+    if getattr(tk, '_cds3_fixed_layout_dpi_installed', False):
+        return
+    tk._cds3_fixed_layout_dpi_installed = True
+
+    for widget_class in (tk.Frame, tk.LabelFrame, tk.Canvas):
+        original_init = widget_class.__init__
+        def scaled_container_init(self, master=None, cnf={}, _original=original_init, **kw):
+            cnf = _dpi_options(cnf, {'width', 'height', 'padx', 'pady'})
+            kw = _dpi_options(kw, {'width', 'height', 'padx', 'pady'})
+            _original(self, master, cnf, **kw)
+        widget_class.__init__ = scaled_container_init
+
+    original_grid = tk.Grid.grid_configure
+    def scaled_grid(self, cnf={}, **kw):
+        return original_grid(
+            self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}),
+            **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}),
+        )
+    tk.Grid.grid_configure = tk.Grid.grid = scaled_grid
+
+    original_pack = tk.Pack.pack_configure
+    def scaled_pack(self, cnf={}, **kw):
+        return original_pack(
+            self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}),
+            **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}),
+        )
+    tk.Pack.pack_configure = tk.Pack.pack = scaled_pack
+
+    global _raw_place_configure
+    original_place = tk.Place.place_configure
+    _raw_place_configure = original_place
+    def scaled_place(self, cnf={}, **kw):
+        return original_place(
+            self, _dpi_options(cnf, {'x', 'y', 'width', 'height'}),
+            **_dpi_options(kw, {'x', 'y', 'width', 'height'}),
+        )
+    tk.Place.place_configure = tk.Place.place = scaled_place
+
+    original_columnconfigure = tk.Misc.grid_columnconfigure
+    def scaled_columnconfigure(self, index, cnf={}, **kw):
+        return original_columnconfigure(
+            self, index, _dpi_options(cnf, {'minsize', 'pad'}),
+            **_dpi_options(kw, {'minsize', 'pad'}),
+        )
+    tk.Misc.grid_columnconfigure = tk.Misc.columnconfigure = scaled_columnconfigure
+
+    original_rowconfigure = tk.Misc.grid_rowconfigure
+    def scaled_rowconfigure(self, index, cnf={}, **kw):
+        return original_rowconfigure(
+            self, index, _dpi_options(cnf, {'minsize', 'pad'}),
+            **_dpi_options(kw, {'minsize', 'pad'}),
+        )
+    tk.Misc.grid_rowconfigure = tk.Misc.rowconfigure = scaled_rowconfigure
+
+    global _raw_treeview_column
+    original_tree_column = ttk.Treeview.column
+    _raw_treeview_column = original_tree_column
+    def scaled_tree_column(self, column, option=None, **kw):
+        return original_tree_column(self, column, option, **_dpi_options(kw, {'width', 'minwidth'}))
+    ttk.Treeview.column = scaled_tree_column
+
+
+def _place_physical(widget, **kw):
+    """Place values that were calculated from an already physical widget size.
+
+    ``<Configure>`` reports actual screen pixels.  Those values must bypass the
+    logical-DPI ``place`` wrapper, otherwise they are multiplied a second time.
+    """
+    if _raw_place_configure is None:
+        return widget.place(**kw)
+    return _raw_place_configure(widget, {}, **kw)
+
+
+def _set_tree_column_physical(tree, column, **kw):
+    """Apply a Treeview column width measured in actual screen pixels."""
+    if _raw_treeview_column is None:
+        return tree.column(column, **kw)
+    return _raw_treeview_column(tree, column, None, **kw)
+
+
+_install_fixed_layout_dpi_scaling()
 
 from editor_core.save_records import (
     RecordTableLayout,
@@ -806,10 +962,13 @@ class NativeWinEdit:
         self.hwnd = None
         self._last_text = ''
         self._poll_job = None
+        self._font_handle = None
         self.max_bytes = None
         self.enabled = True
         self._user32 = None
-        host.configure(width=width, height=height)
+        # Windows EDIT 자체는 DPI에 맞춰 글꼴을 렌더링하지만, 이를 담는 Tk
+        # 호스트 Frame의 폭·높이는 픽셀값이므로 별도 변환이 필요하다.
+        host.configure(width=_dpi_px(width), height=_dpi_px(height))
         host.pack_propagate(False)
         host.bind('<Configure>', self._resize, add='+')
         # 숨겨진 탭의 EDIT는 입력을 받을 수 없으므로 저빈도 대기하다가, 탭이
@@ -855,8 +1014,26 @@ class NativeWinEdit:
         if not self.hwnd:
             raise ctypes.WinError()
         user32.EnableWindow(ctypes.c_void_p(self.hwnd), self.enabled)
-        font = gdi32.GetStockObject(self._DEFAULT_GUI_FONT)
-        user32.SendMessageW(ctypes.c_void_p(self.hwnd), self._WM_SETFONT, font, ctypes.c_void_p(True))
+        # DEFAULT_GUI_FONT는 프로세스 DPI가 바뀌어도 96DPI 글꼴을 돌려줄 수
+        # 있다. Tk의 9pt 맑은 고딕과 동일한 실제 DPI 크기의 HFONT를 만든다.
+        dpi = get_windows_dpi_scale(self.root.winfo_id()) * 96.0
+        font_height = -max(1, round(9 * dpi / 72.0))
+        gdi32.CreateFontW.argtypes = [
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+            ctypes.c_wchar_p,
+        ]
+        gdi32.CreateFontW.restype = ctypes.c_void_p
+        self._font_handle = gdi32.CreateFontW(
+            font_height, 0, 0, 0, 400, 0, 0, 0, 129,
+            0, 0, 0, 0, 'Malgun Gothic',
+        )
+        font = self._font_handle or gdi32.GetStockObject(self._DEFAULT_GUI_FONT)
+        user32.SendMessageW(
+            ctypes.c_void_p(self.hwnd), self._WM_SETFONT,
+            ctypes.c_void_p(font), ctypes.c_void_p(True),
+        )
         self._poll()
 
     def _resize(self, _event=None):
@@ -952,6 +1129,12 @@ class NativeWinEdit:
         if self.hwnd and self._user32 is not None:
             self._user32.DestroyWindow(ctypes.c_void_p(self.hwnd))
             self.hwnd = None
+        if self._font_handle:
+            try:
+                ctypes.windll.gdi32.DeleteObject(ctypes.c_void_p(self._font_handle))
+            except Exception:
+                pass
+            self._font_handle = None
 
 
 
@@ -974,18 +1157,29 @@ def get_app_icon_path():
 
 
 def get_cached_photo(img_p: str):
-    """이미지 경로에 대한 tk.PhotoImage를 글로벌 캐시에서 반환 (없으면 로드 후 저장)"""
+    """현재 DPI 크기로 리샘플링한 이미지 캐시를 반환한다."""
     # ***<module>.get_cached_photo: Failure: Different bytecode
-    if img_p not in _PHOTO_CACHE:
+    scale_key = round(_dpi_layout_scale * 1000)
+    cache_key = (img_p, scale_key)
+    if cache_key not in _PHOTO_CACHE:
         try:
-            _PHOTO_CACHE[img_p] = tk.PhotoImage(file=img_p)
+            if Image is None or ImageTk is None:
+                photo = tk.PhotoImage(file=img_p)
+            else:
+                with Image.open(img_p) as source:
+                    width = max(1, _dpi_px(source.width))
+                    height = max(1, _dpi_px(source.height))
+                    scaled = source.convert('RGBA').resize((width, height), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(scaled)
+            _PHOTO_CACHE[cache_key] = photo
         except Exception:
             return None
-    return _PHOTO_CACHE[img_p]
+    return _PHOTO_CACHE[cache_key]
 
 
 def get_black_photo(width, height):
     """이미지가 없는 영역에 쓸 검은색 PhotoImage를 캐시에서 반환한다."""
+    width, height = _dpi_px(width), _dpi_px(height)
     cache_key = f'__black__{width}x{height}'
     if cache_key not in _PHOTO_CACHE:
         photo = tk.PhotoImage(width=width, height=height)
@@ -1287,7 +1481,9 @@ class FacePickerModal(tk.Toplevel):
         # ***<module>.FacePickerModal.__init__: Failure: Different bytecode
         super().__init__(parent)
         self.title(title)
-        self.geometry('640x540')
+        # Toplevel.geometry()와 Label의 image width/height는 Tk가 자동으로
+        # 확대하지 않는 물리 픽셀 값이다.
+        self.geometry(f'{_dpi_px(640)}x{_dpi_px(540)}')
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -1300,7 +1496,11 @@ class FacePickerModal(tk.Toplevel):
         self.photo_cache = {}
         top_bar = tk.Frame(self, bg='#F0F0F0', padx=10, pady=8)
         top_bar.pack(side=tk.TOP, fill=tk.X)
-        self.lbl_preview = tk.Label(top_bar, width=80, height=96, relief='ridge', bd=2, bg='#222222')
+        face_width, face_height = _dpi_px(80), _dpi_px(96)
+        self.lbl_preview = tk.Label(
+            top_bar, width=face_width, height=face_height,
+            relief='ridge', bd=2, bg='#222222',
+        )
         self.lbl_preview.pack(side=tk.LEFT, padx=6)
         info_f = tk.Frame(top_bar, bg='#F0F0F0')
         info_f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8)
@@ -1344,7 +1544,10 @@ class FacePickerModal(tk.Toplevel):
             if img_p and os.path.exists(img_p):
                 photo = get_cached_photo(img_p)
                 self.photo_cache[fid] = photo
-                lbl_img = tk.Label(cell, image=photo, width=80, height=96, bg='#222222', cursor='hand2')
+                lbl_img = tk.Label(
+                    cell, image=photo, width=face_width, height=face_height,
+                    bg='#222222', cursor='hand2',
+                )
             else:
                 lbl_img = tk.Label(cell, text=f'#{fid}', width=10, height=5, bg='#E0E0E0', cursor='hand2')
             lbl_img.pack(side=tk.TOP)
@@ -1496,8 +1699,10 @@ def autofit_columns(tree, min_w=45, max_w=None, padding=28):
             if shrinkable:
                 widths = [max(min_w, width - round(excess * max(0, width - min_w) / shrinkable))
                           for width in widths]
+        # Font.measure()와 winfo_width()는 이미 실제 화면 픽셀을 돌려준다.
+        # 여기서 전역 DPI wrapper를 다시 거치면 열 폭만 한 번 더 확대된다.
         for col, width in zip(cols, widths):
-            tree.column(col, width=width)
+            _set_tree_column_physical(tree, col, width=width)
         tree._autofit_signature = signature
     except Exception:
         return None
@@ -1560,6 +1765,10 @@ class InfoModalBase(tk.Toplevel):
 
     def __init__(self, parent, width=520, height=280):
         super().__init__(parent)
+        # Toplevel.geometry()는 Tk의 DPI-aware 자동 배치 대상이 아니다. 내부
+        # 글꼴·이미지·여백만 커진 상태를 막기 위해 논리 크기를 실제 DPI 픽셀로
+        # 바꾼 뒤, 같은 물리 좌표계에서 중앙 정렬한다.
+        width, height = _dpi_px(width), _dpi_px(height)
         self.parent = parent
         self._previous_focus = parent.focus_get()
         self._focus_restored = False
@@ -2042,7 +2251,8 @@ class DiscoveryInfoModal(InfoModalBase):
             # vmem 출력은 VLC 창을 만들지 않고, 프레임을 Tk PhotoImage로 전달한다.
             self.vlc_instance = vlc.Instance('--vout=vmem', '--avcodec-hw=none', '--no-video-title-show', '--quiet', '--no-audio', '--input-repeat=-1')
             self.vlc_player = self.vlc_instance.media_player_new()
-            width, height, pitch = (80, 60, 80 * 4)
+            width, height = _dpi_px(80), _dpi_px(60)
+            pitch = width * 4
             self._video_buffer = (ctypes.c_ubyte * (height * pitch))()
             lock_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))
             display_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
@@ -2073,11 +2283,13 @@ class DiscoveryInfoModal(InfoModalBase):
         if self._video_frame_ready and self._video_buffer is not None:
             self._video_frame_ready = False
             source = bytes(self._video_buffer)
-            rgb = bytearray(80 * 60 * 3)
+            width, height = self._video_photo.width(), self._video_photo.height()
+            rgb = bytearray(width * height * 3)
             rgb[0::3] = source[2::4]
             rgb[1::3] = source[1::4]
             rgb[2::3] = source[0::4]
-            self._video_photo.configure(data=b'P6\n80 60\n255\n' + bytes(rgb), format='PPM')
+            header = f'P6\n{width} {height}\n255\n'.encode('ascii')
+            self._video_photo.configure(data=header + bytes(rgb), format='PPM')
         self._video_render_job = self.after(33, self._render_video_frame)
 
     def _stop_video(self):
@@ -2165,6 +2377,8 @@ class FleetVideoPreview(tk.Frame):
     def __init__(self, parent, frame_height=None):
         height = frame_height if frame_height is not None else self.HEIGHT + 4
         super().__init__(parent, width=self.WIDTH + 4, height=height, bg='#222222', relief='ridge', bd=2)
+        self.display_width = _dpi_px(self.WIDTH)
+        self.display_height = _dpi_px(self.HEIGHT)
         self.pack_propagate(False)
         self.label = tk.Label(self, bg='#222222', text=ui('ui_0113'), fg='#888888', font=('Malgun Gothic', 9))
         self.label.pack(fill=tk.BOTH, expand=True)
@@ -2223,15 +2437,15 @@ class FleetVideoPreview(tk.Frame):
                 vlc = vlc_module
             self.vlc_instance = vlc.Instance('--vout=vmem', '--avcodec-hw=none', '--no-video-title-show', '--quiet', '--no-audio', '--input-repeat=-1')
             self.vlc_player = self.vlc_instance.media_player_new()
-            pitch = self.WIDTH * 4
-            self._video_buffer = (ctypes.c_ubyte * (self.HEIGHT * pitch))()
+            pitch = self.display_width * 4
+            self._video_buffer = (ctypes.c_ubyte * (self.display_height * pitch))()
             lock_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))
             display_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
             self._video_lock_callback = lock_type(lambda _opaque, planes: (planes.__setitem__(0, ctypes.cast(self._video_buffer, ctypes.c_void_p).value), None)[1])
             self._video_display_callback = display_type(lambda _opaque, _picture: setattr(self, '_video_frame_ready', True))
             self.vlc_player.video_set_callbacks(self._video_lock_callback, None, self._video_display_callback, None)
-            self.vlc_player.video_set_format('RV32', self.WIDTH, self.HEIGHT, pitch)
-            self._video_photo = tk.PhotoImage(width=self.WIDTH, height=self.HEIGHT)
+            self.vlc_player.video_set_format('RV32', self.display_width, self.display_height, pitch)
+            self._video_photo = tk.PhotoImage(width=self.display_width, height=self.display_height)
             self._end_callback = lambda _event: self.after(150, self._restart)
             self.vlc_player.event_manager().event_attach(vlc.EventType.MediaPlayerEndReached, self._end_callback)
             self._set_video_media(video_path)
@@ -2278,9 +2492,10 @@ class FleetVideoPreview(tk.Frame):
         if self._video_frame_ready and self._video_buffer is not None:
             self._video_frame_ready = False
             source = bytes(self._video_buffer)
-            rgb = bytearray(self.WIDTH * self.HEIGHT * 3)
+            rgb = bytearray(self.display_width * self.display_height * 3)
             rgb[0::3], rgb[1::3], rgb[2::3] = source[2::4], source[1::4], source[0::4]
-            self._video_photo.configure(data=b'P6\n80 60\n255\n' + bytes(rgb), format='PPM')
+            header = f'P6\n{self.display_width} {self.display_height}\n255\n'.encode('ascii')
+            self._video_photo.configure(data=header + bytes(rgb), format='PPM')
         self._render_job = self.after(33, self._render)
 
     def _restart(self):
@@ -2331,10 +2546,17 @@ class CDS3SaveEditorApp:
     """CDS3SaveEditorApp"""
     def __init__(self, root):
         self.root = root
+        global _dpi_layout_scale
+        self.dpi_scale = get_windows_dpi_scale()
+        _dpi_layout_scale = self.dpi_scale
         # 명시적으로 폰트를 지정하지 않은 기본 Tk 위젯도 9pt 일반체로 통일한다.
         self.root.option_add('*Font', ('Malgun Gothic', 9))
         self.root.title(APP_TITLE)
-        window_width, window_height = (950, 640)
+        desired_width = _dpi_px(950)
+        desired_height = _dpi_px(640)
+        work_width, work_height = get_windows_work_area_size()
+        window_width = min(desired_width, work_width) if work_width else desired_width
+        window_height = min(desired_height, work_height) if work_height else desired_height
         x = max(0, (self.root.winfo_screenwidth() - window_width) // 2)
         y = max(0, (self.root.winfo_screenheight() - window_height) // 2)
         self.root.geometry(f'{window_width}x{window_height}+{x}+{y}')
@@ -2848,9 +3070,9 @@ class CDS3SaveEditorApp:
         style.theme_use(requested)
         self.theme_var.set(requested)
         style.configure('.', font=('Malgun Gothic', 9))
-        style.configure('TNotebook.Tab', padding=[10, 4], font=('Malgun Gothic', 9))
-        style.configure('Treeview.Heading', font=('Malgun Gothic', 9, 'bold'))
-        style.configure('Treeview', rowheight=22, font=('Malgun Gothic', 9))
+        style.configure('TNotebook.Tab', padding=_dpi_px((10, 4)), font=('Malgun Gothic', 9))
+        style.configure('Treeview.Heading', padding=_dpi_px((4, 3)), font=('Malgun Gothic', 9, 'bold'))
+        style.configure('Treeview', rowheight=_dpi_px(22), font=('Malgun Gothic', 9))
 
     def _change_theme(self, _event=None):
         """상단 콤보박스에서 고른 Tk 테마를 즉시 다시 적용한다."""
@@ -4373,8 +4595,57 @@ class CDS3SaveEditorApp:
         self.city_tabs = city_tabs
         self.city_trade_tab = trade_tab
 
+        # 고 DPI 또는 낮은 창 높이에서는 보유 시설의 마지막 행이 탭 아래로
+        # 밀릴 수 있다. 기본 탭의 내용만 Canvas 안에 넣어 세로로 스크롤한다.
+        basic_canvas = tk.Canvas(basic_tab, highlightthickness=0, bd=0)
+        # Canvas 스크롤은 테마별 ttk 얇은 막대가 배경에 묻기 쉬워, 폭을
+        # 명시한 Windows 기본 스크롤바를 사용한다.
+        basic_scrollbar = tk.Scrollbar(
+            basic_tab, orient=tk.VERTICAL, command=basic_canvas.yview,
+            width=_dpi_px(14), takefocus=0,
+        )
+        basic_canvas.configure(yscrollcommand=basic_scrollbar.set)
+        basic_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        basic_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        basic_form = tk.Frame(basic_canvas)
+        basic_window = basic_canvas.create_window((0, 0), window=basic_form,
+                                                   anchor='nw')
+        basic_form.bind(
+            '<Configure>',
+            lambda _event: basic_canvas.configure(
+                scrollregion=basic_canvas.bbox('all')), add='+')
+        basic_canvas.bind(
+            '<Configure>',
+            lambda event: basic_canvas.itemconfigure(basic_window, width=event.width),
+            add='+')
+
+        def make_scrollable_city_form(tab):
+            """도시 편집 탭의 내용이 높이를 넘을 때 쓸 세로 스크롤 폼."""
+            canvas = tk.Canvas(tab, highlightthickness=0, bd=0)
+            scrollbar = tk.Scrollbar(
+                tab, orient=tk.VERTICAL, command=canvas.yview,
+                width=_dpi_px(14), takefocus=0,
+            )
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            form = tk.Frame(canvas)
+            window = canvas.create_window((0, 0), window=form, anchor='nw')
+            form.bind(
+                '<Configure>',
+                lambda _event: canvas.configure(scrollregion=canvas.bbox('all')),
+                add='+')
+            canvas.bind(
+                '<Configure>',
+                lambda event: canvas.itemconfigure(window, width=event.width),
+                add='+')
+            return form
+
+        market_form = make_scrollable_city_form(market_tab)
+        trade_form = make_scrollable_city_form(trade_tab)
+
         # 도시 CG를 연결할 자리. 원본 CITYCG의 400:320 비율을 유지한다.
-        self.city_image_box = tk.Frame(basic_tab, width=100, height=80)
+        self.city_image_box = tk.Frame(basic_form, width=100, height=80)
         self.city_image_box.grid(row=0, column=0, columnspan=4, pady=(0, 6))
         self.city_image_box.grid_propagate(False)
         self.city_image_photo = get_black_photo(100, 80)
@@ -4382,29 +4653,29 @@ class CDS3SaveEditorApp:
         self.lbl_city_image.place(x=0, y=0, width=100, height=80)
 
         self.city_name_var = tk.StringVar(value='')
-        tk.Label(basic_tab, text=ui('ui_0344') + ':', font=('Malgun Gothic', 9)).grid(row=1, column=0, sticky='e', padx=(0, 6), pady=5)
-        tk.Label(basic_tab, textvariable=self.city_name_var, anchor='w', font=('Malgun Gothic', 9)).grid(
+        tk.Label(basic_form, text=ui('ui_0344') + ':', font=('Malgun Gothic', 9)).grid(row=1, column=0, sticky='e', padx=(0, 6), pady=5)
+        tk.Label(basic_form, textvariable=self.city_name_var, anchor='w', font=('Malgun Gothic', 9)).grid(
             row=1, column=1, columnspan=2, sticky='ew', pady=5)
         self.city_flag_active_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(basic_tab, text=ui('ui_0314').rstrip(':'), variable=self.city_flag_active_var,
+        tk.Checkbutton(basic_form, text=ui('ui_0314').rstrip(':'), variable=self.city_flag_active_var,
                        font=('Malgun Gothic', 9), command=self.apply_city_edits,
                        takefocus=0, highlightthickness=0).grid(
                            row=1, column=3, sticky='e', pady=5)
 
-        tk.Label(basic_tab, text=ui('ui_0300') + ':', font=('Malgun Gothic', 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=5)
-        self.cbo_city_nation = ttk.Combobox(basic_tab, values=NATION_NAMES, state='readonly', width=20, font=('Malgun Gothic', 9))
+        tk.Label(basic_form, text=ui('ui_0300') + ':', font=('Malgun Gothic', 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=5)
+        self.cbo_city_nation = ttk.Combobox(basic_form, values=NATION_NAMES, state='readonly', width=20, font=('Malgun Gothic', 9))
         self.cbo_city_nation.grid(row=2, column=1, columnspan=3, sticky='ew', pady=5)
         self.cbo_city_nation.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
-        basic_tab.columnconfigure(1, weight=1)
-        basic_tab.columnconfigure(3, weight=1)
+        basic_form.columnconfigure(1, weight=1)
+        basic_form.columnconfigure(3, weight=1)
 
         culture_definition = self._city_definition('link_value')
         self.city_culture_var = tk.StringVar(value='')
         self.city_culture_options = [self.CITY_CULTURE_NAMES[code] for code in sorted(self.CITY_CULTURE_NAMES)]
         self.city_culture_codes_by_name = {name: code for code, name in self.CITY_CULTURE_NAMES.items()}
-        tk.Label(basic_tab, text=self._city_field_label(culture_definition) + ':', font=('Malgun Gothic', 9)).grid(
+        tk.Label(basic_form, text=self._city_field_label(culture_definition) + ':', font=('Malgun Gothic', 9)).grid(
             row=3, column=0, sticky='e', padx=(0, 6), pady=5)
-        self.cbo_city_culture = ttk.Combobox(basic_tab, textvariable=self.city_culture_var,
+        self.cbo_city_culture = ttk.Combobox(basic_form, textvariable=self.city_culture_var,
                                              values=self.city_culture_options, state='readonly', width=14,
                                              font=('Malgun Gothic', 9))
         self.cbo_city_culture.grid(row=3, column=1, columnspan=3, sticky='ew', pady=5)
@@ -4416,20 +4687,20 @@ class CDS3SaveEditorApp:
         self.city_status_codes_by_option = {
             self._city_status_option(code): code for code in self.CITY_STATUS_NAMES
         }
-        tk.Label(basic_tab, text=self._city_field_label(status_definition) + ':',
+        tk.Label(basic_form, text=self._city_field_label(status_definition) + ':',
                  font=('Malgun Gothic', 9)).grid(row=4, column=0, sticky='e', padx=(0, 6), pady=4)
-        self.cbo_city_status = ttk.Combobox(basic_tab, textvariable=self.city_status_var,
+        self.cbo_city_status = ttk.Combobox(basic_form, textvariable=self.city_status_var,
                                             values=self.city_status_options, state='readonly', width=14,
                                             font=('Malgun Gothic', 9))
         self.cbo_city_status.grid(row=4, column=1, columnspan=3, sticky='ew', pady=4)
         self.cbo_city_status.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
 
-        self._build_city_numeric_form_field(basic_tab, 5, 0, 'shipyard_level')
+        self._build_city_numeric_form_field(basic_form, 5, 0, 'shipyard_level')
         # 도시 규모는 기본 탭의 마지막 입력 행을 단독으로 사용하므로, 오른쪽의
         # 남는 열까지 차지하게 해 창 확장 시 입력칸도 함께 넓어진다.
         self.city_field_widgets['shipyard_level'].grid_configure(columnspan=3)
 
-        facility_box = tk.LabelFrame(basic_tab, text=ui('ui_0343'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
+        facility_box = tk.LabelFrame(basic_form, text=ui('ui_0343'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
         facility_box.grid(row=6, column=0, columnspan=4, sticky='ew', pady=(10, 0))
         # 보유 시설의 세 열을 같은 비율로 늘려, 최대화 시 체크박스 위치도
         # 그룹 폭에 맞춰 자연스럽게 분산되게 한다.
@@ -4445,9 +4716,9 @@ class CDS3SaveEditorApp:
             checkbox.grid(row=position // 3, column=position % 3, sticky='w', padx=(0, 4), pady=1)
             self.city_facility_checks[bit] = checkbox
 
-        market_goods_box = tk.LabelFrame(market_tab, text=ui('ui_0358'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
+        market_goods_box = tk.LabelFrame(market_form, text=ui('ui_0358'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
         market_goods_box.grid(row=0, column=0, sticky='ew', pady=(0, 8))
-        ship_box = tk.LabelFrame(market_tab, text=ui('ui_0308'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
+        ship_box = tk.LabelFrame(market_form, text=ui('ui_0308'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
         ship_box.grid(row=1, column=0, sticky='ew')
         self.city_market_goods_box = market_goods_box
         self.city_ship_box = ship_box
@@ -4480,32 +4751,32 @@ class CDS3SaveEditorApp:
             combo.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
             self.city_goods_combos.append(combo)
 
-        self._build_city_numeric_form_field(trade_tab, 0, 0, 'update_counter')
+        self._build_city_numeric_form_field(trade_form, 0, 0, 'update_counter')
         specialty_definition = self._city_definition('value_a')
         self.city_specialty_var = tk.StringVar(value='')
         self.city_specialty_id = -1
-        self.lbl_city_specialty_image = tk.Label(trade_tab, anchor='center')
+        self.lbl_city_specialty_image = tk.Label(trade_form, anchor='center')
         self.lbl_city_specialty_image.grid(row=1, column=0, columnspan=4, sticky='n', pady=(4, 2))
         default_specialty_photo = get_black_photo(80, 80)
         self.lbl_city_specialty_image.configure(image=default_specialty_photo)
         self.lbl_city_specialty_image.image = default_specialty_photo
-        tk.Label(trade_tab, text=self._city_field_label(specialty_definition) + ':',
+        tk.Label(trade_form, text=self._city_field_label(specialty_definition) + ':',
                  font=('Malgun Gothic', 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=4)
-        tk.Label(trade_tab, textvariable=self.city_specialty_var, anchor='w', width=14,
+        tk.Label(trade_form, textvariable=self.city_specialty_var, anchor='w', width=14,
                  font=('Malgun Gothic', 9)).grid(row=2, column=1, sticky='ew', pady=4)
         for row, key in enumerate(('value_b', 'value_c'), start=3):
-            self._build_city_numeric_form_field(trade_tab, row, 0, key)
+            self._build_city_numeric_form_field(trade_form, row, 0, key)
         for number in range(5):
-            self._build_city_supply_form_field(trade_tab, number + 5, f'economy_{number}')
+            self._build_city_supply_form_field(trade_form, number + 5, f'economy_{number}')
 
         market_goods_box.columnconfigure(1, weight=1)
         # 각 탭이 실제로 사용하는 열만 가변으로 둔다. 이전에는 시장·조선과
         # 교역 탭에도 사용하지 않는 1·3열의 가중치를 줘서, 내용이 탭 폭의
         # 절반 정도에서 멈췄다.
-        basic_tab.columnconfigure(1, weight=1)
-        basic_tab.columnconfigure(3, weight=1)
-        market_tab.columnconfigure(0, weight=1)
-        trade_tab.columnconfigure(1, weight=1)
+        basic_form.columnconfigure(1, weight=1)
+        basic_form.columnconfigure(3, weight=1)
+        market_form.columnconfigure(0, weight=1)
+        trade_form.columnconfigure(1, weight=1)
 
         right = tk.LabelFrame(parent, text=GROUP_TITLES['city_basic'], font=('Malgun Gothic', 9, 'bold'), padx=8, pady=8)
         right.grid(row=0, column=2, sticky='nsew', padx=(5, 10), pady=10)
@@ -5170,23 +5441,30 @@ class CDS3SaveEditorApp:
         # 내부 항목은 grid로 배치하므로 grid 전파를 막아야 지정 높이가 유지된다.
         grp_player.grid_propagate(False)
         self.profile_details.grid(row=1, column=0, sticky='nsew', pady=(0, 4))
-        f_p_face_box = tk.Frame(grp_player, width=84, height=100, bg='#222222', relief='ridge', bd=2)
+        self.player_face_column = tk.Frame(grp_player, width=84)
+        self.player_face_column.place(x=0, y=4, width=84)
+        f_p_face_box = tk.Frame(self.player_face_column, width=84, height=100, bg='#222222', relief='ridge', bd=2)
         f_p_face_box.pack_propagate(False)
-        f_p_face_box.place(x=0, y=4)
+        f_p_face_box.pack(fill=tk.X)
         self.lbl_player_face = tk.Label(f_p_face_box, bg='#222222')
         self.lbl_player_face.pack(fill=tk.BOTH, expand=True)
         self.btn_player_face_change = EditorButton(
-            grp_player, text=ui('ui_0382'), font=('Malgun Gothic', 9),
+            self.player_face_column, text=ui('ui_0382'), font=('Malgun Gothic', 9),
             bg='#E6F4EA', fg='#137333', command=self.open_player_face_picker,
         )
-        self.btn_player_face_change.place(x=0, y=108, width=84, height=25)
+        self.btn_player_face_change.pack(fill=tk.X, pady=(4, 0))
         self.btn_player_restore = EditorButton(
-            grp_player, text=ui('ui_0222'), font=('Malgun Gothic', 9),
+            self.player_face_column, text=ui('ui_0222'), font=('Malgun Gothic', 9),
             bg='#E8F0FE', fg='#1A73E8', activebackground='#D2E3FC',
             activeforeground='#174EA6', command=self.restore_player_edits,
         )
-        self.btn_player_restore.place(x=0, y=136, width=84, height=25)
-        self.btn_player_restore.place_forget()
+        self.btn_player_restore.pack(fill=tk.X, pady=(3, 0))
+        self.btn_player_restore.pack_forget()
+        def fit_player_header_height():
+            required_height = self.player_face_column.winfo_reqheight() + _dpi_px(8)
+            grp_player.configure(height=max(_dpi_px(164), required_height))
+        self._fit_player_header_height = fit_player_header_height
+        self.root.after_idle(fit_player_header_height)
         # 별도 Frame을 두면 그 배경이 LabelFrame 테두리를 덮는다. 오른쪽 항목은
         # 그룹에 직접 grid 배치하고 첫 열만 얼굴 영역만큼 비워 둔다.
         f_p_right = grp_player
@@ -5482,6 +5760,7 @@ class CDS3SaveEditorApp:
 
         # 상단 선택 영역: 왼쪽은 초상화와 배정 제어, 오른쪽은 유형·검색·인물 목록이다.
         upper = tk.Frame(browser, height=164)
+        self.person_browser_upper = upper
         upper.pack(fill=tk.X, padx=4, pady=(3, 4))
         upper.pack_propagate(False)
         # 주인공 정보의 얼굴·변경 버튼 폭(84px)과 동일하게 맞춘다.
@@ -5506,6 +5785,18 @@ class CDS3SaveEditorApp:
             bg='#E8F0FE', fg='#1A73E8',
         )
         self.btn_person_restore.pack(fill=tk.X)
+
+        def fit_person_browser_header_height():
+            button_height = sum(
+                button.winfo_reqheight()
+                for button in (self.btn_person_release, self.btn_person_restore)
+                if button.winfo_manager()
+            )
+            # 초상화 아래 여백 4px, 제거 버튼 아래 3px, 바깥 상하 여백을 포함한다.
+            required_height = face_box.winfo_reqheight() + button_height + _dpi_px(15)
+            upper.configure(height=max(_dpi_px(164), required_height))
+        self._fit_person_browser_header_height = fit_person_browser_header_height
+        self.root.after_idle(fit_person_browser_header_height)
 
         right_panel = tk.Frame(upper)
         right_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=2)
@@ -5664,15 +5955,14 @@ class CDS3SaveEditorApp:
         if button is None or host is None:
             return
         if self._person_active_type == 'spouse':
-            # 웹 도감 버튼을 충분히 넓히기 위해 부인 화면에서만 검색 폭을 줄인다.
-            self.person_search_host.configure(width=82)
-            self.person_search_host.pack_configure(fill=tk.NONE, expand=False, anchor=tk.S)
+            # 검색창은 유형·검색 라벨과 우측 웹 도감 사이의 남은 폭을 모두 쓴다.
+            # 버튼은 별도 RIGHT 영역으로 고정한다.
+            self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
             if not host.winfo_manager():
-                host.pack(side=tk.LEFT, padx=(5, 0), anchor=tk.S)
+                host.pack(side=tk.RIGHT, padx=(5, 0), anchor=tk.S)
         else:
             if host.winfo_manager():
                 host.pack_forget()
-            self.person_search_host.configure(width=120)
             self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
 
     def _set_person_assignment_buttons_visible(self):
@@ -5698,6 +5988,7 @@ class CDS3SaveEditorApp:
             self.btn_person_release.config(state=tk.NORMAL if assigned else tk.DISABLED)
         if self._person_data_has_changes():
             self.btn_person_restore.pack(fill=tk.X)
+        self.root.after_idle(self._fit_person_browser_header_height)
 
     def _release_person_assignment(self):
         """현재 부인 또는 역할 배정을 없음 상태로 만든다."""
@@ -7367,7 +7658,7 @@ class CDS3SaveEditorApp:
         if button is None:
             return
         if not self.file_buffer or not original:
-            button.place_forget()
+            button.pack_forget()
             return
 
         def read_text(offset, length):
@@ -7408,9 +7699,10 @@ class CDS3SaveEditorApp:
             changed = True
         if changed:
             if not button.winfo_manager():
-                button.place(x=0, y=136, width=84, height=25)
+                button.pack(fill=tk.X, pady=(3, 0))
+                self.root.after_idle(self._fit_player_header_height)
         else:
-            button.place_forget()
+            button.pack_forget()
 
     def restore_player_edits(self):
         """주인공 편집값만 마지막으로 불러온 세이브 상태로 되돌린다."""
@@ -7936,18 +8228,22 @@ class CDS3SaveEditorApp:
             height = self.tab_items.winfo_height()
         if width <= 1 or height <= 1:
             return
-        margin_x, margin_y, gap_x, gap_y = 8, 6, 8, 6
+        # width/height above are already physical pixels received from Tk.
+        # Scale only the logical margins, then place the calculated physical
+        # rectangles without passing through the global DPI place wrapper.
+        margin_x, margin_y = _dpi_px(8), _dpi_px(6)
+        gap_x, gap_y = _dpi_px(8), _dpi_px(6)
         column_width = max(1, (width - margin_x * 2 - gap_x) // 2)
         content_height = max(1, height - margin_y * 2)
         list_height = max(1, (content_height - gap_y) // 2)
         right_x = margin_x + column_width + gap_x
         bottom_y = margin_y + list_height + gap_y
-        self.f_item_catalog.place(x=margin_x, y=margin_y,
-                                  width=column_width, height=content_height)
-        self.f_pocket.place(x=right_x, y=margin_y,
-                            width=column_width, height=list_height)
-        self.f_storage.place(x=right_x, y=bottom_y,
-                             width=column_width, height=list_height)
+        _place_physical(self.f_item_catalog, x=margin_x, y=margin_y,
+                        width=column_width, height=content_height)
+        _place_physical(self.f_pocket, x=right_x, y=margin_y,
+                        width=column_width, height=list_height)
+        _place_physical(self.f_storage, x=right_x, y=bottom_y,
+                        width=column_width, height=list_height)
     def get_item_info(self, item_id):
         if 0 <= item_id < len(self.item_db):
                 return self.item_db[item_id]
@@ -8411,6 +8707,13 @@ class CDS3SaveEditorApp:
         self.tree_disc.configure(yscrollcommand=sb_dy.set)
         sb_dy.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_disc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # 숨겨진 탭에서 목록을 갱신하면 당시 폭은 1px일 수 있다. 탭이 표시되어
+        # 실제 폭이 정해진 뒤 한 번 더 열 폭을 맞춘다.
+        self.tree_disc.bind(
+            '<Configure>',
+            lambda _event: self._schedule_treeview_autofit(self.tree_disc),
+            add='+',
+        )
         self.tree_disc.bind('<Return>', self.cycle_selected_discovery_state)
         self.tree_disc.bind('<Double-1>', self.on_discovery_double_click)
         self.tree_disc.bind('<Button-3>', self.show_discovery_context_menu)
@@ -9180,14 +9483,6 @@ class CDS3SaveEditorApp:
             self._set_wife_combo(current_id)
         self.update_wife_display()
 if __name__ == '__main__':
-    try:
-        import ctypes
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
     root = tk.Tk()
     icon_path = get_app_icon_path()
     if icon_path:
