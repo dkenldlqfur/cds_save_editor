@@ -2334,7 +2334,23 @@ class CDS3SaveEditorApp:
         # 명시적으로 폰트를 지정하지 않은 기본 Tk 위젯도 9pt 일반체로 통일한다.
         self.root.option_add('*Font', ('Malgun Gothic', 9))
         self.root.title(APP_TITLE)
-        window_width, window_height = (950, 640)
+        # Tk는 DPI에 맞춰 글꼴과 기본 위젯의 크기를 키우지만 geometry()/minsize()에
+        # 전달하는 값은 물리 픽셀이다. 따라서 고정된 950x640을 그대로 사용하면
+        # 고배율 화면에서는 내용만 커지고 창은 작아져 컨트롤이 겹치거나 잘린다.
+        try:
+            dpi_scale = max(1.0, float(self.root.winfo_fpixels('1i')) / 96.0)
+        except tk.TclError:
+            dpi_scale = 1.0
+        self.dpi_scale = dpi_scale
+        base_width, base_height = (950, 640)
+        window_width = round(base_width * dpi_scale)
+        window_height = round(base_height * dpi_scale)
+        # 화면보다 큰 최소 크기를 설정하지 않는다. 작은 해상도에서도 창을 열고
+        # 사용자가 최대화해 추가 공간을 확보할 수 있도록 여백을 남긴다.
+        max_width = max(base_width, self.root.winfo_screenwidth() - 64)
+        max_height = max(base_height, self.root.winfo_screenheight() - 96)
+        window_width = min(window_width, max_width)
+        window_height = min(window_height, max_height)
         x = max(0, (self.root.winfo_screenwidth() - window_width) // 2)
         y = max(0, (self.root.winfo_screenheight() - window_height) // 2)
         self.root.geometry(f'{window_width}x{window_height}+{x}+{y}')
@@ -9182,13 +9198,33 @@ class CDS3SaveEditorApp:
 if __name__ == '__main__':
     try:
         import ctypes
+        dpi_context_set = False
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            # Windows 10 이상에서는 모니터별 DPI를 사용한다. 창을 다른 배율의
+            # 모니터로 옮겨도 Windows가 흐리게 확대하는 대신 Tk가 해당 DPI로 렌더링한다.
+            dpi_context_set = bool(
+                ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+            )
         except Exception:
-            ctypes.windll.user32.SetProcessDPIAware()
+            pass
+        if not dpi_context_set:
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:
+                try:
+                    ctypes.windll.user32.SetProcessDPIAware()
+                except Exception:
+                    pass
     except Exception:
         pass
     root = tk.Tk()
+    # 이 편집기의 화면 배치는 기존 96 DPI 기준의 픽셀 간격을 사용한다. Windows
+    # 확대율을 Tk의 point 스케일에 그대로 반영하면 글꼴과 ttk 위젯만 커져 고정
+    # 배치 영역을 침범하므로, Tk의 논리 DPI를 기준값으로 통일한다.
+    try:
+        root.tk.call('tk', 'scaling', 96.0 / 72.0)
+    except tk.TclError:
+        pass
     icon_path = get_app_icon_path()
     if icon_path:
         try:
