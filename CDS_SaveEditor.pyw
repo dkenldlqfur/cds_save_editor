@@ -97,6 +97,40 @@ class EditorButton(tk.Button):
 vlc = None
 
 
+def _theme_settings_path():
+    """실행 파일 위치와 무관하게 사용자별 UI 설정을 보관한다."""
+    base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+    return os.path.join(base, 'CDS_SaveEditor', 'ui_settings.json')
+
+
+def load_saved_theme(setting_key, available_themes):
+    try:
+        with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
+            theme = json.load(settings_file).get(setting_key)
+        return theme if theme in available_themes else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def save_theme(setting_key, theme):
+    path = _theme_settings_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {}
+        try:
+            with open(path, 'r', encoding='utf-8') as settings_file:
+                loaded = json.load(settings_file)
+                if isinstance(loaded, dict):
+                    data = loaded
+        except (OSError, ValueError, TypeError):
+            pass
+        data[setting_key] = theme
+        with open(path, 'w', encoding='utf-8') as settings_file:
+            json.dump(data, settings_file, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
 def load_json_resource(filename, data_directory=True):
     """소스 실행과 PyInstaller 배포 환경 모두에서 JSON 리소스를 읽는다."""
     base_dirs = []
@@ -2430,6 +2464,11 @@ class CDS3SaveEditorApp:
         self._update_check_in_progress = False
         self._update_download_in_progress = False
         self._update_notice = self._consume_update_notice()
+        self.theme_names = tuple(ttk.Style(self.root).theme_names())
+        default_theme = self.theme_names[0] if self.theme_names else 'clam'
+        self.theme_var = tk.StringVar(
+            value=load_saved_theme('save_editor_theme', self.theme_names) or default_theme
+        )
         self.setup_styles()
         self.create_widgets()
         self._enable_tree_zebra()
@@ -2800,14 +2839,24 @@ class CDS3SaveEditorApp:
         self.lbl_status.config(text=ui('ui_0422'))
         self.root.after(100, self.on_close)
 
-    def setup_styles(self):
+    def setup_styles(self, theme_name=None):
         # ***<module>.CDS3SaveEditorApp.setup_styles: Failure: Different bytecode
         style = ttk.Style()
-        style.theme_use('clam')
+        requested = theme_name or self.theme_var.get()
+        if requested not in style.theme_names():
+            requested = self.theme_names[0] if self.theme_names else 'clam'
+        style.theme_use(requested)
+        self.theme_var.set(requested)
         style.configure('.', font=('Malgun Gothic', 9))
         style.configure('TNotebook.Tab', padding=[10, 4], font=('Malgun Gothic', 9))
         style.configure('Treeview.Heading', font=('Malgun Gothic', 9, 'bold'))
         style.configure('Treeview', rowheight=22, font=('Malgun Gothic', 9))
+
+    def _change_theme(self, _event=None):
+        """상단 콤보박스에서 고른 Tk 테마를 즉시 다시 적용한다."""
+        self.setup_styles(self.theme_var.get())
+        save_theme('save_editor_theme', self.theme_var.get())
+        self._schedule_all_treeview_autofit()
 
     def apply_hardware_acceleration(self):
         return None
@@ -3000,6 +3049,13 @@ class CDS3SaveEditorApp:
         self.chk_auto_backup = tk.BooleanVar(value=True)
         self.chk_backup_widget = tk.Checkbutton(top_bar, text=ui('ui_0116'), variable=self.chk_auto_backup, font=('Malgun Gothic', 9), bg='#F0F0F0')
         self.chk_backup_widget.pack(side=tk.LEFT, padx=10)
+        self.cbo_theme = ttk.Combobox(
+            top_bar, textvariable=self.theme_var, values=self.theme_names,
+            state='readonly', width=11,
+        )
+        self.cbo_theme.pack(side=tk.RIGHT, padx=(0, 8))
+        self.cbo_theme.bind('<<ComboboxSelected>>', self._change_theme)
+        tk.Label(top_bar, text='테마:', font=('Malgun Gothic', 9), bg='#F0F0F0').pack(side=tk.RIGHT, padx=(0, 4))
         self.lbl_status = tk.Label(top_bar, text=ui('ui_0117'), font=('Malgun Gothic', 9), fg='#5F6368')
         self.lbl_status.pack(side=tk.RIGHT, padx=8)
         notebook_style = ttk.Style(self.root)
