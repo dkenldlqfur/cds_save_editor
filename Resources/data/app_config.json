@@ -1,5 +1,8 @@
 {
-  "version": "1.1.10",
+  "version": "1.2",
+  "ui": {
+    "font_family": "Malgun Gothic"
+  },
   "update": {
     "repository": "dkenldlqfur/cds_save_editor",
     "asset_name": "CDS_SaveEditor_v{version}.zip"
