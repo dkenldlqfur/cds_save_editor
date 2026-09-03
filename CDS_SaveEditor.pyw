@@ -1265,6 +1265,28 @@ def get_cached_photo(img_p: str):
     return _PHOTO_CACHE[cache_key]
 
 
+def get_cached_photo_sized(img_p: str, width: int, height: int):
+    """이미지를 지정한 논리 크기로 축소해 반환한다."""
+    pixel_width, pixel_height = _dpi_px(width), _dpi_px(height)
+    cache_key = (img_p, 'sized', pixel_width, pixel_height)
+    if cache_key not in _PHOTO_CACHE:
+        try:
+            if Image is None or ImageTk is None:
+                source = tk.PhotoImage(file=img_p)
+                x_ratio = max(1, round(source.width() / pixel_width))
+                y_ratio = max(1, round(source.height() / pixel_height))
+                photo = source.subsample(x_ratio, y_ratio)
+            else:
+                with Image.open(img_p) as source:
+                    scaled = source.convert('RGBA').resize(
+                        (pixel_width, pixel_height), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(scaled)
+            _PHOTO_CACHE[cache_key] = photo
+        except Exception:
+            return None
+    return _PHOTO_CACHE[cache_key]
+
+
 def get_black_photo(width, height):
     """이미지가 없는 영역에 쓸 검은색 PhotoImage를 캐시에서 반환한다."""
     width, height = _dpi_px(width), _dpi_px(height)
@@ -4759,6 +4781,16 @@ class CDS3SaveEditorApp:
     CITY_STATUS_NAMES = {int(code): name for code, name in CITY_DATA['status_names'].items()}
     CITY_CULTURE_NAMES = {int(entry['id']): entry['name'] for entry in GAME_STRINGS['city_cultures']}
     TRADE_GOOD_NAMES = {int(entry['id']): entry['name'] for entry in TRADE_GOODS_DATA['records']}
+    # CDS_95.EXE의 교역권 품목표(0x4DF0E0)와 교역품별 지역 기준가표
+    # (0x4DCBBC, 0x88바이트 레코드)에서 추출한 읽기 전용 정보다.
+    CITY_COMMON_TRADE_GOODS = {
+        city_index: tuple(
+            (int(good_id), int(base_price))
+            for good_id, base_price in zip(region['goods'], region['base_prices'])
+        )
+        for region in CITY_DATA.get('trade_regions', ())
+        for city_index in range(int(region['city_start']), int(region['city_end']) + 1)
+    }
     CITY_GOODS_SUPPLY_BY_SIZE = (20, 50, 100, 200, 350, 500, 700, 1000)
     CITY_FIELD_DEFINITIONS = (
         ('state', 'ui_0300', 0x00, 'i16', 'default_state'),
@@ -4938,12 +4970,13 @@ class CDS3SaveEditorApp:
         self.cbo_city_status.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
 
         self._build_city_numeric_form_field(basic_form, 5, 0, 'shipyard_level')
-        # 도시 규모는 기본 탭의 마지막 입력 행을 단독으로 사용하므로, 오른쪽의
-        # 남는 열까지 차지하게 해 창 확장 시 입력칸도 함께 넓어진다.
+        # 도시 규모와 시세는 도시 전반의 수치이므로 기본 탭에 나란히 둔다.
         self.city_field_widgets['shipyard_level'].grid_configure(columnspan=3)
+        self._build_city_numeric_form_field(basic_form, 6, 0, 'update_counter')
+        self.city_field_widgets['update_counter'].grid_configure(columnspan=3)
 
         facility_box = tk.LabelFrame(basic_form, text=ui('ui_0343'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=6)
-        facility_box.grid(row=6, column=0, columnspan=4, sticky='ew', pady=(10, 0))
+        facility_box.grid(row=7, column=0, columnspan=4, sticky='ew', pady=(10, 0))
         # 보유 시설의 세 열을 같은 비율로 늘려, 최대화 시 체크박스 위치도
         # 그룹 폭에 맞춰 자연스럽게 분산되게 한다.
         for column in range(3):
@@ -4993,23 +5026,96 @@ class CDS3SaveEditorApp:
             combo.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
             self.city_goods_combos.append(combo)
 
-        self._build_city_numeric_form_field(trade_form, 0, 0, 'update_counter')
-        specialty_definition = self._city_definition('value_a')
+        specialty_box = tk.LabelFrame(
+            trade_form, text=ui('ui_0304'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=7, pady=3)
+        specialty_box.grid(row=0, column=0, sticky='ew', pady=(0, 8))
+        specialty_box.columnconfigure(1, weight=1)
         self.city_specialty_var = tk.StringVar(value='')
         self.city_specialty_id = -1
-        self.lbl_city_specialty_image = tk.Label(trade_form, anchor='center')
-        self.lbl_city_specialty_image.grid(row=1, column=0, columnspan=4, sticky='n', pady=(4, 2))
-        default_specialty_photo = get_black_photo(80, 80)
+        tk.Label(specialty_box, text=ui_label(ui('ui_0062')), font=(APP_FONT_FAMILY, 9)).grid(
+            row=0, column=0, sticky='e', padx=(0, 6))
+        tk.Label(specialty_box, textvariable=self.city_specialty_var, anchor='w',
+                 font=(APP_FONT_FAMILY, 9)).grid(row=0, column=1, sticky='ew')
+        self._build_city_numeric_form_field(
+            specialty_box, 1, 0, 'value_b', label_text=ui('ui_0658'), row_pady=0)
+        self._build_city_numeric_form_field(
+            specialty_box, 2, 0, 'value_c', label_text=ui('ui_0657'), row_pady=0)
+        self.city_specialty_empty_vars = {
+            'value_b': tk.StringVar(value=''),
+            'value_c': tk.StringVar(value=''),
+        }
+        self.lbl_city_specialty_image = tk.Label(
+            specialty_box, anchor='center', bd=0, highlightthickness=0, padx=0, pady=0)
+        self.lbl_city_specialty_image.grid(
+            row=0, column=2, rowspan=3, sticky='e', padx=(8, 0))
+        default_specialty_photo = get_black_photo(64, 64)
         self.lbl_city_specialty_image.configure(image=default_specialty_photo)
         self.lbl_city_specialty_image.image = default_specialty_photo
-        tk.Label(trade_form, text=ui_label(self._city_field_label(specialty_definition)),
-                 font=(APP_FONT_FAMILY, 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=4)
-        tk.Label(trade_form, textvariable=self.city_specialty_var, anchor='w', width=14,
-                 font=(APP_FONT_FAMILY, 9)).grid(row=2, column=1, sticky='ew', pady=4)
-        for row, key in enumerate(('value_b', 'value_c'), start=3):
-            self._build_city_numeric_form_field(trade_form, row, 0, key)
+
+        common_goods_box = tk.LabelFrame(
+            trade_form, text=ui('ui_0656'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=7, pady=2)
+        common_goods_box.grid(row=1, column=0, sticky='ew')
+        common_goods_box.columnconfigure(0, weight=1)
+        self.city_common_good_cards = []
+        self.city_common_good_names = []
+        self.city_common_good_prices = []
+        self.city_common_good_empty_vars = []
+        validate_supply = self.root.register(lambda proposed: proposed == '' or proposed.isdigit())
         for number in range(5):
-            self._build_city_supply_form_field(trade_form, number + 5, f'economy_{number}')
+            if number:
+                ttk.Separator(common_goods_box, orient=tk.HORIZONTAL).grid(
+                    row=number * 2 - 1, column=0, sticky='ew', padx=2, pady=1)
+            row_frame = tk.Frame(common_goods_box)
+            row_frame.grid(row=number * 2, column=0, sticky='ew', padx=1, pady=1)
+            row_frame.columnconfigure(1, weight=1)
+
+            name_var = tk.StringVar(value=ui('ui_0319'))
+            price_var = tk.StringVar(value='')
+            tk.Label(row_frame, text=ui_label(ui('ui_0062')), font=(APP_FONT_FAMILY, 9)).grid(
+                row=0, column=0, sticky='e', padx=(0, 6))
+            name_value = tk.Label(
+                row_frame, textvariable=name_var, anchor='w', font=(APP_FONT_FAMILY, 9))
+            name_value.grid(row=0, column=1, sticky='ew')
+            price_label = tk.Label(
+                row_frame, text=ui_label(ui('ui_0658')), font=(APP_FONT_FAMILY, 9))
+            price_label.grid(row=1, column=0, sticky='e', padx=(0, 6))
+            price_value = tk.Label(
+                row_frame, textvariable=price_var, anchor='e', font=(APP_FONT_FAMILY, 9))
+            price_value.grid(row=1, column=1, sticky='ew')
+            price_label.bind(
+                '<Motion>', lambda event, index=number: self._on_city_common_price_motion(event, index), add='+')
+            price_label.bind('<Leave>', self._hide_city_price_tooltip, add='+')
+            price_label.bind('<ButtonPress>', self._hide_city_price_tooltip, add='+')
+
+            tk.Label(row_frame, text=ui_label(ui('ui_0657')), font=(APP_FONT_FAMILY, 9)).grid(
+                row=2, column=0, sticky='e', padx=(0, 6))
+            empty_var = tk.StringVar(value='')
+            entry = ttk.Spinbox(
+                row_frame, textvariable=empty_var, from_=0, to=VALUE_LIMITS['u32'][1],
+                width=12, justify='right', font=(APP_FONT_FAMILY, 9), state=tk.DISABLED,
+                validate='key', validatecommand=(validate_supply, '%P'))
+            entry.grid(row=2, column=1, sticky='ew')
+            entry.configure(command=self.apply_city_edits)
+            entry.bind('<KeyRelease>', lambda _event, control=entry:
+                       self._clamp_spinbox(control, 0, VALUE_LIMITS['u32'][1]), add='+')
+            entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
+
+            image_label = tk.Label(
+                row_frame, anchor='center', bd=0, highlightthickness=0, padx=0, pady=0)
+            image_label.grid(row=0, column=2, rowspan=3, sticky='e', padx=(8, 0))
+            empty_photo = get_black_photo(64, 64)
+            image_label.configure(image=empty_photo)
+            image_label.image = empty_photo
+
+            self.city_common_good_cards.append((image_label, name_value, price_value, entry))
+            self.city_common_good_names.append(name_var)
+            self.city_common_good_prices.append(price_var)
+            self.city_common_good_empty_vars.append(empty_var)
+        # 저장 필드는 고정된 교역권 슬롯 다섯 개다. 표시 카드는 특산품과
+        # 중복된 공통품을 제외해 압축하므로, 선택 도시를 갱신할 때 각 카드의
+        # textvariable을 실제 슬롯 변수에 다시 연결한다.
+        for number in range(5):
+            self.city_edit_vars[f'economy_{number}'] = tk.StringVar(value='')
 
         market_goods_box.columnconfigure(1, weight=1)
         # 각 탭이 실제로 사용하는 열만 가변으로 둔다. 이전에는 시장·조선과
@@ -5018,7 +5124,7 @@ class CDS3SaveEditorApp:
         basic_form.columnconfigure(1, weight=1)
         basic_form.columnconfigure(3, weight=1)
         market_form.columnconfigure(0, weight=1)
-        trade_form.columnconfigure(1, weight=1)
+        trade_form.columnconfigure(0, weight=1)
 
         right = tk.LabelFrame(parent, text=GROUP_TITLES['city_basic'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=8)
         right.grid(row=0, column=2, sticky='nsew', padx=(5, 10), pady=10)
@@ -5097,7 +5203,9 @@ class CDS3SaveEditorApp:
     def _city_definition(cls, key):
         return cls.CITY_FIELD_BY_KEY.get(key)
 
-    def _build_city_numeric_form_field(self, parent, row, column, key, width=12, fixed_width=None):
+    def _build_city_numeric_form_field(
+            self, parent, row, column, key, width=12, fixed_width=None,
+            label_text=None, row_pady=4):
         definition = self._city_definition(key)
         if definition is None:
             return
@@ -5109,8 +5217,9 @@ class CDS3SaveEditorApp:
         validate = self.root.register(
             lambda proposed, low=minimum: (proposed == '' or
             (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit()))
-        label = tk.Label(parent, text=ui_label(self._city_field_label(definition)), font=(APP_FONT_FAMILY, 9))
-        label.grid(row=row, column=column, sticky='e', padx=(0, 6), pady=4)
+        field_label = self._city_field_label(definition) if label_text is None else label_text
+        label = tk.Label(parent, text=ui_label(field_label), font=(APP_FONT_FAMILY, 9))
+        label.grid(row=row, column=column, sticky='e', padx=(0, 6), pady=row_pady)
         entry = ttk.Spinbox(parent, textvariable=variable, from_=minimum, to=maximum, width=width,
                             justify='right', font=(APP_FONT_FAMILY, 9), validate='key',
                             validatecommand=(validate, '%P'))
@@ -5119,10 +5228,10 @@ class CDS3SaveEditorApp:
                    self._clamp_spinbox(control, low, high), add='+')
         entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
         if fixed_width is None:
-            entry.grid(row=row, column=column + 1, sticky='ew', pady=4)
+            entry.grid(row=row, column=column + 1, sticky='ew', pady=row_pady)
         else:
             entry_box = tk.Frame(parent, width=fixed_width, height=23)
-            entry_box.grid(row=row, column=column + 1, sticky='w', pady=4)
+            entry_box.grid(row=row, column=column + 1, sticky='w', pady=row_pady)
             entry_box.grid_propagate(False)
             entry_box.columnconfigure(0, weight=1)
             entry_box.rowconfigure(0, weight=1)
@@ -5131,24 +5240,40 @@ class CDS3SaveEditorApp:
         self.city_field_widgets[key] = entry
         if key == 'value_b':
             # 특산품 가격은 기준가이므로, 현재 도시 시세를 반영한 실제 구매가를 함께 안내한다.
-            self._city_specialty_price_tooltip = None
-            for widget in (label, entry):
-                widget.bind('<Motion>', self._on_city_specialty_price_motion, add='+')
-                widget.bind('<Leave>', self._hide_city_specialty_price_tooltip, add='+')
-                widget.bind('<ButtonPress>', self._hide_city_specialty_price_tooltip, add='+')
+            self._city_price_tooltip = None
+            label.bind('<Motion>', self._on_city_specialty_price_motion, add='+')
+            label.bind('<Leave>', self._hide_city_price_tooltip, add='+')
+            label.bind('<ButtonPress>', self._hide_city_price_tooltip, add='+')
 
     def _on_city_specialty_price_motion(self, event):
         """특산품 기준가에서 교역소 실제 구매가까지의 계산을 표시한다."""
-        if getattr(self, '_city_specialty_price_tooltip', None) is not None:
+        if getattr(self, 'city_specialty_id', -1) < 0:
             return
         try:
             price = int(self.city_edit_vars['value_b'].get())
+        except (KeyError, TypeError, ValueError):
+            return
+        self._show_city_price_tooltip(event, price, 'ui_0488')
+
+    def _on_city_common_price_motion(self, event, display_index):
+        """공통 교역품 가격 라벨에 지역 기준가의 구매가 계산을 표시한다."""
+        try:
+            price = int(self.city_common_good_prices[display_index].get())
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return
+        self._show_city_price_tooltip(event, price, 'ui_0659')
+
+    def _show_city_price_tooltip(self, event, price, text_key):
+        """도시 시세를 반영한 최종 구매가 계산 툴팁을 한 개만 표시한다."""
+        if getattr(self, '_city_price_tooltip', None) is not None:
+            return
+        try:
             market = int(self.city_edit_vars['update_counter'].get())
         except (KeyError, TypeError, ValueError):
             return
         market_price = price * market // 100
         buy_price = market_price * 3 // 2
-        tooltip_text = ui('ui_0488', price, market, market_price, buy_price)
+        tooltip_text = ui(text_key, price, market, market_price, buy_price)
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
@@ -5157,39 +5282,16 @@ class CDS3SaveEditorApp:
             relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9),
         ).pack()
         tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
-        self._city_specialty_price_tooltip = tooltip
+        self._city_price_tooltip = tooltip
 
-    def _hide_city_specialty_price_tooltip(self, _event=None):
-        tooltip = getattr(self, '_city_specialty_price_tooltip', None)
-        self._city_specialty_price_tooltip = None
+    def _hide_city_price_tooltip(self, _event=None):
+        tooltip = getattr(self, '_city_price_tooltip', None)
+        self._city_price_tooltip = None
         if tooltip is not None:
             try:
                 tooltip.destroy()
             except tk.TclError:
                 pass
-
-    def _build_city_supply_form_field(self, parent, row, key):
-        """교역품 공급량 5개를 항목명과 함께 세로 입력칸으로 배치한다."""
-        definition = self._city_definition(key)
-        if definition is None:
-            return
-        _key, _text_key, _offset, kind, *_ = definition
-        minimum, maximum = VALUE_LIMITS[kind]
-        variable = tk.StringVar(value='')
-        validate = self.root.register(
-            lambda proposed, low=minimum: (proposed == '' or
-            (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit()))
-        tk.Label(parent, text=ui_label(self._city_field_label(definition)), font=(APP_FONT_FAMILY, 9)).grid(
-            row=row, column=0, sticky='e', padx=(0, 6), pady=4)
-        entry = ttk.Spinbox(parent, textvariable=variable, from_=minimum, to=maximum, width=12,
-                            justify='right', font=(APP_FONT_FAMILY, 9), validate='key',
-                            validatecommand=(validate, '%P'))
-        entry.grid(row=row, column=1, sticky='ew', pady=4)
-        entry.configure(command=self.apply_city_edits)
-        entry.bind('<KeyRelease>', lambda _event, control=entry, low=minimum, high=maximum:
-                   self._clamp_spinbox(control, low, high), add='+')
-        entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
-        self.city_edit_vars[key] = variable
 
     @staticmethod
     def _city_default_value(record, definition):
@@ -5336,10 +5438,73 @@ class CDS3SaveEditorApp:
             return
         good_id = getattr(self, 'city_specialty_id', -1)
         image_path = get_trade_good_image_path(good_id)
-        photo = get_cached_photo(image_path) if image_path else None
-        display_photo = photo or get_black_photo(80, 80)
+        photo = get_cached_photo_sized(image_path, 64, 64) if image_path else None
+        display_photo = photo or get_black_photo(64, 64)
         label.configure(image=display_photo)
         label.image = display_photo
+
+    def _clear_city_common_goods(self):
+        """이전 도시의 공통 교역품 표시와 공급량 위젯 연결을 모두 지운다."""
+        cards = getattr(self, 'city_common_good_cards', ())
+        if not cards:
+            return
+        for number in range(5):
+            self.city_field_widgets.pop(f'economy_{number}', None)
+        empty_photo = get_black_photo(64, 64)
+        for display_index, (image_label, _name_label, _price_label, entry) in enumerate(cards):
+            name_var = self.city_common_good_names[display_index]
+            price_var = self.city_common_good_prices[display_index]
+            empty_var = self.city_common_good_empty_vars[display_index]
+            name_var.set(ui('ui_0319'))
+            price_var.set('')
+            empty_var.set('')
+            image_label.configure(image=empty_photo)
+            image_label.image = empty_photo
+            entry.configure(textvariable=empty_var, state=tk.DISABLED)
+
+    def _clear_city_trade_goods(self):
+        """교역소가 없는 도시에서 특산품과 공통 교역품 표시를 비운다."""
+        self.city_specialty_id = -1
+        specialty_var = getattr(self, 'city_specialty_var', None)
+        if specialty_var is not None:
+            specialty_var.set(ui('ui_0319'))
+        for key, empty_var in getattr(self, 'city_specialty_empty_vars', {}).items():
+            empty_var.set('')
+            widget = getattr(self, 'city_field_widgets', {}).get(key)
+            if widget is not None:
+                widget.configure(textvariable=empty_var, state=tk.DISABLED)
+        specialty_image = getattr(self, 'lbl_city_specialty_image', None)
+        if specialty_image is not None:
+            empty_photo = get_black_photo(64, 64)
+            specialty_image.configure(image=empty_photo)
+            specialty_image.image = empty_photo
+        self._clear_city_common_goods()
+
+    def _refresh_city_common_goods(self, city_index=None):
+        """선택 도시의 공통 교역품 이름·지역 기준가·공급량을 표시한다."""
+        self._clear_city_common_goods()
+        cards = getattr(self, 'city_common_good_cards', ())
+        if not cards or city_index is None:
+            return
+        common_goods = self.CITY_COMMON_TRADE_GOODS.get(city_index, ())
+        specialty_id = getattr(self, 'city_specialty_id', -1)
+        offerings = [
+            (slot_index, good_id, base_price)
+            for slot_index, (good_id, base_price) in enumerate(common_goods)
+            if good_id >= 0 and good_id != specialty_id
+        ]
+        for display_index, (slot_index, good_id, base_price) in enumerate(offerings[:5]):
+            image_label, _name_label, _price_label, entry = cards[display_index]
+            self.city_common_good_names[display_index].set(self._trade_good_name(good_id))
+            self.city_common_good_prices[display_index].set(str(base_price))
+            image_path = get_trade_good_image_path(good_id)
+            photo = get_cached_photo_sized(image_path, 64, 64) if image_path else None
+            display_photo = photo or get_black_photo(64, 64)
+            image_label.configure(image=display_photo)
+            image_label.image = display_photo
+            key = f'economy_{slot_index}'
+            entry.configure(textvariable=self.city_edit_vars[key], state=tk.NORMAL)
+            self.city_field_widgets[key] = entry
 
     def _update_city_image(self, city_index=None):
         """도시 선택에 맞춰 기본 탭의 CITYCG 미리보기를 갱신한다."""
@@ -5414,8 +5579,10 @@ class CDS3SaveEditorApp:
             widget = getattr(self, 'city_field_widgets', {}).get(key)
             if widget is not None:
                 widget.configure(state=tk.NORMAL if has_trade_post else tk.DISABLED)
+        # 교역소가 없는 도시도 특산품과 교역품 정보는 열람할 수 있어야 하므로
+        # 교역 탭 자체는 항상 활성화한다. 편집 컨트롤만 위에서 잠근다.
         if hasattr(self, 'city_tabs') and hasattr(self, 'city_trade_tab'):
-            self.city_tabs.tab(self.city_trade_tab, state='normal' if has_trade_post else 'disabled')
+            self.city_tabs.tab(self.city_trade_tab, state='normal')
 
     def _sync_city_goods_supply_with_size(self):
         """도시 규모 변경에 맞춰 공통 교역품 공급량 다섯 칸을 게임의 일일 재고값으로 맞춘다."""
@@ -5434,6 +5601,7 @@ class CDS3SaveEditorApp:
         index = self._selected_city_index()
         if index is None or not self.file_buffer:
             self._update_city_image()
+            self._clear_city_trade_goods()
             self._update_city_reset_state()
             return
         record, base = self.CITY_RECORDS[index], self._city_record_offset(index)
@@ -5496,6 +5664,7 @@ class CDS3SaveEditorApp:
         mask = self._city_read(self.file_buffer, base + 0x12, 'u16')
         for code, variable in enumerate(self.city_ship_vars):
             variable.set(bool(mask & (1 << code)))
+        facility_flags = 0
         if hasattr(self, 'city_facility_vars'):
             default_facility_flags = record['facility_flags']
             facility_flags = self._city_read(self.file_buffer, base + 0x10, 'u16')
@@ -5505,7 +5674,15 @@ class CDS3SaveEditorApp:
                         state=tk.NORMAL if default_facility_flags & (1 << bit) else tk.DISABLED)
                 variable.set(bool(facility_flags & (1 << bit)))
             self._set_city_facility_ui_state(facility_flags)
-        self._refresh_city_specialty_image()
+        if facility_flags & (1 << 1):
+            for key in ('value_b', 'value_c'):
+                widget = self.city_field_widgets.get(key)
+                if widget is not None:
+                    widget.configure(textvariable=self.city_edit_vars[key], state=tk.NORMAL)
+            self._refresh_city_common_goods(record['index'])
+            self._refresh_city_specialty_image()
+        else:
+            self._clear_city_trade_goods()
         self._update_city_reset_state()
         self._schedule_treeview_autofit(self.lst_city_basic)
 
@@ -5528,7 +5705,16 @@ class CDS3SaveEditorApp:
             new_city_size = old_city_size
         if new_city_size != old_city_size:
             self._sync_city_goods_supply_with_size()
+        facility_mask = sum(
+            (1 << bit) for bit, variable in self.city_facility_vars.items() if variable.get())
+        trade_field_keys = {
+            'update_counter', 'value_b', 'value_c',
+            'economy_0', 'economy_1', 'economy_2', 'economy_3', 'economy_4',
+        }
         for key, variable in self.city_edit_vars.items():
+            if not facility_mask & (1 << 1) and key in trade_field_keys:
+                # 교역소가 없는 도시에서는 화면을 비워 두므로 저장된 교역값을 보존한다.
+                continue
             definition = self._city_definition(key)
             _key, _text_key, relative_offset, kind, *_ = definition
             try:
@@ -5565,7 +5751,6 @@ class CDS3SaveEditorApp:
             self._city_write(self.file_buffer, base + 0x14 + number * 4, 'i32', item_id)
         mask = sum((1 << code) for code, variable in enumerate(self.city_ship_vars) if variable.get())
         self._city_write(self.file_buffer, base + 0x12, 'u16', mask)
-        facility_mask = sum((1 << bit) for bit, variable in self.city_facility_vars.items() if variable.get())
         self._city_write(self.file_buffer, base + 0x10, 'u16', facility_mask)
         if self._selected_player_city_id() == city_index:
             self._refresh_player_building_options(self._selected_player_building_id())
