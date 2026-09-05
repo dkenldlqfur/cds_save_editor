@@ -15,30 +15,31 @@
     "헤로니모": "제도니모"
   },
   "group_titles": {
-    "fleet_list": " 내 함선 목록 ",
-    "fleet_editor": " 함선 정보 ",
-    "fleet_basic": " 함선 기본 정보 ",
-    "city_list": " 도시 목록 ",
-    "city_save": " 도시 정보 ",
-    "city_basic": " 도시 기본 정보 ",
+    "fleet_list": "ui_0600",
+    "fleet_editor": "ui_0154",
+    "fleet_basic": "ui_0601",
+    "city_list": "ui_0602",
+    "city_save": "ui_0603",
+    "city_basic": "ui_0604",
     "profile_player": "ui_0155",
     "profile_spouse": "ui_0157",
     "profile_stats": "ui_0159",
-    "profile_money": " 자금 & 명성치 ",
-    "skills_technical": " 기술 ",
-    "skills_language": " 언어 ",
-    "items_pocket": " 소지품 ",
-    "items_storage": " 보관함 ",
-    "items_catalog": " 전체 아이템 도감 "
+    "profile_money": "ui_0605",
+    "skills_technical": "ui_0388",
+    "skills_language": "ui_0389",
+    "items_pocket": "ui_0281",
+    "items_storage": "ui_0282",
+    "items_catalog": "ui_0606"
   },
   "tab_titles": {
     "profile": "ui_0118",
-    "skills": "기술 & 언어",
-    "fleet": "함대",
+    "skills": "ui_0607",
+    "fleet": "ui_0608",
     "cities": "ui_0354",
-    "items": "아이템",
-    "discoveries": "발견물",
-    "events": "이벤트 플래그"
+    "map": "ui_0609",
+    "items": "ui_0610",
+    "discoveries": "ui_0570",
+    "events": "ui_0611"
   },
   "tree_column_titles": {
     "barmaid": {
@@ -52,17 +53,19 @@
       "personality": "ui_0067",
       "languages": "ui_0068"
     },
-    "fleet": {"index": "No.", "name": "ui_0062"},
+    "fleet": {"index": "ui_0346", "name": "ui_0062"},
     "fleet_basic": {"field": "ui_0348", "base_value": "ui_0378"},
-    "cities": {"index": "ui_0346", "name": "ui_0354", "field": "ui_0348", "base_value": "ui_0378", "saved_value": "저장값"},
+    "cities": {"index": "ui_0346", "name": "ui_0354", "field": "ui_0348", "base_value": "ui_0378", "saved_value": "ui_0612"},
     "stats": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "ui_0512"},
-    "money": {"index": "ui_0346", "field": "ui_0348", "value": "ui_0350", "maximum": "ui_0512"},
     "tech": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
-    "language": {"index": "ui_0346", "field": "ui_0348", "level": "ui_0352"},
-    "pocket_storage": {"slot": "슬롯", "game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351"},
-    "catalog": {"game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351", "sell_price": "매각가 (G)"},
-    "discovery": {"index": "ui_0346", "game_id": "ui_0347", "category": "ui_0351", "name": "ui_0062", "hint_state": "힌트 상태", "status": "진행 상태", "found_date": "발견 일자", "reported_date": "보고 일자", "reporter": "발견자 / 발표자"},
-    "event": {"game_id": "ui_0347", "name": "ui_0062", "status": "상태"}
+    "pocket_storage": {"slot": "ui_0613", "game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351"},
+    "catalog": {"game_id": "ui_0347", "name": "ui_0062", "category": "ui_0351", "sell_price": "ui_0614"},
+    "discovery": {"index": "ui_0346", "game_id": "ui_0347", "category": "ui_0351", "difficulty": "ui_0650", "name": "ui_0062", "hint_state": "ui_0615", "status": "ui_0616", "found_date": "ui_0617", "reported_date": "ui_0618", "reporter": "ui_0619"},
+    "event": {"game_id": "ui_0347", "name": "ui_0062", "status": "ui_0620"}
+  },
+  "tree_column_title_aliases": {
+    "money": "stats",
+    "language": "tech"
   },
   "item_catalog_category_ids": [
     -1,
@@ -79,53 +82,53 @@
   ],
   "profile_stat_definitions": [
       [
-        "체력",
-        "생명력 초기값 / 일기토 HP"
+        "ui_0621",
+        "ui_0622"
     ],
     [
-      "지력",
-      "학술/유물 발견 및 학습력"
+      "ui_0623",
+      "ui_0624"
     ],
     [
-      "무력",
-      "백병전 및 일기토 공격력"
+      "ui_0625",
+      "ui_0626"
     ],
     [
-      "매력",
-      "동료 고용 및 설득/교섭력"
+      "ui_0627",
+      "ui_0628"
     ],
     [
-      "운",
-      "육상 조우 및 일부 이벤트 확률"
+      "ui_0629",
+      "ui_0630"
     ],
       [
-        "신앙심",
-        "항해·탐험 중 사고 발생 확률"
+        "ui_0631",
+        "ui_0632"
       ],
       [
-        "생명력",
-        "현재 생존력"
+        "ui_0508",
+        "ui_0633"
       ]
   ],
   "money_definitions": [
     [
-      "소지금",
+      "ui_0634",
       99999999
     ],
     [
-      "저금",
+      "ui_0635",
       99999999
     ],
     [
-      "계약금",
+      "ui_0636",
       99999999
     ],
     [
-      "명성치",
+      "ui_0637",
       9999999
     ],
     [
-      "악명치",
+      "ui_0638",
       9999999
     ]
   ],

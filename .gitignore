@@ -13,6 +13,12 @@
 # 에디터 소스와 PyInstaller 빌드 설정
 !/CDS_SaveEditor.pyw
 !/CDS3_SaveEditor.spec
+!/CDS_SaveEditor_xp.spec
+!/README_XP.md
+!/editor_core/
+!/editor_core/resources.py
+!/tests/
+!/tests/test_xp_122.py
 
 # 실행과 빌드에 필요한 모든 리소스
 !/Resources/

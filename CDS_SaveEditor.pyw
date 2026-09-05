@@ -1,10 +1,7 @@
-# Decompiled with PyLingual (https://pylingual.io)
-# Internal filename: 'CDS3_SaveEditor.pyw'
-# Bytecode version: 3.14rc3 (3627)
-# Source timestamp: 1970-01-01 00:00:00 UTC (0)
-
-# ***<module>: Failure: Compilation Error
-"""\n대항해시대 3 세이브 에디터 (Uncharted Waters 3 Save Editor) v0.98\nPython / Tkinter GUI (.pyw) 단독 실행 버전\n"""
+"""
+대항해시대 3 세이브 에디터 (Uncharted Waters 3 Save Editor) v0.98
+Python / Tkinter GUI (.pyw) 단독 실행 버전
+"""
 import sys
 import os
 import json
@@ -22,7 +19,7 @@ import zipfile
 from functools import lru_cache
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
+JSON_DECODE_ERROR = getattr(json, 'JSONDecodeError', ValueError)
 
 def enable_windows_per_monitor_dpi_awareness():
     """OS 비트맵 확대 없이 창별 실제 DPI로 렌더링한다."""
@@ -35,10 +32,7 @@ def enable_windows_per_monitor_dpi_awareness():
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
-
-
 enable_windows_per_monitor_dpi_awareness()
-
 
 def get_windows_dpi_scale(hwnd=0):
     try:
@@ -50,45 +44,142 @@ def get_windows_dpi_scale(hwnd=0):
         pass
     return 1.0
 
-
 def get_windows_work_area_size():
     """작업 표시줄을 제외한 현재 Windows 작업 영역 크기."""
     try:
+
         class Rect(ctypes.Structure):
-            _fields_ = [
-                ('left', ctypes.c_long), ('top', ctypes.c_long),
-                ('right', ctypes.c_long), ('bottom', ctypes.c_long),
-            ]
+            _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long), ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
         rect = Rect()
         if ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(rect), 0):
-            return rect.right - rect.left, rect.bottom - rect.top
+            return (rect.right - rect.left, rect.bottom - rect.top)
     except Exception:
         pass
-    return 0, 0
-
+    return (0, 0)
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, colorchooser
 import tkinter.font as tkfont
+
+# ``ttk.Spinbox`` is not exposed by the Tcl/Tk bundled with Python 3.4.
+# Keep the themed widget's ``set`` method when falling back to Tk's Spinbox.
+class CompatSpinbox(tk.Spinbox):
+
+    def set(self, value):
+        self.delete(0, tk.END)
+        self.insert(0, str(value))
+
+    def state(self, statespec=None):
+        """Small ttk.Spinbox state API subset used by this application."""
+        current = self.cget('state')
+        if statespec is None:
+            return ('disabled',) if current == 'disabled' else ()
+        for state in statespec:
+            if state == 'disabled':
+                self.configure(state='disabled')
+            elif state == '!disabled' and self.cget('state') == 'disabled':
+                self.configure(state='normal')
+
+
+SPINBOX_WIDGET = getattr(ttk, 'Spinbox', CompatSpinbox)
+
+# The Python 3.4 / Tcl-Tk 8.6 combination bundled for XP has a PyInstaller-only
+# fault in ttk::notebook: its ``add`` command receives option values as options.
+# Ordinary Tk controls do not have that fault, so use a small tab container made
+# of Frame + Button on that runtime.  Pages in this program are siblings of the
+# notebook (which ttk supports), therefore ``place(in_=...)`` is intentional.
+if sys.version_info[:2] <= (3, 4):
+
+    class XPNotebook(tk.Frame):
+
+        def __init__(self, master=None, **kwargs):
+            kwargs.pop('style', None)
+            tk.Frame.__init__(self, master, **kwargs)
+            self._xp_tab_bar = tk.Frame(self, bd=0, highlightthickness=0)
+            self._xp_tab_bar.place(x=0, y=0, relwidth=1, height=27)
+            self._xp_pages = []
+            self._xp_buttons = {}
+            self._xp_current = None
+
+        def add(self, child, **kwargs):
+            title = kwargs.get('text', 'Tab')
+            if child not in self._xp_pages:
+                self._xp_pages.append(child)
+                button = tk.Button(self._xp_tab_bar, text=title,
+                    command=lambda page=child: self.select(page),
+                    padx=8, pady=2)
+                button.pack(side=tk.LEFT, padx=1, pady=1)
+                self._xp_buttons[child] = button
+            else:
+                self._xp_buttons[child].configure(text=title)
+                self._xp_buttons[child].pack(side=tk.LEFT, padx=1, pady=1)
+            if self._xp_current is None:
+                self.select(child)
+
+        def hide(self, child):
+            if child in self._xp_buttons:
+                self._xp_buttons[child].pack_forget()
+            child.place_forget()
+            if self._xp_current is child:
+                self._xp_current = None
+                for page in self._xp_pages:
+                    if page is not child and self._xp_buttons[page].winfo_manager():
+                        self.select(page)
+                        break
+
+        def tabs(self):
+            return tuple(str(page) for page in self._xp_pages)
+
+        def tab(self, child, **kwargs):
+            button = self._xp_buttons.get(child)
+            if button is None:
+                return {}
+            if 'state' in kwargs:
+                button.configure(state=kwargs['state'])
+                if kwargs['state'] == 'disabled' and self._xp_current is child:
+                    self.hide(child)
+            return {'state': str(button.cget('state'))}
+
+        def select(self, child=None):
+            if child is None:
+                return str(self._xp_current) if self._xp_current is not None else ''
+            if isinstance(child, str):
+                for page in self._xp_pages:
+                    if str(page) == child:
+                        child = page
+                        break
+            button = self._xp_buttons.get(child)
+            if button is None or str(button.cget('state')) == 'disabled':
+                return
+            for page in self._xp_pages:
+                page.place_forget()
+            child.place(in_=self, x=0, y=27, relwidth=1, relheight=1,
+                height=-27, bordermode='inside')
+            child.lift()
+            self._xp_current = child
+            self.event_generate('<<NotebookTabChanged>>')
+
+    ttk.Notebook = XPNotebook
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageDraw, ImageTk
 except ImportError:
-    Image = ImageTk = None
+    Image = ImageDraw = ImageTk = None
+if Image is not None and not hasattr(Image, 'Resampling'):
 
+    class _CompatImageResampling:
+        LANCZOS = Image.LANCZOS
+        NEAREST = Image.NEAREST
 
-# Tk는 글꼴·Button·Entry를 이미 현재 DPI에 맞춰 그린다. 반면 Frame 크기,
-# 절대 좌표, Treeview 열 폭은 자동 확대되지 않는다. 이 세 종류만 변환한다.
+    Image.Resampling = _CompatImageResampling
 _dpi_layout_scale = 1.0
 _raw_place_configure = None
 _raw_treeview_column = None
 
-
 def _dpi_px(value):
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, (int, float)) and (not isinstance(value, bool)):
         return round(value * _dpi_layout_scale)
     if isinstance(value, (tuple, list)):
-        return type(value)(_dpi_px(item) for item in value)
+        return type(value)((_dpi_px(item) for item in value))
     return value
-
 
 def _dpi_options(options, names):
     copied = dict(options)
@@ -97,70 +188,53 @@ def _dpi_options(options, names):
             copied[name] = _dpi_px(copied[name])
     return copied
 
-
 def _install_fixed_layout_dpi_scaling():
     """자동 확대되지 않는 고정 레이아웃 값만 DPI 비율로 바꾼다."""
     if getattr(tk, '_cds3_fixed_layout_dpi_installed', False):
         return
     tk._cds3_fixed_layout_dpi_installed = True
-
     for widget_class in (tk.Frame, tk.LabelFrame, tk.Canvas):
         original_init = widget_class.__init__
+
         def scaled_container_init(self, master=None, cnf={}, _original=original_init, **kw):
             cnf = _dpi_options(cnf, {'width', 'height', 'padx', 'pady'})
             kw = _dpi_options(kw, {'width', 'height', 'padx', 'pady'})
             _original(self, master, cnf, **kw)
         widget_class.__init__ = scaled_container_init
-
     original_grid = tk.Grid.grid_configure
+
     def scaled_grid(self, cnf={}, **kw):
-        return original_grid(
-            self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}),
-            **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}),
-        )
+        return original_grid(self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}), **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}))
     tk.Grid.grid_configure = tk.Grid.grid = scaled_grid
-
     original_pack = tk.Pack.pack_configure
-    def scaled_pack(self, cnf={}, **kw):
-        return original_pack(
-            self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}),
-            **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}),
-        )
-    tk.Pack.pack_configure = tk.Pack.pack = scaled_pack
 
+    def scaled_pack(self, cnf={}, **kw):
+        return original_pack(self, _dpi_options(cnf, {'padx', 'pady', 'ipadx', 'ipady'}), **_dpi_options(kw, {'padx', 'pady', 'ipadx', 'ipady'}))
+    tk.Pack.pack_configure = tk.Pack.pack = scaled_pack
     global _raw_place_configure
     original_place = tk.Place.place_configure
     _raw_place_configure = original_place
+
     def scaled_place(self, cnf={}, **kw):
-        return original_place(
-            self, _dpi_options(cnf, {'x', 'y', 'width', 'height'}),
-            **_dpi_options(kw, {'x', 'y', 'width', 'height'}),
-        )
+        return original_place(self, _dpi_options(cnf, {'x', 'y', 'width', 'height'}), **_dpi_options(kw, {'x', 'y', 'width', 'height'}))
     tk.Place.place_configure = tk.Place.place = scaled_place
-
     original_columnconfigure = tk.Misc.grid_columnconfigure
+
     def scaled_columnconfigure(self, index, cnf={}, **kw):
-        return original_columnconfigure(
-            self, index, _dpi_options(cnf, {'minsize', 'pad'}),
-            **_dpi_options(kw, {'minsize', 'pad'}),
-        )
+        return original_columnconfigure(self, index, _dpi_options(cnf, {'minsize', 'pad'}), **_dpi_options(kw, {'minsize', 'pad'}))
     tk.Misc.grid_columnconfigure = tk.Misc.columnconfigure = scaled_columnconfigure
-
     original_rowconfigure = tk.Misc.grid_rowconfigure
-    def scaled_rowconfigure(self, index, cnf={}, **kw):
-        return original_rowconfigure(
-            self, index, _dpi_options(cnf, {'minsize', 'pad'}),
-            **_dpi_options(kw, {'minsize', 'pad'}),
-        )
-    tk.Misc.grid_rowconfigure = tk.Misc.rowconfigure = scaled_rowconfigure
 
+    def scaled_rowconfigure(self, index, cnf={}, **kw):
+        return original_rowconfigure(self, index, _dpi_options(cnf, {'minsize', 'pad'}), **_dpi_options(kw, {'minsize', 'pad'}))
+    tk.Misc.grid_rowconfigure = tk.Misc.rowconfigure = scaled_rowconfigure
     global _raw_treeview_column
     original_tree_column = ttk.Treeview.column
     _raw_treeview_column = original_tree_column
+
     def scaled_tree_column(self, column, option=None, **kw):
         return original_tree_column(self, column, option, **_dpi_options(kw, {'width', 'minwidth'}))
     ttk.Treeview.column = scaled_tree_column
-
 
 def _place_physical(widget, **kw):
     """Place values that were calculated from an already physical widget size.
@@ -172,93 +246,39 @@ def _place_physical(widget, **kw):
         return widget.place(**kw)
     return _raw_place_configure(widget, {}, **kw)
 
-
 def _set_tree_column_physical(tree, column, **kw):
     """Apply a Treeview column width measured in actual screen pixels."""
     if _raw_treeview_column is None:
         return tree.column(column, **kw)
     return _raw_treeview_column(tree, column, None, **kw)
-
-
 _install_fixed_layout_dpi_scaling()
-
-from editor_core.save_records import (
-    RecordTableLayout,
-    VALUE_LIMITS,
-    read_character_name,
-    read_character_stat_values,
-    read_value,
-    write_value,
-)
-from editor_core.fleet_records import (
-    active_ship_indices,
-    flagship_position,
-    fleet_slot_offset,
-    mast_count,
-    pack_mast_slots,
-    write_active_ship_indices,
-    write_flagship_position,
-)
+from editor_core.save_records import RecordTableLayout, VALUE_LIMITS, read_character_name, read_character_stat_values, read_value, write_value
+from editor_core.fleet_records import active_ship_indices, flagship_position, fleet_slot_offset, mast_count, pack_mast_slots, write_active_ship_indices, write_flagship_position
 from editor_core.city_records import CityRecordLayout, refreshed_ship_mask
-from editor_core.role_slots import (
-    EMPTY_ROLE_SLOT,
-    active_role_character_ids,
-    read_role_character_id,
-    role_character_id,
-    role_slot_code,
-    write_role_character_id,
-)
-from editor_core.sponsor_records import (
-    active_sponsor_id,
-    clear_contract_fields,
-    remaining_days as sponsor_remaining_days,
-    write_remaining_days as write_sponsor_remaining_days,
-)
-from editor_core.discovery_records import (
-    HINT_ACQUIRED_AND_CONTRACT_BITS,
-    hint_is_acquired_and_contract_linked,
-    marker_for_state,
-    set_hint_acquired,
-    state_from_marker,
-)
-from editor_core.spouse_slots import (
-    SPOUSE_SLOT_OFFSET,
-    read_spouse_barmaid_id,
-    write_spouse_barmaid_id,
-)
-from editor_core.item_slots import (
-    POCKET_SLOT_CAPACITY,
-    POCKET_SLOT_OFFSET,
-    STORAGE_SLOT_CAPACITY,
-    STORAGE_SLOT_OFFSET,
-    read_item_slots,
-    write_item_slots,
-)
+from editor_core.role_slots import EMPTY_ROLE_SLOT, active_role_character_ids, read_role_character_id, role_character_id, role_slot_code, write_role_character_id
+from editor_core.sponsor_records import active_sponsor_id, clear_contract_fields, remaining_days as sponsor_remaining_days, write_remaining_days as write_sponsor_remaining_days
+from editor_core.discovery_records import HINT_ACQUIRED_AND_CONTRACT_BITS, hint_is_acquired_and_contract_linked, marker_for_state, set_hint_acquired, state_from_marker
+from editor_core.spouse_slots import SPOUSE_SLOT_OFFSET, read_spouse_barmaid_id, write_spouse_barmaid_id
+from editor_core.item_slots import POCKET_SLOT_CAPACITY, POCKET_SLOT_OFFSET, STORAGE_SLOT_CAPACITY, STORAGE_SLOT_OFFSET, read_item_slots, write_item_slots
 from editor_core.event_records import EVENT_RECORD_SIZE, event_is_completed
 from editor_core.tab_layout import configure_equal_columns
 from editor_core.treeview import clear_rows
-
 
 class EditorButton(tk.Button):
     """화면 전체에서 같은 높이를 유지하는 공통 버튼."""
 
     def __init__(self, master=None, cnf=None, **kwargs):
-        # 기존 화면별 설정을 하나의 기준으로 맞춰 버튼 행의 높이가 흔들리지 않게 한다.
-        kwargs['font'] = ('Malgun Gothic', 9)
+        kwargs['font'] = (APP_FONT_FAMILY, 9)
         kwargs['pady'] = 2
         kwargs['height'] = 1
         kwargs['bd'] = 1
         super().__init__(master, cnf or {}, **kwargs)
-
-# VLC DLL은 번들 리소스 경로를 설정한 뒤 지연 로드한다.
 vlc = None
-
 
 def _theme_settings_path():
     """실행 파일 위치와 무관하게 사용자별 UI 설정을 보관한다."""
     base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
     return os.path.join(base, 'CDS_SaveEditor', 'ui_settings.json')
-
 
 def load_saved_theme(setting_key, available_themes):
     try:
@@ -267,7 +287,6 @@ def load_saved_theme(setting_key, available_themes):
         return theme if theme in available_themes else None
     except (OSError, ValueError, TypeError):
         return None
-
 
 def save_theme(setting_key, theme):
     path = _theme_settings_path()
@@ -287,34 +306,51 @@ def save_theme(setting_key, theme):
     except OSError:
         pass
 
+def normalize_navigation_map_marker_size(value):
+    """마커 크기를 0.5 단위의 지원 범위로 정규화한다."""
+    try:
+        size = float(value)
+    except (TypeError, ValueError):
+        size = 1.0
+    return max(0.5, min(6.0, round(size * 2.0) / 2.0))
 
-def load_json_resource(filename, data_directory=True):
-    """소스 실행과 PyInstaller 배포 환경 모두에서 JSON 리소스를 읽는다."""
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
+def load_navigation_map_marker_settings():
+    """저장된 지도 마커 크기와 상태별 색상을 검증해 읽는다."""
+    try:
+        with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
+            settings = json.load(settings_file)
+        marker_size = normalize_navigation_map_marker_size(settings.get('navigation_map_marker_size', 1))
+        saved_colors = settings.get('navigation_map_marker_colors', {})
+        colors = {}
+        for group in ('city', 'discovery'):
+            group_colors = saved_colors.get(group, {})
+            if isinstance(group_colors, dict):
+                colors[group] = {key: value.upper() for key, value in group_colors.items() if isinstance(value, str) and re.fullmatch('#[0-9A-Fa-f]{6}', value)}
+        return (marker_size, colors)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return (1, {})
 
-    relative_paths = []
-    if data_directory:
-        relative_paths.append(os.path.join('Resources', 'data', filename))
-        relative_paths.append(os.path.join('CDS3SaveEditor', 'Resources', 'data', filename))
-    relative_paths.extend((os.path.join('Resources', filename),
-                           os.path.join('CDS3SaveEditor', 'Resources', filename)))
-    for base_dir in base_dirs:
-        for relative_path in relative_paths:
-            path = os.path.join(base_dir, relative_path)
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except FileNotFoundError:
-                continue
-    # UI 문자열 자체가 아직 로드되기 전에도 호출될 수 있으므로 파일명만 넘긴다.
-    raise FileNotFoundError(filename)
+def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colors):
+    """기존 테마 설정을 보존하면서 지도 마커 설정만 저장한다."""
+    path = _theme_settings_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {}
+        try:
+            with open(path, 'r', encoding='utf-8') as settings_file:
+                loaded = json.load(settings_file)
+                if isinstance(loaded, dict):
+                    data = loaded
+        except (OSError, ValueError, TypeError):
+            pass
+        data['navigation_map_marker_size'] = normalize_navigation_map_marker_size(marker_size)
+        data['navigation_map_marker_colors'] = {'city': dict(city_colors), 'discovery': dict(discovery_colors)}
+        with open(path, 'w', encoding='utf-8') as settings_file:
+            json.dump(data, settings_file, ensure_ascii=False, indent=2)
+    except (OSError, TypeError, ValueError):
+        pass
 
-
+from editor_core.resources import load_json_resource
 GAME_MASTER_DATA = load_json_resource('master_data.json')
 CHARACTER_DATA = load_json_resource('character_database.json')
 SPONSOR_DATA = load_json_resource('sponsor_data.json')
@@ -326,47 +362,31 @@ DISCOVERY_TRADE_GOOD_DATA = load_json_resource('discovery_trade_goods.json')
 DATA_CATEGORIES = load_json_resource('data_categories.json')
 DISCOVERY_REWARD_DATA = load_json_resource('discovery_reward_items.json')
 DISCOVERY_HINT_DATA = load_json_resource('discovery_hint_data.json')
+MAP_LOCATION_DATA = load_json_resource('map_locations.json')
 APP_CONFIG = load_json_resource('app_config.json')
 UI_TEXTS = load_json_resource('ui_texts.json')['texts']
-
-# CDS_95.EXE 후원자 표(+0x34)의 실제 비트 순서는 발견물 분류와 같다.
-# 기존 JSON의 preference_flags는 화면용으로 재배열된 값이므로, 게임 EXE를
-# 찾으면 아래 공용 분류 순서의 원본 비트를 우선한다.
-# 후원자 알현의 요구 명성 배율은 직업이 아니라 해당 후원자가 있는 시설 객체가 정한다.
-# CDS_95.EXE: 시설 객체의 알현 전처리(vtbl+0x08) → 0x0044E740.
-SPONSOR_FAME_MULTIPLIER_BY_BUILDING = {
-    2: 100,  # 왕궁
-    3: 80,   # 교회
-    12: 70,  # 저택
-    13: 70,  # 상관
-    14: 70,  # 대사관
-    15: 70,  # 학자저택
-}
-SPONSOR_BUILDING_NAME_BY_ID = {
-    int(building_id): UI_TEXTS.get(name, name)
-    for building_id, name in CITY_DATA['facility_names'].items()
-}
-
+APP_FONT_FAMILY = APP_CONFIG['ui']['font_family']
+SPONSOR_JOB_NAME_BY_ID = {int(job_id): name for job_id, name in SPONSOR_DATA['job_names'].items()}
+for _sponsor_record in SPONSOR_DATA['records']:
+    _sponsor_city_id = int(_sponsor_record['city_id'])
+    _sponsor_nation_id = int(_sponsor_record['nation_id'])
+    _sponsor_job_id = int(_sponsor_record['job_id'])
+    _sponsor_record['city'] = CITY_DATA['records'][_sponsor_city_id]['name']
+    _sponsor_record['nation'] = GAME_MASTER_DATA['nation_names'][_sponsor_nation_id]
+    _sponsor_record['job'] = SPONSOR_JOB_NAME_BY_ID[_sponsor_job_id]
+    _sponsor_record['wealth'] = int(_sponsor_record['wealth_factor']) * 10000
+SPONSOR_FAME_MULTIPLIER_BY_BUILDING = {2: 100, 3: 80, 12: 70, 13: 70, 14: 70, 15: 70}
+FACILITY_NAME_BY_ID = {int(building_id): UI_TEXTS.get(name, name) for building_id, name in CITY_DATA['facility_names'].items()}
 
 def normalized_sponsor_preference_to_exe(mask):
     """기존 JSON의 표시용 취향 마스크를 EXE 원본 비트 순서로 되돌린다."""
-    mask = int(mask) & 0xFF
-    # JSON: 지리·역사·종교·민족·생물·미신·교역품·보물
-    # EXE : 지리·역사·보물·종교·교역품·미신·생물·민족
-    return ((mask & 0x01) |
-            (mask & 0x02) |
-            ((mask & 0x80) >> 5) |
-            ((mask & 0x04) << 1) |
-            ((mask & 0x40) >> 2) |
-            (mask & 0x20) |
-            ((mask & 0x10) << 2) |
-            ((mask & 0x08) << 4))
-
+    mask = int(mask) & 255
+    return mask & 1 | mask & 2 | (mask & 128) >> 5 | (mask & 4) << 1 | (mask & 64) >> 2 | mask & 32 | (mask & 16) << 2 | (mask & 8) << 4
 
 def _pe_rva_to_file_offset(data, rva):
     """PE 파일의 RVA를 파일 오프셋으로 변환한다. 올바른 EXE가 아니면 None."""
     try:
-        pe_offset = struct.unpack_from('<I', data, 0x3C)[0]
+        pe_offset = struct.unpack_from('<I', data, 60)[0]
         if data[pe_offset:pe_offset + 4] != b'PE\x00\x00':
             return None
         section_count = struct.unpack_from('<H', data, pe_offset + 6)[0]
@@ -381,14 +401,11 @@ def _pe_rva_to_file_offset(data, rva):
         pass
     return None
 
-
 def read_sponsor_preferences_from_game_exe(save_directory):
     """세이브와 같은 폴더의 CDS_95.EXE에서 후원자 취향 원본 마스크를 읽는다."""
     if not save_directory:
         return None
-    exe_path = next((os.path.join(save_directory, name)
-                     for name in ('CDS_95.EXE', 'cds_95.exe')
-                     if os.path.isfile(os.path.join(save_directory, name))), None)
+    exe_path = next((os.path.join(save_directory, name) for name in ('CDS_95.EXE', 'cds_95.exe') if os.path.isfile(os.path.join(save_directory, name))), None)
     if exe_path is None:
         return None
     try:
@@ -396,28 +413,24 @@ def read_sponsor_preferences_from_game_exe(save_directory):
             data = exe_file.read()
         source = SPONSOR_DATA['source']
         table_offset = _pe_rva_to_file_offset(data, int(source['table_rva'], 0))
-        row_size, row_count = int(source['row_size']), int(source['row_count'])
+        row_size, row_count = (int(source['row_size']), int(source['row_count']))
         if table_offset is None or table_offset + row_size * row_count > len(data):
             return None
         masks = {}
         for sponsor_id in range(row_count):
             row_offset = table_offset + sponsor_id * row_size
-            # 얼굴 코드까지 대조해 엉뚱한 EXE/테이블을 적용하지 않는다.
             sponsor = SPONSOR_BY_ID.get(sponsor_id)
             if sponsor is None or struct.unpack_from('<I', data, row_offset)[0] != int(sponsor['face_code']):
                 return None
-            masks[sponsor_id] = struct.unpack_from('<I', data, row_offset + 0x34)[0] & 0xFF
+            masks[sponsor_id] = struct.unpack_from('<I', data, row_offset + 52)[0] & 255
         return masks
     except (OSError, KeyError, ValueError, struct.error):
         return None
-
-# 함선 데이터에서 공통 표기(없음)는 한 번만 저장하고, 로드 시 각 선택지에 적용한다.
 FLEET_NONE_NAME = UI_TEXTS.get(FLEET_DATA['common_names']['none'], FLEET_DATA['common_names']['none'])
 for _fleet_name_table in ('cannon_types', 'figureheads', 'mast_names'):
     for _fleet_code, _fleet_name in FLEET_DATA[_fleet_name_table].items():
         if _fleet_name is None:
             FLEET_DATA[_fleet_name_table][_fleet_code] = FLEET_NONE_NAME
-
 
 def resolve_ui_references(value):
     """설정 JSON의 ui_XXXX 참조를 실제 UI 문구로 재귀 해석한다."""
@@ -428,48 +441,44 @@ def resolve_ui_references(value):
     if isinstance(value, dict):
         return {key: resolve_ui_references(item) for key, item in value.items()}
     return value
-
-
 EDITOR_MAPPINGS = resolve_ui_references(load_json_resource('editor_mappings.json'))
 GROUP_TITLES = EDITOR_MAPPINGS['group_titles']
 TAB_TITLES = EDITOR_MAPPINGS['tab_titles']
 TREE_COLUMN_TITLES = EDITOR_MAPPINGS['tree_column_titles']
+for _alias, _source in EDITOR_MAPPINGS['tree_column_title_aliases'].items():
+    TREE_COLUMN_TITLES[_alias] = dict(TREE_COLUMN_TITLES[_source])
 DISCOVERY_SEARCH_ALIASES = EDITOR_MAPPINGS['discovery_search_aliases']
-
 
 def ui(key, *args):
     """UI 문자열을 JSON 키로 조회하고 필요한 값만 서식화한다."""
     return UI_TEXTS[key].format(*args) if args else UI_TEXTS[key]
 
-
+def ui_label(text):
+    """공통 콜론 서식을 적용한 필드 라벨을 만든다."""
+    return ui('ui_0655', text)
 UI_EMPTY_VALUE = ui('ui_0244')
+UI_LIST_SEPARATOR = ui('ui_0640')
+UI_ALTERNATE_SEPARATOR = ui('ui_0641')
+UI_SECTION_SEPARATOR = ui('ui_0642')
+UI_LABEL_SUFFIX = ui_label('')
 ITEM_CATEGORY_WEAPON = ui('ui_0069')
 ITEM_CATEGORY_ARMOR = ui('ui_0108')
-
 
 def format_game_date(year, month, day):
     return ui('ui_0009', year, month, day)
 
-
 def fleet_label(prefix_key, field_key):
     """함선 수치의 접두어(기본/최대/현재)와 항목명을 조합한다."""
-    return f"{ui(prefix_key)} {ui(field_key)}"
-
+    return ui('ui_0595', ui(prefix_key), ui(field_key))
 
 def inventory_text(template_key, location_key, *args):
     """소지품/보관함 이름을 공통 템플릿에 적용한다."""
     return ui(template_key, ui(location_key), *args)
 
-
 def inventory_full_message(location_key, capacity):
-    return inventory_text('ui_0288', location_key), inventory_text('ui_0289', location_key, capacity)
-
-
-# 발견물 상태는 세이브 상태 마커와 1:1로 대응한다.
-# 0x00(미등장), 0x0C(미발견), 0x4C(발견), 0xCC(보고 완료)
+    return (inventory_text('ui_0288', location_key), inventory_text('ui_0289', location_key, capacity))
 DISCOVERY_STATE_TEXT_KEYS = {0: 'ui_0466', 1: 'ui_0112', 2: 'ui_0110', 3: 'ui_0071'}
 DISCOVERY_STATE_ACTION_KEYS = {0: 'ui_0466', 1: 'ui_0112', 2: 'ui_0110', 3: 'ui_0109'}
-
 
 def discovery_state_text(state, action=False, menu=False):
     """세이브의 발견물 상태값을 화면용 문구 하나로 변환한다."""
@@ -477,7 +486,6 @@ def discovery_state_text(state, action=False, menu=False):
         return ui('ui_0184')
     key_map = DISCOVERY_STATE_ACTION_KEYS if action else DISCOVERY_STATE_TEXT_KEYS
     return ui(key_map.get(state, DISCOVERY_STATE_TEXT_KEYS[0]))
-
 
 def discovery_state_from_text(text):
     """콤보박스의 상태 문구를 세이브 상태값으로 역변환한다."""
@@ -487,153 +495,102 @@ def discovery_state_from_text(text):
             return state
     return None
 
-
 def discovery_status_options(include_all=False):
     options = [discovery_state_text(state) for state in (3, 2, 1, 0)]
-    return [ui('ui_0156'), *options] if include_all else options
-
+    return [ui('ui_0156')] + list(options) if include_all else options
 
 def hint_state_text(buffer, hint_id):
     """발견물에 연결된 힌트의 세이브 상태를 화면용 문구로 변환한다."""
     if hint_id < 0:
-        return '-'
+        return UI_EMPTY_VALUE
     if buffer is None or not 0 <= hint_id < len(HINT_STATE_OFFSETS):
         return UI_EMPTY_VALUE
     offset = HINT_STATE_OFFSETS[hint_id]
     if not 0 <= offset < len(buffer):
         return UI_EMPTY_VALUE
     state = buffer[offset]
-    if state & 0x02:
+    if state & 2:
         return ui('ui_0471')
-    if state & 0x01:
+    if state & 1:
         return ui('ui_0445')
     return ui('ui_0446')
 
-
 def event_state_text(state, menu=False):
-    if menu and not state:
+    if menu and (not state):
         return ui('ui_0186')
     return ui('ui_0185') if state else ui('ui_0206')
-
 BARMAID_DATABASE = GAME_MASTER_DATA['barmaid_database']
 BARMAID_BY_ID = {int(record['id']): record for record in BARMAID_DATABASE}
 BARMAID_BY_NAME = {record['name']: record for record in BARMAID_DATABASE}
 CHARACTER_BY_ID = {int(record['id']): record for record in CHARACTER_DATA['records']}
 SPONSOR_BY_ID = {int(record['id']): record for record in SPONSOR_DATA['records']}
-# 고용불가(경쟁자·대화 가능) 목록의 이미지 파일은 인물 ID가 아니라 목록 순번을 쓴다.
-UNEMPLOYABLE_CHARACTER_IDS = tuple(sorted(
-    int(record['id']) for record in CHARACTER_DATA['records']
-    if int(record.get('hire_state', 0)) in (0, 1)
-))
-UNEMPLOYABLE_FACE_INDEX_BY_CHARACTER_ID = {
-    character_id: index for index, character_id in enumerate(UNEMPLOYABLE_CHARACTER_IDS)
-}
-# 세이브 파일의 승무원 역할 슬롯. 역할 판정·복원·목록 필터에서 공통으로 사용한다.
-ROLE_SLOT_OFFSETS = (0xA5, 0xA7, 0xA9, 0xAB)
-ROLE_SLOT_BY_KEY = {'officer': 0xA5, 'navigator': 0xA7, 'surveyor': 0xA9, 'interpreter': 0xAB}
-# 세이브에 동적으로 기록되는 일반 인물 표. 정적 EXE 인물 표와는 별개다.
-CHARACTER_LAYOUT = RecordTableLayout(0x924A, 0x90, max(CHARACTER_BY_ID, default=-1) + 1)
+UNEMPLOYABLE_CHARACTER_IDS = tuple(sorted((int(record['id']) for record in CHARACTER_DATA['records'] if int(record.get('hire_state', 0)) in (0, 1))))
+UNEMPLOYABLE_FACE_INDEX_BY_CHARACTER_ID = {character_id: index for index, character_id in enumerate(UNEMPLOYABLE_CHARACTER_IDS)}
+ROLE_SLOT_OFFSETS = (165, 167, 169, 171)
+ROLE_SLOT_BY_KEY = {'officer': 165, 'navigator': 167, 'surveyor': 169, 'interpreter': 171}
+CHARACTER_LAYOUT = RecordTableLayout(37450, 144, max(CHARACTER_BY_ID, default=-1) + 1)
 CHARACTER_SAVE_TABLE_OFFSET = CHARACTER_LAYOUT.base_offset
 CHARACTER_SAVE_RECORD_SIZE = CHARACTER_LAYOUT.record_size
-CHARACTER_SPECIAL_STAT_OFFSET = 0x06
-# 주인공·일반 인물 공통 생명력은 EXE에서 0~2000으로 제한된다.
+CHARACTER_SPECIAL_STAT_OFFSET = 6
 CHARACTER_SPECIAL_STAT_MAX = 2000
 CHARACTER_SAVE_TABLE_END = CHARACTER_LAYOUT.end_offset
-# 세이브의 동적 스폰서 표. 계약 중인 스폰서의 +0x08은 0x00010000이다.
-# 에디터의 계약 해제는 계약 상태를 0으로 비운다.
-SPONSOR_LAYOUT = RecordTableLayout(0x13D90, 0x1C, max(SPONSOR_BY_ID, default=-1) + 1)
+SPONSOR_LAYOUT = RecordTableLayout(81296, 28, max(SPONSOR_BY_ID, default=-1) + 1)
 SPONSOR_SAVE_TABLE_OFFSET = SPONSOR_LAYOUT.base_offset
 SPONSOR_SAVE_RECORD_SIZE = SPONSOR_LAYOUT.record_size
-SPONSOR_CONTRACT_ACTIVE_STATE = 0x00010000
-SPONSOR_CONTRACT_CANCELLED_STATE = 0x00000000
-# 조안 2세 계약 상태/인게임 계약 해제 세이브 비교로 검증한 종료 보조값이다.
-SPONSOR_CONTRACT_CANCEL_AUX_VALUES = {0: 0x00010001}
-SPONSOR_CONTRACT_CANCEL_SIDE_EFFECTS = {
-    # (오프셋, 값) — 인게임 계약 해제가 함께 비우는 계약 전용 참조/플래그.
-    0: {'u16': ((0xA5, 0xFFFF), (0x49C7, 0xFFFF), (0x4A24, 0xFFFF), (0x1A613, 0)),
-        'u8': ((0xFD5A, 0x04),)},
-}
-# 계약으로 지급되는 대여선은 스폰서별 고정 함선 풀 슬롯을 쓴다. 조안 2세 계약은
-# 0·1번 슬롯의 대여선 두 척을 만들며, 선박 종류 상위 워드 0x3000이 대여 표식이다.
+SPONSOR_CONTRACT_ACTIVE_STATE = 65536
+SPONSOR_CONTRACT_CANCELLED_STATE = 0
+SPONSOR_CONTRACT_CANCEL_AUX_VALUES = {0: 65537}
+SPONSOR_CONTRACT_CANCEL_SIDE_EFFECTS = {0: {'u16': ((165, 65535), (18887, 65535), (18980, 65535), (108051, 0)), 'u8': ((64858, 4),)}}
 SPONSOR_LOANED_SHIP_SLOTS = {0: (0, 1)}
 CITY_NAME_BY_ID = {city_id: record['name'] for city_id, record in enumerate(CITY_DATA['records'])}
 BLOOD_NAMES = GAME_MASTER_DATA['blood_names']
 DISCOVERY_DESCRIPTIONS = {int(k): v for k, v in GAME_MASTER_DATA['discovery_descriptions'].items()}
 DISCOVERY_MASTER_DB = GAME_MASTER_DATA['discovery_master_db']
-EVENT_MASTER_DB = [
-    (event_id, name, DATA_CATEGORIES['event_categories'][int(category_id)], value, save_offset, game_id)
-    for event_id, name, category_id, value, save_offset, game_id in GAME_MASTER_DATA['event_master_db']
-]
+DISCOVERY_CONTRACT_DIFFICULTIES = tuple(GAME_MASTER_DATA['discovery_contract_difficulties'])
+EVENT_MASTER_DB = [(event_id, name, DATA_CATEGORIES['event_categories'][int(category_id)], value, save_offset, game_id) for event_id, name, category_id, value, save_offset, game_id in GAME_MASTER_DATA['event_master_db']]
 ITEM_DESCRIPTION_VALUES = {int(k): v for k, v in GAME_MASTER_DATA['item_descriptions'].items()}
 ITEM_MASTER_DB = GAME_MASTER_DATA['item_master_db']
 ITEM_CATEGORY_NAMES = [UI_TEXTS.get(name, name) for name in GAME_MASTER_DATA['item_category_names']]
 ITEM_STATS_TABLE = {int(k): v for k, v in GAME_MASTER_DATA['item_stats_table'].items()}
 TRADE_GOOD_NAME_BY_ID = {int(entry['id']): entry['name'] for entry in TRADE_GOODS_DATA['records']}
-DISCOVERY_TRADE_GOOD_REFS = {
-    int(discovery_no): int(trade_good_id)
-    for discovery_no, trade_good_id in DISCOVERY_TRADE_GOOD_DATA['discovery_trade_good_ids'].items()
-}
-DISCOVERY_NAME_BY_NO = {
-    int(discovery_no): name if name is not None else TRADE_GOOD_NAME_BY_ID.get(DISCOVERY_TRADE_GOOD_REFS.get(int(discovery_no)), '')
-    for discovery_no, name, *_ in DISCOVERY_MASTER_DB
-}
-DISCOVERY_REWARD_ITEM_IDS = {
-    int(discovery_no): int(item_id)
-    for discovery_no, item_id in DISCOVERY_REWARD_DATA['discovery_reward_item_ids'].items()
-}
-DISCOVERY_HINT_IDS = tuple(int(hint_id) for hint_id in DISCOVERY_HINT_DATA['discovery_hint_ids'])
-HINT_STATE_OFFSETS = tuple(int(record['state_offset'], 0) for record in DISCOVERY_HINT_DATA['hints'])
+DISCOVERY_TRADE_GOOD_REFS = {int(discovery_no): int(trade_good_id) for discovery_no, trade_good_id in DISCOVERY_TRADE_GOOD_DATA['discovery_trade_good_ids'].items()}
+DISCOVERY_NAME_BY_NO = {int(discovery_no): name if name is not None else TRADE_GOOD_NAME_BY_ID.get(DISCOVERY_TRADE_GOOD_REFS.get(int(discovery_no)), '') for discovery_no, name, *_ in DISCOVERY_MASTER_DB}
+DISCOVERY_REWARD_ITEM_IDS = {int(discovery_no): int(item_id) for discovery_no, item_id in DISCOVERY_REWARD_DATA['discovery_reward_item_ids'].items()}
+DISCOVERY_HINT_IDS = tuple((int(hint_id) for hint_id in DISCOVERY_HINT_DATA['discovery_hint_ids']))
+HINT_STATE_OFFSETS = tuple((int(record['state_offset'], 0) for record in DISCOVERY_HINT_DATA['hints']))
 ITEM_DISCOVERY_NAME_REFS = {item_id: discovery_no for discovery_no, item_id in DISCOVERY_REWARD_ITEM_IDS.items()}
-ITEM_NAME_BY_ID = {
-    int(item_id): name if name is not None else DISCOVERY_NAME_BY_NO.get(ITEM_DISCOVERY_NAME_REFS.get(int(item_id)), '')
-    for item_id, name, *_ in ITEM_MASTER_DB
-}
+ITEM_NAME_BY_ID = {int(item_id): name if name is not None else DISCOVERY_NAME_BY_NO.get(ITEM_DISCOVERY_NAME_REFS.get(int(item_id)), '') for item_id, name, *_ in ITEM_MASTER_DB}
 ITEM_DESCRIPTION_REFS = {int(item_id): int(reference_id) for item_id, reference_id in GAME_MASTER_DATA.get('item_description_refs', {}).items()}
-ITEM_DESCRIPTIONS = {
-    item_id: description if description is not None else ITEM_DESCRIPTION_VALUES.get(
-        ITEM_DESCRIPTION_REFS.get(item_id), DISCOVERY_DESCRIPTIONS.get(ITEM_DISCOVERY_NAME_REFS.get(item_id), ''))
-    for item_id, description in ITEM_DESCRIPTION_VALUES.items()
-}
+ITEM_DESCRIPTIONS = {item_id: description if description is not None else ITEM_DESCRIPTION_VALUES.get(ITEM_DESCRIPTION_REFS.get(item_id), DISCOVERY_DESCRIPTIONS.get(ITEM_DISCOVERY_NAME_REFS.get(item_id), '')) for item_id, description in ITEM_DESCRIPTION_VALUES.items()}
 REWARD_DISCOVERIES_BY_ITEM = {}
 for _discovery_no, _item_id in DISCOVERY_REWARD_ITEM_IDS.items():
     REWARD_DISCOVERIES_BY_ITEM.setdefault(_item_id, []).append(_discovery_no)
 JOB_NAMES = GAME_MASTER_DATA['job_names']
 NATION_NAMES = GAME_MASTER_DATA['nation_names']
-PERSON_STAT_NAMES = tuple(name for name, _description in EDITOR_MAPPINGS['profile_stat_definitions']) + (
-    ui('ui_0496'), ui('ui_0508'))
+PERSON_STAT_NAMES = tuple((name for name, _description in EDITOR_MAPPINGS['profile_stat_definitions'])) + (ui('ui_0496'), ui('ui_0508'))
 PERSON_TAB_TITLES = (ui('ui_0406'), ui('ui_0385'), ui('ui_0387'), ui('ui_0388'), ui('ui_0389'))
-PERSON_BASIC_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True),
-                        (ui('ui_0378'), 170, 'w', True))
-PERSON_STAT_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True),
-                       (ui('ui_0350'), 100, 'center', False))
-PERSON_FAME_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True),
-                       (ui('ui_0350'), 120, 'e', True))
-PERSON_LEVEL_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 170, 'w', True),
-                        (ui('ui_0490'), 100, 'center', False))
+PERSON_BASIC_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True))
+PERSON_STAT_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True), (ui('ui_0350'), 100, 'center', False))
+PERSON_FAME_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 150, 'w', True), (ui('ui_0350'), 120, 'e', True))
+PERSON_LEVEL_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 170, 'w', True), (ui('ui_0490'), 100, 'center', False))
 BASIC_NATIONS = NATION_NAMES[:2]
 SEA_MONSTERS = GAME_MASTER_DATA['sea_monsters']
-SKILLS_DATA = [
-    (name, offset, description)
-    for name, offset, description in GAME_MASTER_DATA['skills_data']
-]
+SKILLS_DATA = [(name, offset, description) for name, offset, description in GAME_MASTER_DATA['skills_data']]
 LANGUAGE_NAMES = [skill[0] for skill in SKILLS_DATA[13:27]]
-
 
 def get_barmaid_city_name(barmaid):
     """여급 레코드의 도시 번호를 도시 기본 데이터의 이름으로 표시한다."""
     return CITY_NAME_BY_ID.get(int(barmaid['city_id']), '')
-
 
 def get_barmaid_zodiac_name(barmaid):
     """여급 레코드의 별자리 번호를 공통 게임 문자열로 표시한다."""
     zodiac_id = int(barmaid['zodiac_id'])
     return GAME_STRINGS['zodiac_names'][zodiac_id] if 0 <= zodiac_id < len(GAME_STRINGS['zodiac_names']) else ''
 
-
 def get_birth_zodiac_id(month, day):
     """CDS_95.EXE의 12궁 경계일로 양력 생일을 별자리 번호로 변환한다."""
     try:
-        month, day = int(month), int(day)
+        month, day = (int(month), int(day))
     except (TypeError, ValueError):
         return -1
     if not 1 <= month <= 12 or not 1 <= day <= 31:
@@ -641,19 +598,15 @@ def get_birth_zodiac_id(month, day):
     date_code = month * 100 + day
     if date_code < 321:
         date_code += 1200
-    for zodiac_id, (start, end) in enumerate(((321, 420), (421, 521), (522, 621), (622, 722),
-                                                (723, 822), (823, 923), (924, 1023), (1024, 1122),
-                                                (1123, 1221), (1222, 1320), (1321, 1418), (1419, 1520))):
+    for zodiac_id, (start, end) in enumerate(((321, 420), (421, 521), (522, 621), (622, 722), (723, 822), (823, 923), (924, 1023), (1024, 1122), (1123, 1221), (1222, 1320), (1321, 1418), (1419, 1520))):
         if start <= date_code <= end:
             return zodiac_id
     return -1
-
 
 def get_birth_zodiac_name(month, day):
     """양력 생일의 월·일을 게임의 별자리 명칭으로 변환한다."""
     zodiac_id = get_birth_zodiac_id(month, day)
     return GAME_STRINGS['zodiac_names'][zodiac_id] if 0 <= zodiac_id < len(GAME_STRINGS['zodiac_names']) else ''
-
 
 def get_barmaid_blood_name(barmaid):
     """여급 혈액형 번호를 공통 혈액형 목록의 표시명으로 변환한다."""
@@ -662,45 +615,34 @@ def get_barmaid_blood_name(barmaid):
         return ''
     return BLOOD_NAMES[blood_id]
 
-
 def get_barmaid_personality(barmaid):
     """여급 레코드의 성격 ID 목록을 공용 성격명으로 표시한다."""
-    return ', '.join(GAME_MASTER_DATA['personality_names'][int(personality_id)]
-                     for personality_id in barmaid['personality_ids'])
+    return UI_LIST_SEPARATOR.join((GAME_MASTER_DATA['personality_names'][int(personality_id)] for personality_id in barmaid['personality_ids']))
 APP_VERSION = APP_CONFIG['version']
-# CDS_95.EXE는 주인공 명성·악명을 9,999,999(0x0098967F)로 제한한다.
-# 일반 인물 레코드의 두 값은 각각 unsigned short로 저장된다.
-PLAYER_REPUTATION_MAX = 9_999_999
-PERSON_REPUTATION_MAX = 0xFFFF
-APP_TITLE = f'대항해시대 3 세이브 에디터 v{APP_VERSION}'
+PLAYER_REPUTATION_MAX = 9999999
+PERSON_REPUTATION_MAX = 65535
+APP_TITLE = ui('ui_0583', APP_VERSION)
 UPDATE_CONFIG = APP_CONFIG.get('update', {})
-UPDATE_REPOSITORY = str(UPDATE_CONFIG.get('repository', '')).strip()
+UPDATE_REPOSITORY = ''
 UPDATE_ASSET_NAME = str(UPDATE_CONFIG.get('asset_name', 'CDS_SaveEditor_v{version}.zip')).strip()
 UPDATE_EXECUTABLE_NAME = 'CDS_SaveEditor.exe'
-UPDATE_LATEST_URL = (f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest'
-                     if UPDATE_REPOSITORY else '')
-UPDATE_RELEASES_URL = (f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases?per_page=100'
-                       if UPDATE_REPOSITORY else '')
+UPDATE_LATEST_URL = 'https://api.github.com/repos/{0}/releases/latest'.format(UPDATE_REPOSITORY) if UPDATE_REPOSITORY else ''
+UPDATE_RELEASES_URL = 'https://api.github.com/repos/{0}/releases?per_page=100'.format(UPDATE_REPOSITORY) if UPDATE_REPOSITORY else ''
 UPDATE_HISTORY_MIN_VERSION = (1, 0, 0)
-_PHOTO_CACHE: dict = {}
-
+_PHOTO_CACHE = {}
 
 def parse_release_version(value):
     """Release 태그를 비교 가능한 (주, 부, 패치) 버전으로 변환한다."""
-    match = re.fullmatch(r'[vV]?(\d+)(?:\.(\d+))?(?:\.(\d+))?', str(value).strip())
+    match = re.fullmatch('[vV]?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?', str(value).strip())
     if not match:
         return None
-    return tuple(int(part or 0) for part in match.groups())
-
+    return tuple((int(part or 0) for part in match.groups()))
 
 class CalendarDatePicker(tk.Frame):
     """날짜를 직접 입력하지 않고 팝업 달력에서 고르는 컨트롤."""
+    WEEKDAYS = (ui('ui_0235'), ui('ui_0234')) + tuple((ui('ui_{0:04d}'.format(index)) for index in range(476, 481)))
 
-    # 일·월은 다른 화면과 공용 문자열을 사용하고, 화~토만 달력 전용 문자열이다.
-    WEEKDAYS = (ui('ui_0235'), ui('ui_0234'), *(ui(f'ui_{index:04d}') for index in range(476, 481)))
-
-    def __init__(self, parent, get_date, set_date, font=None, min_year=1000, max_year=3000,
-                 display_width=14):
+    def __init__(self, parent, get_date, set_date, font=None, min_year=1000, max_year=3000, display_width=14):
         super().__init__(parent)
         self._get_date = get_date
         self._set_date = set_date
@@ -710,10 +652,7 @@ class CalendarDatePicker(tk.Frame):
         self._shown_day = 1
         self._min_year = int(min_year)
         self._max_year = int(max_year)
-        self.button = EditorButton(
-            self, relief='sunken', bd=1, anchor='w', padx=7,
-            font=font or ('Malgun Gothic', 9), width=display_width, command=self.open_calendar,
-        )
+        self.button = EditorButton(self, relief='sunken', bd=1, anchor='w', padx=7, font=font or (APP_FONT_FAMILY, 9), width=display_width, command=self.open_calendar)
         self.button.pack(fill=tk.X)
         self.refresh()
 
@@ -722,7 +661,7 @@ class CalendarDatePicker(tk.Frame):
             year, month, day = (int(value) for value in self._get_date())
             self.button.config(text=ui('ui_0481', year, month, day))
         except (TypeError, ValueError, tk.TclError):
-            self.button.config(text=f"{ui('ui_0401')}   ▾")
+            self.button.config(text=ui('ui_0594', ui('ui_0401')))
 
     def open_calendar(self):
         if self._popup is not None and self._popup.winfo_exists():
@@ -732,7 +671,7 @@ class CalendarDatePicker(tk.Frame):
         try:
             self._shown_year, self._shown_month, self._shown_day = (int(value) for value in self._get_date())
         except (TypeError, ValueError, tk.TclError):
-            self._shown_year, self._shown_month, self._shown_day = 1480, 1, 1
+            self._shown_year, self._shown_month, self._shown_day = (1480, 1, 1)
         self._shown_year = min(self._max_year, max(self._min_year, self._shown_year))
         self._shown_month = min(12, max(1, self._shown_month))
         self._shown_day = min(calendar.monthrange(self._shown_year, self._shown_month)[1], max(1, self._shown_day))
@@ -745,22 +684,17 @@ class CalendarDatePicker(tk.Frame):
         self._calendar_body = tk.Frame(popup, padx=7, pady=7)
         self._calendar_body.pack(fill=tk.BOTH, expand=True)
         self._render_calendar()
-        # 날짜 선택 영역과 실제 적용 동작을 분리한다.
         self._calendar_footer = tk.Frame(popup, padx=7, pady=6, relief='groove', bd=1)
         self._calendar_footer.pack(fill=tk.X)
-        EditorButton(
-            self._calendar_footer, text=ui('ui_0382'), width=8,
-            command=self._confirm_date, bg='#E6F4EA', fg='#137333',
-            activebackground='#C8E6C9', activeforeground='#0B5D2A',
-        ).pack(side=tk.RIGHT)
+        EditorButton(self._calendar_footer, text=ui('ui_0382'), width=8, command=self._confirm_date, bg='#E6F4EA', fg='#137333', activebackground='#C8E6C9', activeforeground='#0B5D2A').pack(side=tk.RIGHT)
         popup.update_idletasks()
         x = self.winfo_rootx()
         y = self.winfo_rooty() + self.winfo_height() + 2
-        popup.geometry(f'+{x}+{y}')
+        popup.geometry('+{0}+{1}'.format(x, y))
         popup.grab_set()
 
     def _close_popup(self):
-        popup, self._popup = self._popup, None
+        popup, self._popup = (self._popup, None)
         if popup is not None and popup.winfo_exists():
             try:
                 popup.grab_release()
@@ -772,9 +706,9 @@ class CalendarDatePicker(tk.Frame):
         month = self._shown_month + delta
         year = self._shown_year
         if month < 1:
-            year, month = year - 1, 12
+            year, month = (year - 1, 12)
         elif month > 12:
-            year, month = year + 1, 1
+            year, month = (year + 1, 1)
         if not self._min_year <= year <= self._max_year:
             return
         self._shown_year = min(self._max_year, max(self._min_year, year))
@@ -814,15 +748,10 @@ class CalendarDatePicker(tk.Frame):
 
     def _apply_calendar_field_while_typing(self, field):
         """직접 입력 중인 날짜가 유효해지면 팝업의 날짜 격자만 즉시 갱신한다."""
-        variables = {
-            'year': self._year_var,
-            'month': self._month_var,
-            'day': self._day_var,
-        }
+        variables = {'year': self._year_var, 'month': self._month_var, 'day': self._day_var}
         value = variables[field].get().strip()
         if not value.isdigit():
             return
-        # 연도는 네 자리를 입력하기 전에는 1·14·148처럼 중간값이므로 적용하지 않는다.
         if field == 'year' and len(value) != 4:
             return
         if field == 'year':
@@ -839,9 +768,6 @@ class CalendarDatePicker(tk.Frame):
 
     def _confirm_date(self):
         """팝업에서 고른 임시 날짜를 실제 날짜 컨트롤에 적용한다."""
-        # 스핀박스에 직접 타이핑한 값은 Enter/포커스 이탈 전까지 _shown_*에
-        # 반영되지 않는다. 각 _apply_*는 달력을 다시 그리며 나머지 입력값을
-        # 초기화하므로, 여기서는 세 값을 모두 먼저 읽은 뒤 한 번에 확정한다.
         try:
             year = int(self._year_var.get())
         except (TypeError, ValueError, tk.TclError):
@@ -856,8 +782,7 @@ class CalendarDatePicker(tk.Frame):
             day = self._shown_day
         self._shown_year = min(self._max_year, max(self._min_year, year))
         self._shown_month = min(12, max(1, month))
-        self._shown_day = min(
-            calendar.monthrange(self._shown_year, self._shown_month)[1], max(1, day))
+        self._shown_day = min(calendar.monthrange(self._shown_year, self._shown_month)[1], max(1, day))
         self._set_date(self._shown_year, self._shown_month, self._shown_day)
         self.refresh()
         self._close_popup()
@@ -870,39 +795,33 @@ class CalendarDatePicker(tk.Frame):
         header.grid(row=0, column=0, columnspan=7, sticky='ew', pady=(0, 5))
         EditorButton(header, text=ui('ui_0513'), width=3, command=lambda: self._move_month(-1)).pack(side=tk.LEFT)
         self._year_var = tk.StringVar(value=str(self._shown_year))
-        year_spin = ttk.Spinbox(header, textvariable=self._year_var, from_=self._min_year, to=self._max_year, width=5, justify='center', command=self._apply_shown_year)
-        year_validate = self._calendar_body.register(
-            lambda value: value == '' or (value.isdigit() and (len(value) < 4 or self._min_year <= int(value) <= self._max_year))
-        )
+        year_spin = SPINBOX_WIDGET(header, textvariable=self._year_var, from_=self._min_year, to=self._max_year, width=5, justify='center', command=self._apply_shown_year)
+        year_validate = self._calendar_body.register(lambda value: value == '' or (value.isdigit() and (len(value) < 4 or self._min_year <= int(value) <= self._max_year)))
         year_spin.configure(validate='key', validatecommand=(year_validate, '%P'))
         year_spin.pack(side=tk.LEFT, padx=(8, 1))
         year_spin.bind('<Return>', self._apply_shown_year, add='+')
         year_spin.bind('<FocusOut>', self._apply_shown_year, add='+')
         year_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('year'), add='+')
-        tk.Label(header, text=ui('ui_0233'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(header, text=ui('ui_0233'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=(0, 5))
         self._month_var = tk.StringVar(value=str(self._shown_month))
-        month_spin = ttk.Spinbox(header, textvariable=self._month_var, from_=1, to=12, width=3, justify='center', command=self._apply_shown_month)
-        month_validate = self._calendar_body.register(
-            lambda value: value == '' or (value.isdigit() and (len(value) < 2 or 1 <= int(value) <= 12))
-        )
+        month_spin = SPINBOX_WIDGET(header, textvariable=self._month_var, from_=1, to=12, width=3, justify='center', command=self._apply_shown_month)
+        month_validate = self._calendar_body.register(lambda value: value == '' or (value.isdigit() and (len(value) < 2 or 1 <= int(value) <= 12)))
         month_spin.configure(validate='key', validatecommand=(month_validate, '%P'))
         month_spin.pack(side=tk.LEFT)
         month_spin.bind('<Return>', self._apply_shown_month, add='+')
         month_spin.bind('<FocusOut>', self._apply_shown_month, add='+')
         month_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('month'), add='+')
-        tk.Label(header, text=ui('ui_0234'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(header, text=ui('ui_0234'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=(0, 5))
         self._day_var = tk.StringVar(value=str(self._shown_day))
-        day_spin = ttk.Spinbox(header, textvariable=self._day_var, from_=1, to=calendar.monthrange(self._shown_year, self._shown_month)[1], width=3, justify='center', command=self._apply_shown_day)
+        day_spin = SPINBOX_WIDGET(header, textvariable=self._day_var, from_=1, to=calendar.monthrange(self._shown_year, self._shown_month)[1], width=3, justify='center', command=self._apply_shown_day)
         max_day = calendar.monthrange(self._shown_year, self._shown_month)[1]
-        day_validate = self._calendar_body.register(
-            lambda value: value == '' or (value.isdigit() and (len(value) < 2 or 1 <= int(value) <= max_day))
-        )
+        day_validate = self._calendar_body.register(lambda value: value == '' or (value.isdigit() and (len(value) < 2 or 1 <= int(value) <= max_day)))
         day_spin.configure(validate='key', validatecommand=(day_validate, '%P'))
         day_spin.pack(side=tk.LEFT)
         day_spin.bind('<Return>', self._apply_shown_day, add='+')
         day_spin.bind('<FocusOut>', self._apply_shown_day, add='+')
         day_spin.bind('<KeyRelease>', lambda _event: self._apply_calendar_field_while_typing('day'), add='+')
-        tk.Label(header, text=ui('ui_0235'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, expand=True)
+        tk.Label(header, text=ui('ui_0235'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, expand=True)
         EditorButton(header, text=ui('ui_0514'), width=3, command=lambda: self._move_month(1)).pack(side=tk.RIGHT)
         self._day_spin = day_spin
         self._calendar_days = tk.Frame(self._calendar_body)
@@ -922,7 +841,7 @@ class CalendarDatePicker(tk.Frame):
             child.destroy()
         for column, weekday in enumerate(self.WEEKDAYS):
             color = '#C62828' if column == 0 else '#1565C0' if column == 6 else '#333333'
-            tk.Label(self._calendar_days, text=weekday, width=3, fg=color, font=('Malgun Gothic', 9)).grid(row=0, column=column, pady=(0, 2))
+            tk.Label(self._calendar_days, text=weekday, width=3, fg=color, font=(APP_FONT_FAMILY, 9)).grid(row=0, column=column, pady=(0, 2))
         selected = (self._shown_year, self._shown_month, self._shown_day)
         for row, week in enumerate(calendar.monthcalendar(self._shown_year, self._shown_month), start=1):
             for column, day in enumerate(week):
@@ -930,16 +849,10 @@ class CalendarDatePicker(tk.Frame):
                     tk.Label(self._calendar_days, text='', width=3).grid(row=row, column=column, padx=1, pady=1)
                     continue
                 chosen = selected == (self._shown_year, self._shown_month, day)
-                button = EditorButton(
-                    self._calendar_days, text=str(day), width=3, padx=0, pady=1,
-                    command=lambda value=day: self._choose_day(value),
-                )
+                button = EditorButton(self._calendar_days, text=str(day), width=3, padx=0, pady=1, command=lambda value=day: self._choose_day(value))
                 if chosen:
                     button.config(bg='#D6EAF8', relief='sunken')
                 button.grid(row=row, column=column, padx=1, pady=1)
-
-
-
 
 class NativeWinEdit:
     """Tk 레이아웃 안에 배치하는 Windows 네이티브 EDIT 컨트롤.
@@ -947,15 +860,15 @@ class NativeWinEdit:
     Tk의 Entry는 한글 IME 조합 문자열을 늦게 반영할 수 있다. 이 컨트롤은
     실제 Win32 EDIT를 사용하고 텍스트가 바뀌는 즉시 콜백을 호출한다.
     """
-    _WS_CHILD = 0x40000000
-    _WS_VISIBLE = 0x10000000
-    _WS_TABSTOP = 0x00010000
-    _ES_AUTOHSCROLL = 0x0080
-    _WS_EX_CLIENTEDGE = 0x00000200
-    _SWP_NOZORDER = 0x0004
-    _SWP_NOACTIVATE = 0x0010
-    _WM_SETFONT = 0x0030
-    _EM_SETSEL = 0x00B1
+    _WS_CHILD = 1073741824
+    _WS_VISIBLE = 268435456
+    _WS_TABSTOP = 65536
+    _ES_AUTOHSCROLL = 128
+    _WS_EX_CLIENTEDGE = 512
+    _SWP_NOZORDER = 4
+    _SWP_NOACTIVATE = 16
+    _WM_SETFONT = 48
+    _EM_SETSEL = 177
     _DEFAULT_GUI_FONT = 17
 
     def __init__(self, host, on_change, width=104, height=23):
@@ -971,13 +884,9 @@ class NativeWinEdit:
         self.max_bytes = None
         self.enabled = True
         self._user32 = None
-        # Windows EDIT 자체는 DPI에 맞춰 글꼴을 렌더링하지만, 이를 담는 Tk
-        # 호스트 Frame의 폭·높이는 픽셀값이므로 별도 변환이 필요하다.
         host.configure(width=_dpi_px(width), height=_dpi_px(height))
         host.pack_propagate(False)
         host.bind('<Configure>', self._resize, add='+')
-        # 숨겨진 탭의 EDIT는 입력을 받을 수 없으므로 저빈도 대기하다가, 탭이
-        # 다시 표시되는 즉시 폴링을 재개한다.
         host.bind('<Map>', self._wake_poll, add='+')
         self.root.after_idle(self._create)
 
@@ -987,15 +896,9 @@ class NativeWinEdit:
         user32 = ctypes.windll.user32
         self._user32 = user32
         gdi32 = ctypes.windll.gdi32
-        user32.CreateWindowExW.argtypes = [ctypes.c_uint32, ctypes.c_wchar_p,
-                                            ctypes.c_wchar_p, ctypes.c_uint32,
-                                            ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                                            ctypes.c_int, ctypes.c_void_p,
-                                            ctypes.c_void_p, ctypes.c_void_p,
-                                            ctypes.c_void_p]
+        user32.CreateWindowExW.argtypes = [ctypes.c_uint32, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
         user32.CreateWindowExW.restype = ctypes.c_void_p
-        user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
-                                        ctypes.c_void_p, ctypes.c_void_p]
+        user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
         user32.SendMessageW.restype = ctypes.c_void_p
         user32.GetWindowTextLengthW.argtypes = [ctypes.c_void_p]
         user32.GetWindowTextLengthW.restype = ctypes.c_int
@@ -1011,52 +914,29 @@ class NativeWinEdit:
         user32.DestroyWindow.restype = ctypes.c_bool
         gdi32.GetStockObject.argtypes = [ctypes.c_int]
         gdi32.GetStockObject.restype = ctypes.c_void_p
-        self.hwnd = user32.CreateWindowExW(
-            self._WS_EX_CLIENTEDGE, 'EDIT', '',
-            self._WS_CHILD | self._WS_VISIBLE | self._WS_TABSTOP | self._ES_AUTOHSCROLL,
-            0, 0, max(1, self.host.winfo_width()), max(1, self.host.winfo_height()),
-            ctypes.c_void_p(self.host.winfo_id()), None, None, None)
+        self.hwnd = user32.CreateWindowExW(self._WS_EX_CLIENTEDGE, 'EDIT', '', self._WS_CHILD | self._WS_VISIBLE | self._WS_TABSTOP | self._ES_AUTOHSCROLL, 0, 0, max(1, self.host.winfo_width()), max(1, self.host.winfo_height()), ctypes.c_void_p(self.host.winfo_id()), None, None, None)
         if not self.hwnd:
             raise ctypes.WinError()
         user32.EnableWindow(ctypes.c_void_p(self.hwnd), self.enabled)
-        # DEFAULT_GUI_FONT는 프로세스 DPI가 바뀌어도 96DPI 글꼴을 돌려줄 수
-        # 있다. Tk의 9pt 맑은 고딕과 동일한 실제 DPI 크기의 HFONT를 만든다.
         dpi = get_windows_dpi_scale(self.root.winfo_id()) * 96.0
         font_height = -max(1, round(9 * dpi / 72.0))
-        gdi32.CreateFontW.argtypes = [
-            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
-            ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
-            ctypes.c_wchar_p,
-        ]
+        gdi32.CreateFontW.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_wchar_p]
         gdi32.CreateFontW.restype = ctypes.c_void_p
-        self._font_handle = gdi32.CreateFontW(
-            font_height, 0, 0, 0, 400, 0, 0, 0, 129,
-            0, 0, 0, 0, 'Malgun Gothic',
-        )
+        self._font_handle = gdi32.CreateFontW(font_height, 0, 0, 0, 400, 0, 0, 0, 129, 0, 0, 0, 0, APP_FONT_FAMILY)
         font = self._font_handle or gdi32.GetStockObject(self._DEFAULT_GUI_FONT)
-        user32.SendMessageW(
-            ctypes.c_void_p(self.hwnd), self._WM_SETFONT,
-            ctypes.c_void_p(font), ctypes.c_void_p(True),
-        )
+        user32.SendMessageW(ctypes.c_void_p(self.hwnd), self._WM_SETFONT, ctypes.c_void_p(font), ctypes.c_void_p(True))
         self._poll()
 
     def _resize(self, _event=None):
         if self.hwnd:
-            ctypes.windll.user32.SetWindowPos(
-                ctypes.c_void_p(self.hwnd), None, 0, 0,
-                max(1, self.host.winfo_width()), max(1, self.host.winfo_height()),
-                self._SWP_NOZORDER | self._SWP_NOACTIVATE)
+            ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(self.hwnd), None, 0, 0, max(1, self.host.winfo_width()), max(1, self.host.winfo_height()), self._SWP_NOZORDER | self._SWP_NOACTIVATE)
 
     def _poll(self):
         try:
             if not self.hwnd or not self.host.winfo_exists():
                 return
-            # 사용자가 입력 중일 때만 빠르게 확인한다. 포커스 없는 EDIT는
-            # 프로그램이 set()으로 값을 바꿀 때 _last_text도 동기화되므로
-            # 저빈도 점검만으로 충분하다.
             visible = bool(self.host.winfo_ismapped())
-            focused = self.enabled and visible and self._user32.GetFocus() == self.hwnd
+            focused = self.enabled and visible and (self._user32.GetFocus() == self.hwnd)
             if focused:
                 raw_text = self.get()
                 text = raw_text
@@ -1067,7 +947,7 @@ class NativeWinEdit:
                 if text != self._last_text:
                     self._last_text = text
                     self.on_change()
-            delay = 50 if focused else (250 if self.enabled and visible else 1000)
+            delay = 50 if focused else 250 if self.enabled and visible else 1000
             self._poll_job = self.root.after(delay, self._poll)
         except tk.TclError:
             self._poll_job = None
@@ -1093,8 +973,6 @@ class NativeWinEdit:
         value = str(value)
         if self.hwnd and self._user32 is not None:
             self._user32.SetWindowTextW(ctypes.c_void_p(self.hwnd), value)
-        # 파일 로드 등 프로그램 내부의 값 설정은 검색 목록을 다시 만들 필요가 없다.
-        # 다음 폴링에서 사용자 입력으로 오인하지 않도록 마지막 값도 함께 맞춘다.
         self._last_text = value
 
     def _set_text_and_place_cursor_at_end(self, value):
@@ -1102,9 +980,7 @@ class NativeWinEdit:
         self.set(value)
         if self.hwnd:
             end = len(value)
-            ctypes.windll.user32.SendMessageW(
-                ctypes.c_void_p(self.hwnd), self._EM_SETSEL,
-                ctypes.c_void_p(end), ctypes.c_void_p(end))
+            ctypes.windll.user32.SendMessageW(ctypes.c_void_p(self.hwnd), self._EM_SETSEL, ctypes.c_void_p(end), ctypes.c_void_p(end))
 
     def set_enabled(self, enabled):
         self.enabled = bool(enabled)
@@ -1141,9 +1017,6 @@ class NativeWinEdit:
                 pass
             self._font_handle = None
 
-
-
-
 @lru_cache(maxsize=1)
 def get_app_icon_path():
     """소스 실행과 PyInstaller 단일 EXE 실행 모두에서 창 아이콘을 찾는다."""
@@ -1154,16 +1027,13 @@ def get_app_icon_path():
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
-        for path in (os.path.join(base_dir, 'Resources', 'Icon.ico'),
-                     os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', 'Icon.ico')):
+        for path in (os.path.join(base_dir, 'Resources', 'Icon.ico'), os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', 'Icon.ico')):
             if os.path.isfile(path):
                 return path
     return None
 
-
-def get_cached_photo(img_p: str):
+def get_cached_photo(img_p):
     """현재 DPI 크기로 리샘플링한 이미지 캐시를 반환한다."""
-    # ***<module>.get_cached_photo: Failure: Different bytecode
     scale_key = round(_dpi_layout_scale * 1000)
     cache_key = (img_p, scale_key)
     if cache_key not in _PHOTO_CACHE:
@@ -1181,17 +1051,15 @@ def get_cached_photo(img_p: str):
             return None
     return _PHOTO_CACHE[cache_key]
 
-
 def get_black_photo(width, height):
     """이미지가 없는 영역에 쓸 검은색 PhotoImage를 캐시에서 반환한다."""
-    width, height = _dpi_px(width), _dpi_px(height)
-    cache_key = f'__black__{width}x{height}'
+    width, height = (_dpi_px(width), _dpi_px(height))
+    cache_key = '__black__{0}x{1}'.format(width, height)
     if cache_key not in _PHOTO_CACHE:
         photo = tk.PhotoImage(width=width, height=height)
         photo.put('#000000', to=(0, 0, width, height))
         _PHOTO_CACHE[cache_key] = photo
     return _PHOTO_CACHE[cache_key]
-
 
 @lru_cache(maxsize=None)
 def get_city_image_path(city_index):
@@ -1203,11 +1071,10 @@ def get_city_image_path(city_index):
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
-        path = os.path.join(base_dir, 'Resources', 'city', f'city_{int(city_index):03d}.png')
+        path = os.path.join(base_dir, 'Resources', 'city', 'city_{0:03d}.png'.format(int(city_index)))
         if os.path.isfile(path):
             return path
     return None
-
 
 def get_city_preview_photo(city_index):
     """기본 탭용으로 준비된 100x80 도시 CG를 반환한다."""
@@ -1215,13 +1082,13 @@ def get_city_preview_photo(city_index):
     if not path:
         return None
     return get_cached_photo(path)
+
 @lru_cache(maxsize=None)
 def get_face_image_path(gender, face_id):
     """얼굴 초상화 이미지 경로 조회 (female_### / player_###)."""
     sub = 'female' if gender == 'female' else 'player'
-    # male 폴더의 이미지는 주인공 얼굴임을 드러내도록 player_###.png 으로 관리한다.
     prefix = 'female' if gender == 'female' else 'player'
-    fn = f'{prefix}_{face_id:03d}.png'
+    fn = '{0}_{1:03d}.png'.format(prefix, face_id)
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1237,10 +1104,11 @@ def get_face_image_path(gender, face_id):
             if os.path.exists(p2):
                 return p2
     return
+
 @lru_cache(maxsize=None)
 def get_barmaid_image_path(barmaid_id):
     """여급 전용 기본 초상화 이미지 경로 조회"""
-    fn = f'barmaid_{barmaid_id:03d}.png'
+    fn = 'barmaid_{0:03d}.png'.format(barmaid_id)
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1256,6 +1124,7 @@ def get_barmaid_image_path(barmaid_id):
             if os.path.exists(p2):
                 return p2
     return
+
 @lru_cache(maxsize=None)
 def get_item_image_path(item_id):
     """아이템 이미지 경로 조회 (Resources/item 폴더)"""
@@ -1271,17 +1140,16 @@ def get_item_image_path(item_id):
             if not os.path.exists(folder):
                 folder = os.path.join(b, 'CDS3SaveEditor', 'Resources', fld)
             if os.path.exists(folder):
-                for fn in [f'{item_id:03d}.png', f'{item_id}.png']:
+                for fn in ['{0:03d}.png'.format(item_id), '{0}.png'.format(item_id)]:
                     p = os.path.join(folder, fn)
                     if os.path.exists(p):
                         return p
     return
 
-
 @lru_cache(maxsize=None)
 def get_sailer_image_path(character_id):
     """정적 등장인물 ID에 대응하는 항해사 초상화 경로를 조회한다."""
-    fn = f'sailer_{int(character_id):03d}.png'
+    fn = 'sailer_{0:03d}.png'.format(int(character_id))
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1289,13 +1157,11 @@ def get_sailer_image_path(character_id):
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'sailer'),
-                             os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sailer')):
+        for relative_dir in (os.path.join('Resources', 'faces', 'sailer'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sailer')):
             path = os.path.join(base_dir, relative_dir, fn)
             if os.path.isfile(path):
                 return path
     return None
-
 
 @lru_cache(maxsize=None)
 def get_unemployable_image_path(character_id):
@@ -1303,7 +1169,7 @@ def get_unemployable_image_path(character_id):
     image_index = UNEMPLOYABLE_FACE_INDEX_BY_CHARACTER_ID.get(int(character_id))
     if image_index is None:
         return None
-    file_name = f'unemployable_{image_index:03d}.png'
+    file_name = 'unemployable_{0:03d}.png'.format(image_index)
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1311,18 +1177,16 @@ def get_unemployable_image_path(character_id):
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'unemployable'),
-                             os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'unemployable')):
+        for relative_dir in (os.path.join('Resources', 'faces', 'unemployable'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'unemployable')):
             path = os.path.join(base_dir, relative_dir, file_name)
             if os.path.isfile(path):
                 return path
     return None
 
-
 @lru_cache(maxsize=None)
 def get_sponsor_image_path(sponsor_id):
     """스폰서 순번에 대응하는 전용 초상화 경로를 조회한다."""
-    fn = f'sponsor_{int(sponsor_id):03d}.png'
+    fn = 'sponsor_{0:03d}.png'.format(int(sponsor_id))
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1330,13 +1194,11 @@ def get_sponsor_image_path(sponsor_id):
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'sponsor'),
-                             os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sponsor')):
+        for relative_dir in (os.path.join('Resources', 'faces', 'sponsor'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sponsor')):
             path = os.path.join(base_dir, relative_dir, fn)
             if os.path.isfile(path):
                 return path
     return None
-
 
 @lru_cache(maxsize=None)
 def get_trade_good_image_path(good_id):
@@ -1349,12 +1211,12 @@ def get_trade_good_image_path(good_id):
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
         for folder in ('trade', 'Trade'):
-            for relative in (os.path.join('Resources', folder, f'{good_id:03d}.png'),
-                             os.path.join('CDS3SaveEditor', 'Resources', folder, f'{good_id:03d}.png')):
+            for relative in (os.path.join('Resources', folder, '{0:03d}.png'.format(good_id)), os.path.join('CDS3SaveEditor', 'Resources', folder, '{0:03d}.png'.format(good_id))):
                 path = os.path.join(base_dir, relative)
                 if os.path.isfile(path):
                     return path
     return None
+
 @lru_cache(maxsize=None)
 def get_discovery_image_path(disc_index):
     """발견물 No에 대응하는 정지 이미지 경로를 반환한다.
@@ -1370,19 +1232,15 @@ def get_discovery_image_path(disc_index):
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
         for folder in ('discovery', 'Discovery'):
-            path = os.path.join(base_dir, 'Resources', folder, f'{disc_index:03d}.png')
+            path = os.path.join(base_dir, 'Resources', folder, '{0:03d}.png'.format(disc_index))
             if os.path.exists(path):
                 return path
-            path = os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', folder, f'{disc_index:03d}.png')
+            path = os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', folder, '{0:03d}.png'.format(disc_index))
             if os.path.exists(path):
                 return path
-
-    # 쌀~노예 발견물은 아이템 이미지와 공용이다. 대응 파일이 없으면
-    # 대응 리소스가 없으면 None을 반환해 이미지 영역을 숨긴다.
     if 203 <= disc_index <= 229:
         return get_item_image_path(disc_index - 17)
     return None
-
 
 @lru_cache(maxsize=None)
 def get_discovery_video_path(disc_index):
@@ -1395,14 +1253,13 @@ def get_discovery_video_path(disc_index):
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for base_dir in base_dirs:
         for folder in ('discovery', 'Discovery'):
-            path = os.path.join(base_dir, 'Resources', folder, f'{disc_index:03d}.mp4')
+            path = os.path.join(base_dir, 'Resources', folder, '{0:03d}.mp4'.format(disc_index))
             if os.path.exists(path):
                 return path
-            path = os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', folder, f'{disc_index:03d}.mp4')
+            path = os.path.join(base_dir, 'CDS3SaveEditor', 'Resources', folder, '{0:03d}.mp4'.format(disc_index))
             if os.path.exists(path):
                 return path
     return None
-
 
 def load_item_discovery_map():
     """Resources/data/item_discovery_map.json에서 아이템→발견물 No. 연결을 읽는다."""
@@ -1412,28 +1269,21 @@ def load_item_discovery_map():
             base_dirs.append(sys._MEIPASS)
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-
     for base_dir in base_dirs:
         path = os.path.join(base_dir, 'Resources', 'data', 'item_discovery_map.json')
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             mapping = data.get('item_to_discovery_no', data)
-            return {int(item_id): int(discovery_no)
-                    for item_id, discovery_no in mapping.items()}
+            return {int(item_id): int(discovery_no) for item_id, discovery_no in mapping.items()}
         except (OSError, ValueError, TypeError, AttributeError):
             continue
     return {}
-
-
-# 발견물 테이블의 보상 필드와는 별도로, 실제로 발견물 리소스를 공용으로
-# 쓰는 것이 확인된 항목만 Resources/data/item_discovery_map.json에 기록한다.
 ITEM_DISCOVERY_NO = load_item_discovery_map()
 
 def get_item_discovery_no(item_id):
     """아이템에 대응하는 발견물 No.를 반환한다."""
     return ITEM_DISCOVERY_NO.get(item_id)
-
 
 @lru_cache(maxsize=None)
 def get_ship_video_path(ship_type):
@@ -1444,7 +1294,7 @@ def get_ship_video_path(ship_type):
             base_dirs.append(sys._MEIPASS)
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-    filename = f'S{ship_type:02d}_0001.mp4'
+    filename = 'S{0:02d}_0001.mp4'.format(ship_type)
     for base_dir in base_dirs:
         for folder in ('ship', 'Ship'):
             path = os.path.join(base_dir, 'Resources', folder, filename)
@@ -1454,7 +1304,6 @@ def get_ship_video_path(ship_type):
             if os.path.isfile(path):
                 return path
     return None
-
 
 @lru_cache(maxsize=1)
 def get_vlc_runtime_dir():
@@ -1469,7 +1318,6 @@ def get_vlc_runtime_dir():
         root = os.path.join(base_dir, 'Resources', 'vlc')
         if not os.path.isdir(root):
             continue
-        # 경량 배포본은 libvlc.dll을 Resources/vlc 바로 아래에 둔다.
         if os.path.isfile(os.path.join(root, 'libvlc.dll')):
             return root
         for name in os.listdir(root):
@@ -1477,15 +1325,14 @@ def get_vlc_runtime_dir():
             if os.path.isfile(os.path.join(candidate, 'libvlc.dll')):
                 return candidate
     return None
+
 class FacePickerModal(tk.Toplevel):
     """얼굴 그래픽 썸네일 그리드 갤러리 선택창 (모달 팝업)"""
+
     def __init__(self, parent, title, gender='female', current_face_id=0, on_select_callback=None, max_faces=None):
-        # ***<module>.FacePickerModal.__init__: Failure: Different bytecode
         super().__init__(parent)
         self.title(title)
-        # Toplevel.geometry()와 Label의 image width/height는 Tk가 자동으로
-        # 확대하지 않는 물리 픽셀 값이다.
-        self.geometry(f'{_dpi_px(640)}x{_dpi_px(540)}')
+        self.geometry('{0}x{1}'.format(_dpi_px(640), _dpi_px(540)))
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -1498,19 +1345,16 @@ class FacePickerModal(tk.Toplevel):
         self.photo_cache = {}
         top_bar = tk.Frame(self, bg='#F0F0F0', padx=10, pady=8)
         top_bar.pack(side=tk.TOP, fill=tk.X)
-        face_width, face_height = _dpi_px(80), _dpi_px(96)
-        self.lbl_preview = tk.Label(
-            top_bar, width=face_width, height=face_height,
-            relief='ridge', bd=2, bg='#222222',
-        )
+        face_width, face_height = (_dpi_px(80), _dpi_px(96))
+        self.lbl_preview = tk.Label(top_bar, width=face_width, height=face_height, relief='ridge', bd=2, bg='#222222')
         self.lbl_preview.pack(side=tk.LEFT, padx=6)
         info_f = tk.Frame(top_bar, bg='#F0F0F0')
         info_f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8)
-        tk.Label(info_f, text=ui('ui_0212'), font=('Malgun Gothic', 9), bg='#F0F0F0').pack(anchor='w', pady=2)
+        tk.Label(info_f, text=ui('ui_0212'), font=(APP_FONT_FAMILY, 9), bg='#F0F0F0').pack(anchor='w', pady=2)
         f_in = tk.Frame(info_f, bg='#F0F0F0')
         f_in.pack(anchor='w', pady=3)
-        tk.Label(f_in, text=ui('ui_0044', self.max_faces - 1), font=('Malgun Gothic', 9), bg='#F0F0F0').pack(side=tk.LEFT)
-        self.spn_id = ttk.Spinbox(f_in, from_=0, to=self.max_faces - 1, width=5, command=self.on_spin_change)
+        tk.Label(f_in, text=ui('ui_0044', self.max_faces - 1), font=(APP_FONT_FAMILY, 9), bg='#F0F0F0').pack(side=tk.LEFT)
+        self.spn_id = SPINBOX_WIDGET(f_in, from_=0, to=self.max_faces - 1, width=5, command=self.on_spin_change)
         digits_only = self.register(lambda proposed: proposed == '' or proposed.isdigit())
         self.spn_id.configure(validate='key', validatecommand=(digits_only, '%P'))
         self.spn_id.set(str(self.selected_face_id))
@@ -1546,12 +1390,9 @@ class FacePickerModal(tk.Toplevel):
             if img_p and os.path.exists(img_p):
                 photo = get_cached_photo(img_p)
                 self.photo_cache[fid] = photo
-                lbl_img = tk.Label(
-                    cell, image=photo, width=face_width, height=face_height,
-                    bg='#222222', cursor='hand2',
-                )
+                lbl_img = tk.Label(cell, image=photo, width=face_width, height=face_height, bg='#222222', cursor='hand2')
             else:
-                lbl_img = tk.Label(cell, text=f'#{fid}', width=10, height=5, bg='#E0E0E0', cursor='hand2')
+                lbl_img = tk.Label(cell, text=ui('ui_0590', fid), width=10, height=5, bg='#E0E0E0', cursor='hand2')
             lbl_img.pack(side=tk.TOP)
             lbl_img.bind('<Button-1>', lambda e, f_id=fid: self.select_face(f_id))
             cell.bind('<Button-1>', lambda e, f_id=fid: self.select_face(f_id))
@@ -1559,17 +1400,9 @@ class FacePickerModal(tk.Toplevel):
         if self._compact_grid:
             btn_bar = tk.Frame(self)
             btn_bar.pack(fill=tk.X, pady=(0, 8))
-            EditorButton(
-                btn_bar, text=ui('ui_0382'), font=('Malgun Gothic', 9),
-                bg='#E6F4EA', fg='#137333', padx=16, pady=5,
-                command=self.apply_selection,
-            ).pack()
+            EditorButton(btn_bar, text=ui('ui_0382'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=16, pady=5, command=self.apply_selection).pack()
         else:
-            EditorButton(
-                top_bar, text=ui('ui_0098'), font=('Malgun Gothic', 9),
-                bg='#E6F4EA', fg='#137333', padx=12, pady=6,
-                command=self.apply_selection,
-            ).pack(side=tk.RIGHT, padx=8)
+            EditorButton(top_bar, text=ui('ui_0098'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=12, pady=6, command=self.apply_selection).pack(side=tk.RIGHT, padx=8)
         self.select_face(self.selected_face_id)
         if self._compact_grid:
             self.update_idletasks()
@@ -1578,12 +1411,14 @@ class FacePickerModal(tk.Toplevel):
             parent.update_idletasks()
             popup_x = parent.winfo_rootx() + (parent.winfo_width() - popup_w) // 2
             popup_y = parent.winfo_rooty() + (parent.winfo_height() - popup_h) // 2
-            self.geometry(f'{popup_w}x{popup_h}+{max(0, popup_x)}+{max(0, popup_y)}')
+            self.geometry('{0}x{1}+{2}+{3}'.format(popup_w, popup_h, max(0, popup_x), max(0, popup_y)))
+
     def _on_mousewheel(self, event):
         try:
-            self.canvas.yview_scroll(int((-1) * (event.delta / 120)), 'units')
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
         except Exception:
             return None
+
     def on_spin_change(self):
         try:
             fid = int(self.spn_id.get())
@@ -1603,6 +1438,7 @@ class FacePickerModal(tk.Toplevel):
             self.spn_id.delete(0, tk.END)
             self.spn_id.insert(0, str(face_id))
         self.on_spin_change()
+
     def select_face(self, fid):
         self.selected_face_id = fid
         self.spn_id.set(str(fid))
@@ -1612,16 +1448,19 @@ class FacePickerModal(tk.Toplevel):
             else:
                 c.config(bg='#FFFFFF', bd=1)
         self.update_preview()
+
     def update_preview(self):
         fid = self.selected_face_id
         img_p = get_face_image_path(self.gender, fid)
         if img_p and os.path.exists(img_p):
-                self.preview_photo = get_cached_photo(img_p)
-                self.lbl_preview.config(image=self.preview_photo)
+            self.preview_photo = get_cached_photo(img_p)
+            self.lbl_preview.config(image=self.preview_photo)
+
     def apply_selection(self):
         if self.on_select_callback:
             self.on_select_callback(self.selected_face_id)
         self.destroy()
+
 def get_player_age(game_year, game_month, game_day, birth_year, birth_month, birth_day):
     """게임의 나이 계산과 같이 생일이 지나기 전에는 한 살을 뺀다."""
     age = int(game_year) - int(birth_year)
@@ -1629,34 +1468,27 @@ def get_player_age(game_year, game_month, game_day, birth_year, birth_month, bir
         age -= 1
     return age
 
-
 def get_fortune_face_code(face_code, age):
     """운명의 반려자 비교에 쓰는 주인공 얼굴 코드."""
     return int(face_code) + (16 if int(age) >= 36 else 0)
-
 
 def is_fortune_spouse(barmaid, fortune_face_code):
     """여급 테이블의 반려자 비교 코드가 주인공의 표시 얼굴 코드와 같은지 확인한다."""
     return int(barmaid.get('fortune_face_code', -1)) == int(fortune_face_code)
 
-
 def autofit_columns(tree, min_w=45, max_w=None, padding=28):
     """내용 폭을 기준으로 열을 맞추되, Treeview의 실제 폭을 넘지 않게 한다."""
-    # ***<module>.autofit_columns: Failure: Different bytecode
     try:
-        # 표를 갱신할 때마다 Tcl 폰트 객체를 만들지 않는다.
         fonts = getattr(autofit_columns, '_fonts', None)
         if fonts is None:
-            fonts = (tkfont.Font(font=('Malgun Gothic', 9)),
-                     tkfont.Font(font=('Malgun Gothic', 9, 'bold')))
+            fonts = (tkfont.Font(font=(APP_FONT_FAMILY, 9)), tkfont.Font(font=(APP_FONT_FAMILY, 9, 'bold')))
             autofit_columns._fonts = fonts
         font, bold_font = fonts
         measure_cache = getattr(autofit_columns, '_measure_cache', None)
         if measure_cache is None:
             measure_cache = {}
             autofit_columns._measure_cache = measure_cache
-        # 항목명·분류·반복 수치처럼 같은 텍스트가 여러 표에서 반복된다. Tcl의
-        # Font.measure 호출을 캐시해 대량 목록을 다시 그릴 때 비용을 줄인다.
+
         def measure(value, bold=False):
             key = (bold, value)
             width = measure_cache.get(key)
@@ -1668,14 +1500,8 @@ def autofit_columns(tree, min_w=45, max_w=None, padding=28):
             measure_cache.clear()
         cols = tuple(tree['columns'])
         rows = tree.get_children()
-        headers = tuple(tree.heading(col)['text'] for col in cols)
-        # 내용이 같은 표는 다시 Font.measure를 호출할 필요가 없다. Treeview는
-        # 목록을 재생성해도 동일한 값을 보이는 경우가 많으므로, 현재 폭까지 포함한
-        # 가벼운 서명으로 열너비 계산을 건너뛴다.
-        cell_values = tuple(
-            tuple(str(tree.set(item, col)) for col in cols)
-            for item in rows
-        )
+        headers = tuple((tree.heading(col)['text'] for col in cols))
+        cell_values = tuple((tuple((str(tree.set(item, col)) for col in cols)) for item in rows))
         available_width = tree.winfo_width()
         signature = (min_w, max_w, padding, available_width, headers, cell_values)
         if getattr(tree, '_autofit_signature', None) == signature:
@@ -1697,12 +1523,22 @@ def autofit_columns(tree, min_w=45, max_w=None, padding=28):
         total_width = sum(widths)
         if available_width > len(cols) * min_w and total_width > available_width:
             excess = total_width - available_width
-            shrinkable = sum(max(0, width - min_w) for width in widths)
+            shrinkable = sum((max(0, width - min_w) for width in widths))
             if shrinkable:
-                widths = [max(min_w, width - round(excess * max(0, width - min_w) / shrinkable))
-                          for width in widths]
-        # Font.measure()와 winfo_width()는 이미 실제 화면 픽셀을 돌려준다.
-        # 여기서 전역 DPI wrapper를 다시 거치면 열 폭만 한 번 더 확대된다.
+                widths = [max(min_w, width - round(excess * max(0, width - min_w) / shrinkable)) for width in widths]
+        elif total_width < available_width:
+            # 내용 폭만 적용하면 창을 넓힐 때 오른쪽이 빈 채로 남는다. 각 표가
+            # 지정한 stretch 열(대개 이름 또는 값 열)에 남은 공간을 나눠 준다.
+            stretch_indices = [index for index, col in enumerate(cols)
+                if bool(tree.column(col, 'stretch'))]
+            if not stretch_indices and cols:
+                # 가변 열이 따로 없는 보조 표는 마지막 열을 확장한다.
+                stretch_indices = [len(cols) - 1]
+            if stretch_indices:
+                remaining = available_width - total_width
+                share, remainder = divmod(remaining, len(stretch_indices))
+                for offset, index in enumerate(stretch_indices):
+                    widths[index] += share + (1 if offset < remainder else 0)
         for col, width in zip(cols, widths):
             _set_tree_column_physical(tree, col, width=width)
         tree._autofit_signature = signature
@@ -1711,20 +1547,8 @@ def autofit_columns(tree, min_w=45, max_w=None, padding=28):
 
 def load_item_database():
     counterfeit_ids = set(range(249, 277))
-    return [
-        {
-            'id': i,
-            'name': ITEM_NAME_BY_ID[int(i)],
-            'category': ui('ui_0105') if i in counterfeit_ids else ITEM_CATEGORY_NAMES[int(cat)],
-            'sell_price': sell_p,
-            'buy_price': buy_p,
-        }
-        for i, name, cat, sell_p, buy_p in ITEM_MASTER_DB
-    ]
-
-
+    return [{'id': i, 'name': ITEM_NAME_BY_ID[int(i)], 'category': ui('ui_0105') if i in counterfeit_ids else ITEM_CATEGORY_NAMES[int(cat)], 'sell_price': sell_p, 'buy_price': buy_p} for i, name, cat, sell_p, buy_p in ITEM_MASTER_DB]
 DISCOVERY_CATEGORY_NAMES = tuple(EDITOR_MAPPINGS['discovery_category_names'])
-
 
 def center_treeview_columns(parent):
     """하위 Treeview의 모든 열과 열 제목을 가운데 정렬한다."""
@@ -1735,8 +1559,6 @@ def center_treeview_columns(parent):
                 widget.heading(column, anchor='center')
         center_treeview_columns(widget)
 
-
-# CDS_95.EXE 발견물 원본 레코드의 +0x04 카테고리 코드(0~7)를 사용한다.
 def load_discovery_database():
     discoveries = []
     for i, name, category_code, val, off, did in DISCOVERY_MASTER_DB:
@@ -1745,32 +1567,21 @@ def load_discovery_database():
             category_code = 7
         reward_item_id = DISCOVERY_REWARD_ITEM_IDS.get(int(i))
         hint_id = DISCOVERY_HINT_IDS[int(i)] if 0 <= int(i) < len(DISCOVERY_HINT_IDS) else -1
-        discoveries.append({'index': i, 'name': DISCOVERY_NAME_BY_NO[int(i)], 'category': DISCOVERY_CATEGORY_NAMES[category_code],
-                            'value': val, 'save_offset': off, 'disc_id': did,
-                            'hint_id': hint_id,
-                            'reward_item_id': reward_item_id,
-                            'reward_item_name': ITEM_NAME_BY_ID.get(reward_item_id) if reward_item_id is not None else None})
+        difficulty = DISCOVERY_CONTRACT_DIFFICULTIES[int(i)] if 0 <= int(i) < len(DISCOVERY_CONTRACT_DIFFICULTIES) else None
+        discoveries.append({'index': i, 'name': DISCOVERY_NAME_BY_NO[int(i)], 'category': DISCOVERY_CATEGORY_NAMES[category_code], 'value': val, 'save_offset': off, 'disc_id': did, 'difficulty': difficulty, 'hint_id': hint_id, 'reward_item_id': reward_item_id, 'reward_item_name': ITEM_NAME_BY_ID.get(reward_item_id) if reward_item_id is not None else None})
     return discoveries
 
-
 def load_event_database():
-    return [{'index': i, 'name': name, 'category': cat, 'value': val, 'save_offset': off, 'disc_id': did}
-            for i, name, cat, val, off, did in EVENT_MASTER_DB]
-
-
+    return [{'index': i, 'name': name, 'category': cat, 'value': val, 'save_offset': off, 'disc_id': did} for i, name, cat, val, off, did in EVENT_MASTER_DB]
 SHOP_PURCHASABLE_ITEM_IDS = set(EDITOR_MAPPINGS['shop_purchasable_item_ids'])
 NON_PURCHASABLE_ITEM_IDS = set(range(286)) - SHOP_PURCHASABLE_ITEM_IDS
-
 
 class InfoModalBase(tk.Toplevel):
     """목록 탐색형 정보 팝업이 공유하는 배치·키보드·포커스 처리."""
 
     def __init__(self, parent, width=520, height=280):
         super().__init__(parent)
-        # Toplevel.geometry()는 Tk의 DPI-aware 자동 배치 대상이 아니다. 내부
-        # 글꼴·이미지·여백만 커진 상태를 막기 위해 논리 크기를 실제 DPI 픽셀로
-        # 바꾼 뒤, 같은 물리 좌표계에서 중앙 정렬한다.
-        width, height = _dpi_px(width), _dpi_px(height)
+        width, height = (_dpi_px(width), _dpi_px(height))
         self.parent = parent
         self._previous_focus = parent.focus_get()
         self._focus_restored = False
@@ -1782,7 +1593,7 @@ class InfoModalBase(tk.Toplevel):
         except Exception:
             x = (self.winfo_screenwidth() - width) // 2
             y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f'{width}x{height}+{x}+{y}')
+        self.geometry('{0}x{1}+{2}+{3}'.format(width, height, x, y))
 
     def initialize_navigation(self):
         """팝업 내부 컨트롤에 탐색 키보드 포커스를 고정한다."""
@@ -1821,11 +1632,10 @@ class InfoModalBase(tk.Toplevel):
         except tk.TclError:
             pass
 
-
 class ItemInfoModal(InfoModalBase):
     """아이템 상세 정보 및 설명 모달 팝업 (이전/다음 탐색 지원)"""
+
     def __init__(self, parent, item_info, item_desc, source_view='catalog', slot_index=None, on_action_callback=None, click_pos=None, items_list=None, current_list_index=0, get_item_info_fn=None, on_navigate_callback=None):
-        # ***<module>.ItemInfoModal.__init__: Failure: Different bytecode
         super().__init__(parent)
         self.on_action_callback = on_action_callback
         self.source_view = source_view
@@ -1838,15 +1648,15 @@ class ItemInfoModal(InfoModalBase):
         self.title(ui('ui_0002', item_info['name']))
         hdr_f = tk.Frame(self, bg='#1A237E', padx=12, pady=6)
         hdr_f.pack(side=tk.TOP, fill=tk.X)
-        self.lbl_title = tk.Label(hdr_f, text=f'[{item_info['id']:03d}] {item_info['name']} ({item_info.get('category', '')})', font=('Malgun Gothic', 9), fg='#FFFFFF', bg='#1A237E')
+        self.lbl_title = tk.Label(hdr_f, text=ui('ui_0586', item_info['id'], item_info['name'], item_info.get('category', '')), font=(APP_FONT_FAMILY, 9), fg='#FFFFFF', bg='#1A237E')
         self.lbl_title.pack(side=tk.LEFT, anchor='w')
         f_nav = tk.Frame(hdr_f, bg='#1A237E')
         f_nav.pack(side=tk.RIGHT)
-        self.btn_prev = EditorButton(f_nav, text=ui('ui_0106'), font=('Malgun Gothic', 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_prev)
+        self.btn_prev = EditorButton(f_nav, text=ui('ui_0106'), font=(APP_FONT_FAMILY, 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_prev)
         self.btn_prev.pack(side=tk.LEFT, padx=(0, 4))
-        self.lbl_page = tk.Label(f_nav, text=f'{self.current_list_index + 1} / {len(self.items_list)}', font=('Malgun Gothic', 9), fg='#B0BEC5', bg='#1A237E')
+        self.lbl_page = tk.Label(f_nav, text=ui('ui_0587', self.current_list_index + 1, len(self.items_list)), font=(APP_FONT_FAMILY, 9), fg='#B0BEC5', bg='#1A237E')
         self.lbl_page.pack(side=tk.LEFT, padx=2)
-        self.btn_next = EditorButton(f_nav, text=ui('ui_0107'), font=('Malgun Gothic', 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_next)
+        self.btn_next = EditorButton(f_nav, text=ui('ui_0107'), font=(APP_FONT_FAMILY, 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_next)
         self.btn_next.pack(side=tk.LEFT, padx=(4, 0))
         self.btn_f = tk.Frame(self, bg='#F0F0F0', padx=12, pady=6)
         self.btn_f.pack(side=tk.BOTTOM, fill=tk.X)
@@ -1855,8 +1665,6 @@ class ItemInfoModal(InfoModalBase):
         self._build_action_buttons()
         body_f = tk.Frame(self, padx=14, pady=8)
         body_f.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        # 아이템 아이콘과 연결된 발견물 매체를 세로로 표시한다.
-        # 이미지가 없는 경우에는 이 영역 전체를 숨겨 설명 영역을 넓게 쓴다.
         self.item_visuals = tk.Frame(self, width=84)
         self.item_left_spacer = tk.Frame(body_f, width=96)
         self.item_left_spacer.pack(side=tk.LEFT, fill=tk.Y)
@@ -1867,41 +1675,41 @@ class ItemInfoModal(InfoModalBase):
         self.item_info_frame = f_right_info
         f_info = tk.Frame(f_right_info)
         f_info.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
-        self.lbl_price = tk.Label(f_info, text='', font=('Malgun Gothic', 9), fg='#B06000')
+        self.lbl_price = tk.Label(f_info, text='', font=(APP_FONT_FAMILY, 9), fg='#B06000')
         self.lbl_price.pack(side=tk.LEFT, padx=(0, 16))
-        self.lbl_stat = tk.Label(f_info, text='', font=('Malgun Gothic', 9), fg='#1A73E8')
+        self.lbl_stat = tk.Label(f_info, text='', font=(APP_FONT_FAMILY, 9), fg='#1A73E8')
         self.lbl_stat.pack(side=tk.LEFT)
-        self.lbl_reward_discovery = tk.Label(f_info, text='', font=('Malgun Gothic', 9), fg='#7B1FA2')
-        tk.Label(f_right_info, text=ui('ui_0216'), font=('Malgun Gothic', 9)).pack(anchor='w', pady=(2, 3))
-        self.desc_box = tk.Text(f_right_info, font=('Malgun Gothic', 9), wrap='word', height=6, bg='#F8F9FA', relief='solid', bd=1, padx=8, pady=6)
+        self.lbl_reward_discovery = tk.Label(f_info, text='', font=(APP_FONT_FAMILY, 9), fg='#7B1FA2')
+        tk.Label(f_right_info, text=ui('ui_0216'), font=(APP_FONT_FAMILY, 9)).pack(anchor='w', pady=(2, 3))
+        self.desc_box = tk.Text(f_right_info, font=(APP_FONT_FAMILY, 9), wrap='word', height=6, bg='#F8F9FA', relief='solid', bd=1, padx=8, pady=6)
         self.desc_box.pack(side=tk.TOP, fill=tk.X)
         self._update_item_view(item_info, item_desc)
         self.bind('<Destroy>', self._on_destroy, add='+')
         self.initialize_navigation()
+
     def _build_action_buttons(self):
-        # ***<module>.ItemInfoModal._build_action_buttons: Failure: Different bytecode
         for widget in self.action_f.winfo_children():
             widget.destroy()
         if self.source_view == 'pocket':
-            btn_move = EditorButton(self.action_f, text=inventory_text('ui_0290', 'ui_0282'), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', padx=8, pady=3, command=lambda: self._do_action('move_to_storage'))
+            btn_move = EditorButton(self.action_f, text=inventory_text('ui_0290', 'ui_0282'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=8, pady=3, command=lambda: self._do_action('move_to_storage'))
             btn_move.pack(side=tk.LEFT, padx=4)
-            btn_del = EditorButton(self.action_f, text=ui('ui_0192'), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=8, pady=3, command=lambda: self._do_action('delete_pocket'))
+            btn_del = EditorButton(self.action_f, text=ui('ui_0192'), font=(APP_FONT_FAMILY, 9), bg='#FCE8E6', fg='#D93025', padx=8, pady=3, command=lambda: self._do_action('delete_pocket'))
+            btn_del.pack(side=tk.LEFT, padx=4)
+        elif self.source_view == 'storage':
+            btn_move = EditorButton(self.action_f, text=inventory_text('ui_0290', 'ui_0281'), font=(APP_FONT_FAMILY, 9), bg='#E8F0FE', fg='#1A73E8', padx=8, pady=3, command=lambda: self._do_action('move_to_pocket'))
+            btn_move.pack(side=tk.LEFT, padx=4)
+            btn_del = EditorButton(self.action_f, text=ui('ui_0192'), font=(APP_FONT_FAMILY, 9), bg='#FCE8E6', fg='#D93025', padx=8, pady=3, command=lambda: self._do_action('delete_storage'))
             btn_del.pack(side=tk.LEFT, padx=4)
         else:
-            if self.source_view == 'storage':
-                btn_move = EditorButton(self.action_f, text=inventory_text('ui_0290', 'ui_0281'), font=('Malgun Gothic', 9), bg='#E8F0FE', fg='#1A73E8', padx=8, pady=3, command=lambda: self._do_action('move_to_pocket'))
-                btn_move.pack(side=tk.LEFT, padx=4)
-                btn_del = EditorButton(self.action_f, text=ui('ui_0192'), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=8, pady=3, command=lambda: self._do_action('delete_storage'))
-                btn_del.pack(side=tk.LEFT, padx=4)
-            else:
-                btn_pocket = EditorButton(self.action_f, text=inventory_text('ui_0285', 'ui_0281'), font=('Malgun Gothic', 9), bg='#E8F0FE', fg='#1A73E8', padx=8, pady=3, command=lambda: self._do_action('add_pocket'))
-                btn_pocket.pack(side=tk.LEFT, padx=4)
-                btn_storage = EditorButton(self.action_f, text=inventory_text('ui_0285', 'ui_0282'), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', padx=8, pady=3, command=lambda: self._do_action('add_storage'))
-                btn_storage.pack(side=tk.LEFT, padx=4)
+            btn_pocket = EditorButton(self.action_f, text=inventory_text('ui_0285', 'ui_0281'), font=(APP_FONT_FAMILY, 9), bg='#E8F0FE', fg='#1A73E8', padx=8, pady=3, command=lambda: self._do_action('add_pocket'))
+            btn_pocket.pack(side=tk.LEFT, padx=4)
+            btn_storage = EditorButton(self.action_f, text=inventory_text('ui_0285', 'ui_0282'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=8, pady=3, command=lambda: self._do_action('add_storage'))
+            btn_storage.pack(side=tk.LEFT, padx=4)
+
     def _update_item_view(self, item_info, item_desc):
         self.item_id = item_info['id']
         self.title(ui('ui_0002', item_info['name']))
-        self.lbl_title.config(text=f'[{item_info['id']:03d}] {item_info['name']} ({item_info.get('category', '')})')
+        self.lbl_title.config(text=ui('ui_0586', item_info['id'], item_info['name'], item_info.get('category', '')))
         img_p = get_item_image_path(self.item_id)
         discovery_no = get_item_discovery_no(self.item_id)
         if discovery_no is None:
@@ -1912,18 +1720,13 @@ class ItemInfoModal(InfoModalBase):
         cat_str = item_info.get('category', '')
         if cat_str == ITEM_CATEGORY_WEAPON:
             self.lbl_stat.config(text=ui('ui_0026', stat_val))
+        elif cat_str == ITEM_CATEGORY_ARMOR:
+            self.lbl_stat.config(text=ui('ui_0049', stat_val))
         else:
-            if cat_str == ITEM_CATEGORY_ARMOR:
-                self.lbl_stat.config(text=ui('ui_0049', stat_val))
-            else:
-                self.lbl_stat.config(text='')
-        reward_discovery_names = [
-            DISCOVERY_NAME_BY_NO[discovery_no]
-            for discovery_no in REWARD_DISCOVERIES_BY_ITEM.get(self.item_id, [])
-            if discovery_no in DISCOVERY_NAME_BY_NO
-        ]
+            self.lbl_stat.config(text='')
+        reward_discovery_names = [DISCOVERY_NAME_BY_NO[discovery_no] for discovery_no in REWARD_DISCOVERIES_BY_ITEM.get(self.item_id, []) if discovery_no in DISCOVERY_NAME_BY_NO]
         if reward_discovery_names:
-            self.lbl_reward_discovery.config(text=ui('ui_0027', ' / '.join(reward_discovery_names)))
+            self.lbl_reward_discovery.config(text=ui('ui_0027', UI_ALTERNATE_SEPARATOR.join(reward_discovery_names)))
             self.lbl_reward_discovery.pack(side=tk.LEFT, padx=(14, 0))
         else:
             self.lbl_reward_discovery.pack_forget()
@@ -1934,7 +1737,7 @@ class ItemInfoModal(InfoModalBase):
         self.desc_box.insert('1.0', desc_text)
         self.desc_box.config(state='disabled')
         total = len(self.items_list)
-        self.lbl_page.config(text=f'{self.current_list_index + 1} / {total}')
+        self.lbl_page.config(text=ui('ui_0587', self.current_list_index + 1, total))
         self.btn_prev.config(state='normal' if self.current_list_index > 0 else 'disabled')
         self.btn_next.config(state='normal' if self.current_list_index < total - 1 else 'disabled')
 
@@ -1948,29 +1751,22 @@ class ItemInfoModal(InfoModalBase):
         discovery.pack_forget()
         self.item_photo = None
         self.item_discovery_photo = None
-
         item_image_path = item_image_path if item_image_path and os.path.exists(item_image_path) else None
         discovery_image_path = get_discovery_image_path(discovery_no) if discovery_no is not None else None
         discovery_video_path = get_discovery_video_path(discovery_no) if discovery_no is not None else None
         has_primary = has_discovery = False
-
         if item_image_path:
             self.item_photo = get_cached_photo(item_image_path)
             if self.item_photo:
                 primary.label.config(image=self.item_photo, text='')
                 primary.pack(side=tk.TOP)
                 has_primary = True
-
-            # 같은 정적 이미지라면 한 번만 표시한다. 영상은 별도 매체이므로 유지한다.
-            same_static_image = bool(
-                discovery_image_path and os.path.exists(discovery_image_path)
-                and filecmp.cmp(item_image_path, discovery_image_path, shallow=False)
-            )
+            same_static_image = bool(discovery_image_path and os.path.exists(discovery_image_path) and filecmp.cmp(item_image_path, discovery_image_path, shallow=False))
             if discovery_video_path:
                 discovery.pack(side=tk.TOP, pady=(8, 0))
                 discovery.show(discovery_video_path)
                 has_discovery = True
-            elif discovery_image_path and not same_static_image:
+            elif discovery_image_path and (not same_static_image):
                 self.item_discovery_photo = get_cached_photo(discovery_image_path)
                 if self.item_discovery_photo:
                     discovery.label.config(image=self.item_discovery_photo, text='')
@@ -1986,14 +1782,13 @@ class ItemInfoModal(InfoModalBase):
                 primary.label.config(image=self.item_photo, text='')
                 primary.pack(side=tk.TOP)
                 has_primary = True
-
-        # 이미지가 없어도 발견물 팝업과 같은 빈 80x80 영역을 유지한다.
         if not has_primary:
             primary.label.config(image='', text='')
             primary.pack(side=tk.TOP)
         if not self.item_left_spacer.winfo_manager():
             self.item_left_spacer.pack(side=tk.LEFT, fill=tk.Y, before=self.item_info_frame)
         self.item_visuals.place(x=14, y=42)
+
     def _go_prev(self):
         if self.current_list_index > 0:
             self.current_list_index -= 1
@@ -2021,13 +1816,15 @@ class ItemInfoModal(InfoModalBase):
                 self._update_item_view(info, desc)
             if self.on_navigate_callback:
                 self.on_navigate_callback(it_id, s_idx)
+
     def _do_action(self, action_type):
         if self.on_action_callback and self.on_action_callback(self.item_id, action_type, self.slot_index, parent_window=self):
-                self.destroy()
+            self.destroy()
+
 class DiscoveryInfoModal(InfoModalBase):
     """발견물 상세 정보 및 설명 모달 팝업 (이전/다음 탐색 지원)"""
+
     def __init__(self, parent, disc_info, disc_desc, current_state=0, disc_date=UI_EMPTY_VALUE, rep_date=UI_EMPTY_VALUE, discoverer=UI_EMPTY_VALUE, on_state_change_callback=None, on_hint_toggle_callback=None, on_contract_cancel_callback=None, is_contract_discovery_fn=None, get_hint_state_fn=None, items_list=None, current_list_index=0, get_disc_info_fn=None, on_navigate_callback=None, state_index=None):
-        # ***<module>.DiscoveryInfoModal.__init__: Failure: Different bytecode
         super().__init__(parent)
         self.on_state_change_callback = on_state_change_callback
         self.on_hint_toggle_callback = on_hint_toggle_callback
@@ -2038,7 +1835,6 @@ class DiscoveryInfoModal(InfoModalBase):
         self.current_list_index = current_list_index
         self.get_disc_info_fn = get_disc_info_fn
         self.on_navigate_callback = on_navigate_callback
-        # disc_index는 원본 발견물 No.(이미지/영상용), state_index는 목록 내부 위치(상태 변경용)다.
         self.disc_index = disc_info['index']
         self.state_index = state_index if state_index is not None else disc_info['index']
         self.vlc_instance = None
@@ -2055,44 +1851,38 @@ class DiscoveryInfoModal(InfoModalBase):
         self.title(ui('ui_0003', disc_info['name']))
         hdr_f = tk.Frame(self, bg='#1A237E', padx=12, pady=6)
         hdr_f.pack(side=tk.TOP, fill=tk.X)
-        self.lbl_title = tk.Label(hdr_f, text=f"[No. {disc_info['index']:03d} | ID {disc_info['disc_id']:03d}] {disc_info['name']} ({disc_info['category']})", font=('Malgun Gothic', 9), fg='#FFFFFF', bg='#1A237E')
+        self.lbl_title = tk.Label(hdr_f, text=ui('ui_0588', disc_info['index'], disc_info['disc_id'], disc_info['name'], disc_info['category']), font=(APP_FONT_FAMILY, 9), fg='#FFFFFF', bg='#1A237E')
         self.lbl_title.pack(side=tk.LEFT, anchor='w')
         f_nav = tk.Frame(hdr_f, bg='#1A237E')
         f_nav.pack(side=tk.RIGHT)
-        self.btn_prev = EditorButton(f_nav, text=ui('ui_0106'), font=('Malgun Gothic', 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_prev)
+        self.btn_prev = EditorButton(f_nav, text=ui('ui_0106'), font=(APP_FONT_FAMILY, 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_prev)
         self.btn_prev.pack(side=tk.LEFT, padx=(0, 4))
-        self.lbl_page = tk.Label(f_nav, text=f'{self.current_list_index + 1} / {len(self.items_list)}', font=('Malgun Gothic', 9), fg='#B0BEC5', bg='#1A237E')
+        self.lbl_page = tk.Label(f_nav, text=ui('ui_0587', self.current_list_index + 1, len(self.items_list)), font=(APP_FONT_FAMILY, 9), fg='#B0BEC5', bg='#1A237E')
         self.lbl_page.pack(side=tk.LEFT, padx=2)
-        self.btn_next = EditorButton(f_nav, text=ui('ui_0107'), font=('Malgun Gothic', 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_next)
+        self.btn_next = EditorButton(f_nav, text=ui('ui_0107'), font=(APP_FONT_FAMILY, 9), bg='#283593', fg='#FFFFFF', activebackground='#3949AB', activeforeground='#FFFFFF', relief='flat', padx=6, pady=1, cursor='hand2', command=self._go_next)
         self.btn_next.pack(side=tk.LEFT, padx=(4, 0))
         btn_f = tk.Frame(self, bg='#F0F0F0', padx=12, pady=6)
         btn_f.pack(side=tk.BOTTOM, fill=tk.X)
         action_f = tk.Frame(btn_f, bg='#F0F0F0')
         action_f.pack(anchor='center')
-        btn_rep = EditorButton(action_f, text=discovery_state_text(3, action=True), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', padx=6, pady=3, command=lambda: self._do_change(3))
+        btn_rep = EditorButton(action_f, text=discovery_state_text(3, action=True), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=6, pady=3, command=lambda: self._do_change(3))
         btn_rep.pack(side=tk.LEFT, padx=3)
-        btn_disc = EditorButton(action_f, text=discovery_state_text(2, action=True), font=('Malgun Gothic', 9), bg='#E8F0FE', fg='#1A73E8', padx=6, pady=3, command=lambda: self._do_change(2))
+        btn_disc = EditorButton(action_f, text=discovery_state_text(2, action=True), font=(APP_FONT_FAMILY, 9), bg='#E8F0FE', fg='#1A73E8', padx=6, pady=3, command=lambda: self._do_change(2))
         btn_disc.pack(side=tk.LEFT, padx=3)
-        btn_undisc = EditorButton(action_f, text=discovery_state_text(1, action=True), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(1))
+        btn_undisc = EditorButton(action_f, text=discovery_state_text(1, action=True), font=(APP_FONT_FAMILY, 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(1))
         btn_undisc.pack(side=tk.LEFT, padx=3)
-        btn_unspawn = EditorButton(action_f, text=discovery_state_text(0, action=True), font=('Malgun Gothic', 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(0))
+        btn_unspawn = EditorButton(action_f, text=discovery_state_text(0, action=True), font=(APP_FONT_FAMILY, 9), bg='#FCE8E6', fg='#D93025', padx=6, pady=3, command=lambda: self._do_change(0))
         btn_unspawn.pack(side=tk.LEFT, padx=3)
         self.btn_hint_toggle = None
         if self.on_hint_toggle_callback or self.on_contract_cancel_callback:
-            self.btn_hint_toggle = EditorButton(
-                action_f, font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333',
-                activebackground='#C8E6C9', activeforeground='#137333', padx=6, pady=3,
-                command=self._toggle_hint)
+            self.btn_hint_toggle = EditorButton(action_f, font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', activebackground='#C8E6C9', activeforeground='#137333', padx=6, pady=3, command=self._toggle_hint)
         body_f = tk.Frame(self, padx=14, pady=8)
         body_f.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        # 두 이미지는 하단 버튼 영역과 세로 공간을 공유한다. 버튼은 중앙,
-        # 이미지는 왼쪽에 있으므로 실제로 서로 가리지 않는다.
         f_left_visuals = tk.Frame(self, width=84)
         self.discovery_visuals = f_left_visuals
         f_left_spacer = tk.Frame(body_f, width=96)
         f_left_spacer.pack(side=tk.LEFT, fill=tk.Y)
         self.discovery_left_spacer = f_left_spacer
-        # 2px 테두리 양쪽을 제외한 실제 이미지 표시 영역은 80x80이다.
         f_left_img = tk.Frame(f_left_visuals, width=84, height=84, bg='#222222', relief='ridge', bd=2)
         f_left_img.pack_propagate(False)
         f_left_img.pack(side=tk.TOP)
@@ -2109,29 +1899,28 @@ class DiscoveryInfoModal(InfoModalBase):
         self.discovery_info_frame = f_right_info
         f_info1 = tk.Frame(f_right_info)
         f_info1.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
-        self.lbl_state = tk.Label(f_info1, text='', font=('Malgun Gothic', 9))
+        self.lbl_state = tk.Label(f_info1, text='', font=(APP_FONT_FAMILY, 9))
         self.lbl_state.pack(side=tk.LEFT, padx=(0, 14))
-        self.lbl_value = tk.Label(f_info1, text='', font=('Malgun Gothic', 9), fg='#B06000')
+        self.lbl_value = tk.Label(f_info1, text='', font=(APP_FONT_FAMILY, 9), fg='#B06000')
         self.lbl_value.pack(side=tk.LEFT, padx=(0, 14))
-        self.lbl_reward = tk.Label(f_info1, text='', font=('Malgun Gothic', 9), fg='#7B1FA2')
+        self.lbl_reward = tk.Label(f_info1, text='', font=(APP_FONT_FAMILY, 9), fg='#7B1FA2')
         self.f_info2 = tk.Frame(f_right_info)
         self.f_info2.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
-        self.lbl_dates = tk.Label(self.f_info2, text='', font=('Malgun Gothic', 9), fg='#5F6368')
+        self.lbl_dates = tk.Label(self.f_info2, text='', font=(APP_FONT_FAMILY, 9), fg='#5F6368')
         self.lbl_dates.pack(side=tk.LEFT)
-        tk.Label(f_right_info, text=ui('ui_0218'), font=('Malgun Gothic', 9)).pack(anchor='w', pady=(2, 2))
-        self.desc_box = tk.Text(f_right_info, font=('Malgun Gothic', 9), wrap='word', height=6, bg='#F8F9FA', relief='solid', bd=1, padx=8, pady=6)
+        tk.Label(f_right_info, text=ui('ui_0218'), font=(APP_FONT_FAMILY, 9)).pack(anchor='w', pady=(2, 2))
+        self.desc_box = tk.Text(f_right_info, font=(APP_FONT_FAMILY, 9), wrap='word', height=6, bg='#F8F9FA', relief='solid', bd=1, padx=8, pady=6)
         self.desc_box.pack(side=tk.TOP, fill=tk.X)
         self._update_disc_view(disc_info, disc_desc, current_state, disc_date, rep_date, discoverer)
         self.bind('<Destroy>', self._on_destroy, add='+')
         self.initialize_navigation()
+
     def _update_disc_view(self, disc_info, disc_desc, current_state, disc_date, rep_date, discoverer):
         self.disc_index = disc_info['index']
         self.title(ui('ui_0003', disc_info['name']))
-        self.lbl_title.config(text=f"[No. {disc_info['index']:03d} | ID {disc_info['disc_id']:03d}] {disc_info['name']} ({disc_info['category']})")
+        self.lbl_title.config(text=ui('ui_0588', disc_info['index'], disc_info['disc_id'], disc_info['name'], disc_info['category']))
         self._stop_video()
         video_path = get_discovery_video_path(self.disc_index)
-        # Toplevel이 화면에 배치되기 전에는 VLC가 독립 창으로 폴백할 수 있다.
-        # 먼저 정지 이미지를 보이고, idle 시점에 확정된 자식 HWND로 영상을 연결한다.
         self._video_request_id = getattr(self, '_video_request_id', 0) + 1
         request_id = self._video_request_id
         if video_path:
@@ -2148,13 +1937,8 @@ class DiscoveryInfoModal(InfoModalBase):
             if hint_id >= 0:
                 hint_state = self.get_hint_state_fn(hint_id) if self.get_hint_state_fn else 0
                 is_contract = bool(self.is_contract_discovery_fn and self.is_contract_discovery_fn(self.state_index))
-                is_acquired = bool(hint_state & 0x01)
-                self.btn_hint_toggle.config(
-                    text=ui('ui_0459') if is_contract else (ui('ui_0441') if is_acquired else ui('ui_0440')),
-                    bg='#FCE8E6' if (is_contract or is_acquired) else '#E6F4EA',
-                    fg='#D93025' if (is_contract or is_acquired) else '#137333',
-                    activebackground='#F8D7DA' if (is_contract or is_acquired) else '#C8E6C9',
-                    activeforeground='#D93025' if (is_contract or is_acquired) else '#137333')
+                is_acquired = bool(hint_state & 1)
+                self.btn_hint_toggle.config(text=ui('ui_0459') if is_contract else ui('ui_0441') if is_acquired else ui('ui_0440'), bg='#FCE8E6' if is_contract or is_acquired else '#E6F4EA', fg='#D93025' if is_contract or is_acquired else '#137333', activebackground='#F8D7DA' if is_contract or is_acquired else '#C8E6C9', activeforeground='#D93025' if is_contract or is_acquired else '#137333')
                 if not self.btn_hint_toggle.winfo_manager():
                     self.btn_hint_toggle.pack(side=tk.LEFT, padx=3)
             else:
@@ -2177,7 +1961,6 @@ class DiscoveryInfoModal(InfoModalBase):
         else:
             self.lbl_reward.pack_forget()
             self.reward_img_frame.pack_forget()
-        # 이미지가 없어도 빈 80x80 영역을 유지하여 설명 영역 폭이 바뀌지 않게 한다.
         if not self.discovery_left_spacer.winfo_manager():
             self.discovery_left_spacer.pack(side=tk.LEFT, fill=tk.Y, before=self.discovery_info_frame)
         self.discovery_visuals.place(x=14, y=42)
@@ -2193,7 +1976,7 @@ class DiscoveryInfoModal(InfoModalBase):
         self.desc_box.insert('1.0', desc_text)
         self.desc_box.config(state='disabled')
         total = len(self.items_list)
-        self.lbl_page.config(text=f'{self.current_list_index + 1} / {total}')
+        self.lbl_page.config(text=ui('ui_0587', self.current_list_index + 1, total))
         self.btn_prev.config(state='normal' if self.current_list_index > 0 else 'disabled')
         self.btn_next.config(state='normal' if self.current_list_index < total - 1 else 'disabled')
 
@@ -2219,18 +2002,16 @@ class DiscoveryInfoModal(InfoModalBase):
                     self.discovery_img_frame.pack(side=tk.TOP, before=self.reward_img_frame)
                 else:
                     self.discovery_img_frame.pack(side=tk.TOP)
-        else:
-            if not self.discovery_img_frame.winfo_manager():
-                if self.reward_img_frame.winfo_manager():
-                    self.discovery_img_frame.pack(side=tk.TOP, before=self.reward_img_frame)
-                else:
-                    self.discovery_img_frame.pack(side=tk.TOP)
+        elif not self.discovery_img_frame.winfo_manager():
+            if self.reward_img_frame.winfo_manager():
+                self.discovery_img_frame.pack(side=tk.TOP, before=self.reward_img_frame)
+            else:
+                self.discovery_img_frame.pack(side=tk.TOP)
 
     def _start_video_after_layout(self, video_path, request_id, attempt=0):
         """표시 영역의 HWND가 화면에 배치된 뒤에만 VLC 재생을 시작한다."""
         if request_id != self._video_request_id or not self.winfo_exists():
             return
-        # Toplevel의 첫 화면 배치는 idle 콜백보다 늦을 수 있다.
         if not self.video_frame.winfo_ismapped() and attempt < 10:
             self.after(50, lambda: self._start_video_after_layout(video_path, request_id, attempt + 1))
             return
@@ -2243,6 +2024,9 @@ class DiscoveryInfoModal(InfoModalBase):
         if not runtime_dir:
             return False
         try:
+            # XP has no os.add_dll_directory().  Its loader therefore needs
+            # the libvlc directory at the front of PATH to find libvlccore.
+            os.environ['PATH'] = runtime_dir + os.pathsep + os.environ.get('PATH', '')
             if hasattr(os, 'add_dll_directory'):
                 self._vlc_dll_dir = os.add_dll_directory(runtime_dir)
             os.environ['VLC_PLUGIN_PATH'] = os.path.join(runtime_dir, 'plugins')
@@ -2250,10 +2034,9 @@ class DiscoveryInfoModal(InfoModalBase):
                 os.environ['PYTHON_VLC_LIB_PATH'] = os.path.join(runtime_dir, 'libvlc.dll')
                 import vlc as vlc_module
                 vlc = vlc_module
-            # vmem 출력은 VLC 창을 만들지 않고, 프레임을 Tk PhotoImage로 전달한다.
             self.vlc_instance = vlc.Instance('--vout=vmem', '--avcodec-hw=none', '--no-video-title-show', '--quiet', '--no-audio', '--input-repeat=-1')
             self.vlc_player = self.vlc_instance.media_player_new()
-            width, height = _dpi_px(80), _dpi_px(60)
+            width, height = (_dpi_px(80), _dpi_px(60))
             pitch = width * 4
             self._video_buffer = (ctypes.c_ubyte * (height * pitch))()
             lock_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))
@@ -2285,12 +2068,12 @@ class DiscoveryInfoModal(InfoModalBase):
         if self._video_frame_ready and self._video_buffer is not None:
             self._video_frame_ready = False
             source = bytes(self._video_buffer)
-            width, height = self._video_photo.width(), self._video_photo.height()
+            width, height = (self._video_photo.width(), self._video_photo.height())
             rgb = bytearray(width * height * 3)
             rgb[0::3] = source[2::4]
             rgb[1::3] = source[1::4]
             rgb[2::3] = source[0::4]
-            header = f'P6\n{width} {height}\n255\n'.encode('ascii')
+            header = 'P6\n{0} {1}\n255\n'.format(width, height).encode('ascii')
             self._video_photo.configure(data=header + bytes(rgb), format='PPM')
         self._video_render_job = self.after(33, self._render_video_frame)
 
@@ -2323,7 +2106,7 @@ class DiscoveryInfoModal(InfoModalBase):
 
     def _restart_video(self):
         """종료 상태가 해제된 뒤 미디어를 다시 설정해 반복 재생한다."""
-        if self.vlc_player is None or self.vlc_instance is None or not self._video_path or not self.winfo_exists():
+        if self.vlc_player is None or self.vlc_instance is None or (not self._video_path) or (not self.winfo_exists()):
             return
         try:
             self.vlc_player.set_media(self.vlc_instance.media_new(self._video_path))
@@ -2346,6 +2129,7 @@ class DiscoveryInfoModal(InfoModalBase):
                 self._update_disc_view(d_info, d_desc, st, d_d, r_d, d_name)
             if self.on_navigate_callback:
                 self.on_navigate_callback(idx)
+
     def _go_next(self):
         if self.current_list_index < len(self.items_list) - 1:
             self.current_list_index += 1
@@ -2356,6 +2140,7 @@ class DiscoveryInfoModal(InfoModalBase):
                 self._update_disc_view(d_info, d_desc, st, d_d, r_d, d_name)
             if self.on_navigate_callback:
                 self.on_navigate_callback(idx)
+
     def _do_change(self, target_st):
         if self.on_state_change_callback:
             self.on_state_change_callback(self.state_index, target_st)
@@ -2372,9 +2157,10 @@ class DiscoveryInfoModal(InfoModalBase):
         if self.get_disc_info_fn:
             d_info, d_desc, st, d_d, r_d, d_name = self.get_disc_info_fn(self.state_index)
             self._update_disc_view(d_info, d_desc, st, d_d, r_d, d_name)
+
 class FleetVideoPreview(tk.Frame):
     """VLC vmem 출력으로 별도 창 없이 함선 영상을 Tk 안에서 재생한다."""
-    WIDTH, HEIGHT = 80, 60
+    WIDTH, HEIGHT = (80, 60)
 
     def __init__(self, parent, frame_height=None):
         height = frame_height if frame_height is not None else self.HEIGHT + 4
@@ -2382,7 +2168,7 @@ class FleetVideoPreview(tk.Frame):
         self.display_width = _dpi_px(self.WIDTH)
         self.display_height = _dpi_px(self.HEIGHT)
         self.pack_propagate(False)
-        self.label = tk.Label(self, bg='#222222', text=ui('ui_0113'), fg='#888888', font=('Malgun Gothic', 9))
+        self.label = tk.Label(self, bg='#222222', text=ui('ui_0113'), fg='#888888', font=(APP_FONT_FAMILY, 9))
         self.label.pack(fill=tk.BOTH, expand=True)
         self.vlc_instance = self.vlc_player = None
         self._video_path = self._video_buffer = self._video_photo = None
@@ -2430,6 +2216,8 @@ class FleetVideoPreview(tk.Frame):
             self.label.config(image='', text=ui('ui_0113'))
             return
         try:
+            # See DiscoveryDetailPopup._play_video: required by the XP loader.
+            os.environ['PATH'] = runtime_dir + os.pathsep + os.environ.get('PATH', '')
             if hasattr(os, 'add_dll_directory'):
                 self._vlc_dll_dir = os.add_dll_directory(runtime_dir)
             os.environ['VLC_PLUGIN_PATH'] = os.path.join(runtime_dir, 'plugins')
@@ -2495,13 +2283,13 @@ class FleetVideoPreview(tk.Frame):
             self._video_frame_ready = False
             source = bytes(self._video_buffer)
             rgb = bytearray(self.display_width * self.display_height * 3)
-            rgb[0::3], rgb[1::3], rgb[2::3] = source[2::4], source[1::4], source[0::4]
-            header = f'P6\n{self.display_width} {self.display_height}\n255\n'.encode('ascii')
+            rgb[0::3], rgb[1::3], rgb[2::3] = (source[2::4], source[1::4], source[0::4])
+            header = 'P6\n{0} {1}\n255\n'.format(self.display_width, self.display_height).encode('ascii')
             self._video_photo.configure(data=header + bytes(rgb), format='PPM')
         self._render_job = self.after(33, self._render)
 
     def _restart(self):
-        if self.vlc_player is None or self.vlc_instance is None or not self._video_path or not self.winfo_exists():
+        if self.vlc_player is None or self.vlc_instance is None or (not self._video_path) or (not self.winfo_exists()):
             return
         try:
             self.vlc_player.set_media(self.vlc_instance.media_new(self._video_path))
@@ -2542,33 +2330,145 @@ class FleetVideoPreview(tk.Frame):
         self.stop()
         super().destroy()
 
+def get_cached_photo_sized(img_p, width, height):
+    """이미지를 지정한 논리 크기로 축소해 반환한다."""
+    pixel_width, pixel_height = (_dpi_px(width), _dpi_px(height))
+    cache_key = (img_p, 'sized', pixel_width, pixel_height)
+    if cache_key not in _PHOTO_CACHE:
+        try:
+            if Image is None or ImageTk is None:
+                source = tk.PhotoImage(file=img_p)
+                x_ratio = max(1, round(source.width() / pixel_width))
+                y_ratio = max(1, round(source.height() / pixel_height))
+                photo = source.subsample(x_ratio, y_ratio)
+            else:
+                with Image.open(img_p) as source:
+                    scaled = source.convert('RGBA').resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(scaled)
+            _PHOTO_CACHE[cache_key] = photo
+        except Exception:
+            return None
+    return _PHOTO_CACHE[cache_key]
+
+class UpwardCombobox(ttk.Combobox):
+    """셀 안에 배치할 수 있는 위로 펼쳐지는 읽기 전용 선택 목록."""
+
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self._popup = None
+        for sequence in ('<Button-1>', '<space>', '<Return>', '<Up>', '<Down>', '<Alt-Up>', '<Alt-Down>', '<F4>'):
+            self.bind(sequence, self._open_list)
+        self.bind('<Unmap>', self.close_list, add='+')
+        self.bind('<Destroy>', self.close_list, add='+')
+
+    def close_list(self, _event=None):
+        popup, self._popup = (self._popup, None)
+        if popup is not None:
+            try:
+                popup.grab_release()
+                popup.destroy()
+            except tk.TclError:
+                pass
+        return 'break'
+
+    def _open_list(self, _event=None):
+        if self.instate(('disabled',)):
+            return 'break'
+        if self._popup is not None:
+            return self.close_list()
+        values = self.cget('values')
+        if not values:
+            return 'break'
+        self.focus_set()
+        popup = self._popup = tk.Toplevel(self)
+        popup.withdraw()
+        popup.overrideredirect(True)
+        popup.transient(self.winfo_toplevel())
+        body = ttk.Frame(popup, relief='solid', borderwidth=1)
+        body.pack(fill=tk.BOTH, expand=True)
+        listing = tk.Listbox(body, height=min(8, len(values)), exportselection=False, activestyle='dotbox', font=self.cget('font'), borderwidth=0)
+        scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+        listing.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        listing.insert(tk.END, *values)
+        index = self.current()
+        if index >= 0:
+            listing.selection_set(index)
+            listing.activate(index)
+            listing.see(index)
+
+        def choose(event=None):
+            if event is not None and str(event.type) == '5':
+                index = listing.nearest(event.y)
+                bounds = listing.bbox(index)
+                if not bounds or not bounds[1] <= event.y < bounds[1] + bounds[3]:
+                    return 'break'
+                listing.selection_clear(0, tk.END)
+                listing.selection_set(index)
+            selection = listing.curselection()
+            if selection:
+                self.current(selection[0])
+                self.close_list()
+                self.focus_force()
+                self.event_generate('<<ComboboxSelected>>')
+            return 'break'
+
+        def outside_click(event):
+            if not (popup.winfo_rootx() <= event.x_root < popup.winfo_rootx() + popup.winfo_width() and popup.winfo_rooty() <= event.y_root < popup.winfo_rooty() + popup.winfo_height()):
+                return self.close_list()
+
+        def focus_left(_event):
+
+            def check():
+                if self._popup is popup:
+                    focus = popup.focus_displayof()
+                    if focus is None or focus.winfo_toplevel() != popup:
+                        self.close_list()
+            self.after_idle(check)
+        listing.bind('<ButtonRelease-1>', choose)
+        listing.bind('<Return>', choose)
+        listing.bind('<MouseWheel>', lambda event: (listing.yview_scroll(-1 if event.delta > 0 else 1, 'units'), 'break')[1])
+        popup.bind('<ButtonPress-1>', outside_click)
+        popup.bind('<Escape>', self.close_list)
+        popup.bind('<Tab>', self.close_list)
+        popup.bind('<FocusOut>', focus_left)
+        popup.update_idletasks()
+        available = max(1, self.winfo_rooty() - self.winfo_vrooty())
+        height = min(popup.winfo_reqheight(), available)
+        width = max(self.winfo_width(), _dpi_px(120))
+        x = max(self.winfo_vrootx(), min(self.winfo_rootx(), self.winfo_vrootx() + self.winfo_vrootwidth() - width))
+        popup.geometry('{0}x{1}+{2}+{3}'.format(width, height, x, self.winfo_rooty() - height))
+        popup.deiconify()
+        popup.lift()
+        popup.grab_set()
+        listing.focus_set()
+        return 'break'
 
 class CDS3SaveEditorApp:
-    # ***<module>.CDS3SaveEditorApp: Failure: Different bytecode
     """CDS3SaveEditorApp"""
+
     def __init__(self, root):
         self.root = root
         global _dpi_layout_scale
         self.dpi_scale = get_windows_dpi_scale()
         _dpi_layout_scale = self.dpi_scale
-        # 명시적으로 폰트를 지정하지 않은 기본 Tk 위젯도 9pt 일반체로 통일한다.
-        self.root.option_add('*Font', ('Malgun Gothic', 9))
+        self.root.option_add('*Font', (APP_FONT_FAMILY, 9))
         self.root.title(APP_TITLE)
-        desired_width = _dpi_px(950)
-        desired_height = _dpi_px(640)
+        desired_width = _dpi_px(980)
+        desired_height = _dpi_px(670)
         work_width, work_height = get_windows_work_area_size()
         window_width = min(desired_width, work_width) if work_width else desired_width
         window_height = min(desired_height, work_height) if work_height else desired_height
         x = max(0, (self.root.winfo_screenwidth() - window_width) // 2)
         y = max(0, (self.root.winfo_screenheight() - window_height) // 2)
-        self.root.geometry(f'{window_width}x{window_height}+{x}+{y}')
-        # 기본 크기는 유지하되 사용자가 창 크기를 조절할 수 있게 한다.
+        self.root.geometry('{0}x{1}+{2}+{3}'.format(window_width, window_height, x, y))
         self.root.resizable(True, True)
         self.root.minsize(window_width, window_height)
         possible_icons = []
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-                possible_icons.append(os.path.join(sys._MEIPASS, 'Icon.ico'))
-                possible_icons.append(os.path.join(sys._MEIPASS, 'CDS3SaveEditor', 'Icon.ico'))
+            possible_icons.append(os.path.join(sys._MEIPASS, 'Icon.ico'))
+            possible_icons.append(os.path.join(sys._MEIPASS, 'CDS3SaveEditor', 'Icon.ico'))
         exe_dir = os.path.dirname(os.path.abspath(sys.executable))
         possible_icons.append(os.path.join(exe_dir, 'CDS3SaveEditor', 'Icon.ico'))
         possible_icons.append(os.path.join(exe_dir, 'Icon.ico'))
@@ -2587,17 +2487,10 @@ class CDS3SaveEditorApp:
         self.item_db = load_item_database()
         self.discovery_db = load_discovery_database()
         self.event_db = load_event_database()
-        # 검색 때마다 모든 항목의 이름을 소문자 변환하지 않도록, 변하지 않는 검색용 문자열을 미리 만든다.
         self._item_search_index = [(item, item['name'].casefold()) for item in self.item_db]
-        self._discovery_search_index = [
-            (index, discovery, f"{discovery['name']}\n{discovery['category']}".casefold())
-            for index, discovery in enumerate(self.discovery_db)
-        ]
-        self._character_search_index = [
-            (int(character['id']), character.get('name') or UI_EMPTY_VALUE,
-             (character.get('name') or UI_EMPTY_VALUE).casefold())
-            for character in CHARACTER_DATA['records']
-        ]
+        self._discovery_search_index = [(index, discovery, '{0}\n{1}'.format(discovery['name'], discovery['category']).casefold()) for index, discovery in enumerate(self.discovery_db)]
+        self._character_search_index = [(int(character['id']), character.get('name') or UI_EMPTY_VALUE, (character.get('name') or UI_EMPTY_VALUE).casefold()) for character in CHARACTER_DATA['records']]
+
         def on_combobox_arrow(event, delta):
             try:
                 w = event.widget
@@ -2613,7 +2506,7 @@ class CDS3SaveEditorApp:
             except Exception:
                 return None
         self.root.bind_class('TCombobox', '<Down>', lambda e: on_combobox_arrow(e, 1))
-        self.root.bind_class('TCombobox', '<Up>', lambda e: on_combobox_arrow(e, (-1)))
+        self.root.bind_class('TCombobox', '<Up>', lambda e: on_combobox_arrow(e, -1))
         self.root.bind_class('TCombobox', '<MouseWheel>', lambda e: 'break')
         self.root.bind_class('Combobox', '<MouseWheel>', lambda e: 'break')
 
@@ -2629,7 +2522,7 @@ class CDS3SaveEditorApp:
                     current = items.index(selection[0])
                 else:
                     focused = tree.focus()
-                    current = items.index(focused) if focused in items else (0 if delta > 0 else len(items) - 1)
+                    current = items.index(focused) if focused in items else 0 if delta > 0 else len(items) - 1
                 target = items[max(0, min(len(items) - 1, current + delta))]
                 tree.selection_set(target)
                 tree.focus(target)
@@ -2647,6 +2540,7 @@ class CDS3SaveEditorApp:
             try:
                 if str(widget.cget('state')) != 'normal':
                     return
+
                 def clear_after_idle():
                     try:
                         widget.selection_clear()
@@ -2660,16 +2554,11 @@ class CDS3SaveEditorApp:
         self.root.bind_class('TCombobox', '<<ComboboxSelected>>', clear_editable_combo_selection, add='+')
         self.file_path = None
         self.file_buffer = None
-        # 세이브를 연 폴더에서 검증한 CDS_95.EXE의 후원자 취향 원본값.
-        # 게임 EXE를 찾지 못한 경우에는 기존 추출 JSON 값을 역변환해 표시한다.
         self._sponsor_exe_preference_flags = {}
         self._sponsor_contract_hint_resets = {}
         self.fleet_original_buffer = None
         self.city_original_buffer = None
         self.person_original_buffer = None
-        # 인물 통합 화면은 편집 중인 file_buffer와 분리된 마지막 저장/로드 시점의
-        # 스냅샷만 표시한다. 역할을 목록에서 지정해도 이 값은 저장 완료 전까지
-        # 바뀌지 않는다.
         self.person_display_buffer = None
         self.pocket_ids = []
         self.storage_ids = []
@@ -2690,14 +2579,13 @@ class CDS3SaveEditorApp:
         self._update_notice = self._consume_update_notice()
         self.theme_names = tuple(ttk.Style(self.root).theme_names())
         default_theme = self.theme_names[0] if self.theme_names else 'clam'
-        self.theme_var = tk.StringVar(
-            value=load_saved_theme('save_editor_theme', self.theme_names) or default_theme
-        )
+        self.theme_var = tk.StringVar(value=load_saved_theme('save_editor_theme', self.theme_names) or default_theme)
         self.setup_styles()
         self.create_widgets()
         self._enable_tree_zebra()
         self._enable_tree_auto_scrollbars()
         self._enable_tree_sorting()
+        self._enable_tree_column_stretch()
         self.apply_hardware_acceleration()
         self.refresh_stats_table()
         self.refresh_money_table()
@@ -2712,8 +2600,6 @@ class CDS3SaveEditorApp:
         self.root.protocol('WM_DELETE_WINDOW', self.on_close)
         if self._update_notice is not None:
             self.root.after(400, self._show_update_notice)
-        # 개발용 .pyw 실행에서는 네트워크 확인을 생략하고, 배포 EXE에서만 시작 시
-        # 최신 릴리즈를 조용히 확인한다. 새 버전이 있을 때만 버튼을 표시한다.
         if getattr(sys, 'frozen', False):
             self.root.after(1500, lambda: self.check_for_updates(automatic=True))
 
@@ -2722,8 +2608,6 @@ class CDS3SaveEditorApp:
         if self._is_closing:
             return
         self._is_closing = True
-        # libVLC의 stop/release는 드물게 디코더 스레드를 기다리며 멈춘다.
-        # mainloop만 끝내고 __main__의 즉시 종료 경로에 맡긴다.
         self.root.quit()
 
     @staticmethod
@@ -2731,16 +2615,12 @@ class CDS3SaveEditorApp:
         """Release 자산에서 해당 버전의 ZIP 배포 파일을 찾는다."""
         assets = release.get('assets', []) if isinstance(release, dict) else []
         release_version = str(release.get('tag_name', '')).strip().lstrip('vV')
-        configured_asset_name = (UPDATE_ASSET_NAME.format(version=release_version)
-                                 if release_version and '{version}' in UPDATE_ASSET_NAME
-                                 else UPDATE_ASSET_NAME)
-        versioned_asset_name = (f'CDS_SaveEditor_v{release_version}.zip'
-                                if release_version else '')
+        configured_asset_name = UPDATE_ASSET_NAME.format(version=release_version) if release_version and '{version}' in UPDATE_ASSET_NAME else UPDATE_ASSET_NAME
+        versioned_asset_name = 'CDS_SaveEditor_v{0}.zip'.format(release_version) if release_version else ''
         for asset in assets:
             if asset.get('name') in (configured_asset_name, versioned_asset_name):
                 return asset
-        return next((asset for asset in assets
-                     if str(asset.get('name', '')).lower().endswith('.zip')), None)
+        return next((asset for asset in assets if str(asset.get('name', '')).lower().endswith('.zip')), None)
 
     @staticmethod
     def _extract_update_executable(archive_path):
@@ -2748,9 +2628,7 @@ class CDS3SaveEditorApp:
         extract_directory = tempfile.mkdtemp(prefix='CDS_SaveEditor_update_')
         try:
             with zipfile.ZipFile(archive_path) as archive:
-                candidates = [info for info in archive.infolist()
-                              if not info.is_dir()
-                              and os.path.basename(info.filename).lower() == UPDATE_EXECUTABLE_NAME.lower()]
+                candidates = [info for info in archive.infolist() if not info.is_dir() and os.path.basename(info.filename).lower() == UPDATE_EXECUTABLE_NAME.lower()]
                 if len(candidates) != 1:
                     raise ValueError(ui('ui_0482'))
                 info = candidates[0]
@@ -2784,7 +2662,7 @@ class CDS3SaveEditorApp:
         try:
             with open(notice_path, 'r', encoding='utf-8') as notice_file:
                 notice = json.load(notice_file)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, JSON_DECODE_ERROR):
             return None
         finally:
             try:
@@ -2797,7 +2675,7 @@ class CDS3SaveEditorApp:
         version = str(notice.get('version', '')).strip()
         if parse_release_version(version) != parse_release_version(APP_VERSION):
             return None
-        return version, str(notice.get('notes', '')).strip()
+        return (version, str(notice.get('notes', '')).strip())
 
     @staticmethod
     def _format_update_history(releases):
@@ -2813,32 +2691,25 @@ class CDS3SaveEditorApp:
             notes = str(release.get('body', '')).strip() or ui('ui_0452')
             history.append((version, tag, notes))
         history.sort(key=lambda entry: entry[0], reverse=True)
-        return '\n\n'.join(f'v{tag}\n{notes}' for _version, tag, notes in history)
+        return UI_SECTION_SEPARATOR.join((ui('ui_0597', tag, notes) for _version, tag, notes in history))
 
     def _show_update_history_dialog(self, updated_version, history_text):
         """업데이트 완료 후 전체 릴리즈 이력을 스크롤 가능한 창으로 표시한다."""
-        # 자동 업데이트 직후에는 메인 창이 아직 최초 배치를 끝내지 않았을 수 있다.
-        # 좌표를 읽기 전에 레이아웃을 확정해야 팝업이 에디터 중앙에 배치된다.
         self.root.update_idletasks()
         dialog = tk.Toplevel(self.root)
         dialog.title(APP_TITLE)
         dialog.transient(self.root)
         dialog.resizable(True, True)
-        width, height = 620, 460
-        # geometry() 좌표계는 winfo_rootx/y()가 아니라 창 외곽의 winfo_x/y()와
-        # 같은 기준이다. 후자를 써야 Windows 제목 표시줄/테두리만큼 치우치지 않는다.
+        width, height = (620, 460)
         x = self.root.winfo_x() + max(0, (self.root.winfo_width() - width) // 2)
         y = self.root.winfo_y() + max(0, (self.root.winfo_height() - height) // 2)
-        dialog.geometry(f'{width}x{height}+{x}+{y}')
+        dialog.geometry('{0}x{1}+{2}+{3}'.format(width, height, x, y))
         dialog.minsize(440, 260)
-
-        tk.Label(dialog, text=ui('ui_0510', updated_version), font=('Malgun Gothic', 10, 'bold')).pack(
-            anchor='w', padx=12, pady=(12, 6))
+        tk.Label(dialog, text=ui('ui_0510', updated_version), font=(APP_FONT_FAMILY, 10, 'bold')).pack(anchor='w', padx=12, pady=(12, 6))
         body = tk.Frame(dialog)
         body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
         scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL)
-        text = tk.Text(body, wrap=tk.WORD, font=('Malgun Gothic', 9), yscrollcommand=scrollbar.set,
-                       padx=8, pady=7, relief=tk.SOLID, borderwidth=1)
+        text = tk.Text(body, wrap=tk.WORD, font=(APP_FONT_FAMILY, 9), yscrollcommand=scrollbar.set, padx=8, pady=7, relief=tk.SOLID, borderwidth=1)
         scrollbar.config(command=text.yview)
         text.insert('1.0', history_text or ui('ui_0452'))
         text.configure(state=tk.DISABLED)
@@ -2860,22 +2731,18 @@ class CDS3SaveEditorApp:
         def worker():
             history_text = ''
             try:
-                request = Request(UPDATE_RELEASES_URL, headers={
-                    'Accept': 'application/vnd.github+json',
-                    'User-Agent': f'CDS-SaveEditor/{APP_VERSION}',
-                })
+                request = Request(UPDATE_RELEASES_URL, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'CDS-SaveEditor/{0}'.format(APP_VERSION)})
                 with urlopen(request, timeout=8) as response:
                     releases = json.loads(response.read().decode('utf-8'))
                 if not isinstance(releases, list):
-                    raise ValueError('Invalid release history response')
+                    raise ValueError(ui('ui_0639'))
                 history_text = self._format_update_history(releases)
-            except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
-                history_text = f'v{version}\n{notes or ui("ui_0452")}'
+            except (HTTPError, URLError, TimeoutError, OSError, ValueError, JSON_DECODE_ERROR):
+                history_text = ui('ui_0597', version, notes or ui('ui_0452'))
             try:
                 self.root.after(0, lambda: self._show_update_history_dialog(version, history_text))
             except tk.TclError:
                 pass
-
         threading.Thread(target=worker, name='update-history', daemon=True).start()
 
     def _set_update_button_state(self, state):
@@ -2897,7 +2764,7 @@ class CDS3SaveEditorApp:
 
     def check_for_updates(self, automatic=False):
         """GitHub의 최신 정식 Release를 백그라운드에서 조회한다."""
-        if self._update_check_in_progress or self._update_download_in_progress or not UPDATE_LATEST_URL:
+        if self._update_check_in_progress or self._update_download_in_progress or (not UPDATE_LATEST_URL):
             return
         self._update_check_in_progress = True
         self._set_update_button_state(tk.DISABLED)
@@ -2906,19 +2773,15 @@ class CDS3SaveEditorApp:
 
         def worker():
             try:
-                request = Request(UPDATE_LATEST_URL, headers={
-                    'Accept': 'application/vnd.github+json',
-                    'User-Agent': f'CDS-SaveEditor/{APP_VERSION}',
-                })
+                request = Request(UPDATE_LATEST_URL, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'CDS-SaveEditor/{0}'.format(APP_VERSION)})
                 with urlopen(request, timeout=8) as response:
                     release = json.loads(response.read().decode('utf-8'))
                 self.root.after(0, lambda: self._handle_update_release(release, automatic))
-            except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+            except (HTTPError, URLError, TimeoutError, OSError, JSON_DECODE_ERROR) as error:
                 try:
                     self.root.after(0, lambda: self._handle_update_error(error, automatic))
                 except tk.TclError:
                     pass
-
         threading.Thread(target=worker, name='update-check', daemon=True).start()
 
     def _handle_update_error(self, error, automatic):
@@ -2946,8 +2809,6 @@ class CDS3SaveEditorApp:
                 messagebox.showwarning(APP_TITLE, ui('ui_0426'))
             return
         if automatic:
-            # 시작 시에는 확인 창을 띄우지 않는다. 새 버전이 있을 때만 사용자가
-            # 원할 때 다시 확인·설치를 진행할 수 있도록 버튼을 보여 준다.
             self._show_update_button(True)
             return
         if messagebox.askyesno(APP_TITLE, ui('ui_0420', remote_tag.lstrip('vV'), APP_VERSION)):
@@ -2972,13 +2833,10 @@ class CDS3SaveEditorApp:
             download_path = None
             try:
                 asset_name = os.path.basename(str(asset.get('name', UPDATE_ASSET_NAME))) or UPDATE_ASSET_NAME
-                partial_path = os.path.join(tempfile.gettempdir(), f'{asset_name}.{os.getpid()}.part')
+                partial_path = os.path.join(tempfile.gettempdir(), '{0}.{1}.part'.format(asset_name, os.getpid()))
                 download_path = partial_path[:-5]
                 digest = hashlib.sha256()
-                request = Request(str(asset['browser_download_url']), headers={
-                    'Accept': 'application/octet-stream',
-                    'User-Agent': f'CDS-SaveEditor/{APP_VERSION}',
-                })
+                request = Request(str(asset['browser_download_url']), headers={'Accept': 'application/octet-stream', 'User-Agent': 'CDS-SaveEditor/{0}'.format(APP_VERSION)})
                 with urlopen(request, timeout=30) as response, open(partial_path, 'wb') as output:
                     while True:
                         chunk = response.read(1024 * 1024)
@@ -3008,7 +2866,6 @@ class CDS3SaveEditorApp:
                     self.root.after(0, lambda: self._handle_update_download_error(error))
                 except tk.TclError:
                     pass
-
         threading.Thread(target=worker, name='update-download', daemon=True).start()
 
     def _handle_update_download_error(self, error):
@@ -3020,42 +2877,15 @@ class CDS3SaveEditorApp:
     def _launch_update_replacer(self, download_path, release):
         """현재 EXE가 끝난 뒤 파일을 바꾸고 새 버전을 시작하는 작은 배치 파일을 실행한다."""
         target_path = os.path.abspath(sys.executable)
-        script_path = os.path.join(tempfile.gettempdir(), f'CDS_SaveEditor_update_{os.getpid()}.cmd')
-        notice_path = os.path.join(tempfile.gettempdir(), f'CDS_SaveEditor_update_notice_{os.getpid()}.json')
+        script_path = os.path.join(tempfile.gettempdir(), 'CDS_SaveEditor_update_{0}.cmd'.format(os.getpid()))
+        notice_path = os.path.join(tempfile.gettempdir(), 'CDS_SaveEditor_update_notice_{0}.json'.format(os.getpid()))
         try:
-            # 새 EXE는 이 일회용 파일을 읽어 업데이트 직후에만 릴리즈 노트를 표시한다.
             with open(notice_path, 'w', encoding='utf-8') as notice_file:
-                json.dump({
-                    'version': str(release.get('tag_name', '')).lstrip('vV'),
-                    'notes': str(release.get('body', '')).strip(),
-                }, notice_file, ensure_ascii=False)
-            # PID를 폴링하면 PID가 재사용된 경우 영구 대기할 수 있다. 현재 EXE의
-            # 파일 잠금이 풀릴 때까지 실제 교체를 재시도하는 편이 안전하다.
-            script = '\r\n'.join((
-                '@echo off',
-                'setlocal',
-                f'set "UPDATE_SOURCE={download_path}"',
-                f'set "UPDATE_TARGET={target_path}"',
-                f'set "UPDATE_NOTICE={notice_path}"',
-                f'set "UPDATE_DIRECTORY={os.path.dirname(download_path)}"',
-                ':replace_editor',
-                'move /Y "%UPDATE_SOURCE%" "%UPDATE_TARGET%" >nul 2>nul',
-                'if errorlevel 1 (',
-                '  timeout /t 1 /nobreak >nul',
-                '  goto replace_editor',
-                ')',
-                # PyInstaller 6.9+에서는 부모 EXE의 _PYI_* 환경을 상속한 재시작을
-                # 작업자 프로세스로 처리한다. 업데이트 후 새 EXE는 기존 one-file
-                # 인스턴스보다 오래 살아야 하므로 독립 인스턴스로 초기화해야 한다.
-                'set "PYINSTALLER_RESET_ENVIRONMENT=1"',
-                'start "" "%UPDATE_TARGET%" --update-notice "%UPDATE_NOTICE%"',
-                'rmdir "%UPDATE_DIRECTORY%" 2>nul',
-                'del "%~f0"',
-            ))
+                json.dump({'version': str(release.get('tag_name', '')).lstrip('vV'), 'notes': str(release.get('body', '')).strip()}, notice_file, ensure_ascii=False)
+            script = '\r\n'.join(('@echo off', 'setlocal', 'set "UPDATE_SOURCE={0}"'.format(download_path), 'set "UPDATE_TARGET={0}"'.format(target_path), 'set "UPDATE_NOTICE={0}"'.format(notice_path), 'set "UPDATE_DIRECTORY={0}"'.format(os.path.dirname(download_path)), ':replace_editor', 'move /Y "%UPDATE_SOURCE%" "%UPDATE_TARGET%" >nul 2>nul', 'if errorlevel 1 (', '  timeout /t 1 /nobreak >nul', '  goto replace_editor', ')', 'set "PYINSTALLER_RESET_ENVIRONMENT=1"', 'start "" "%UPDATE_TARGET%" --update-notice "%UPDATE_NOTICE%"', 'rmdir "%UPDATE_DIRECTORY%" 2>nul', 'del "%~f0"'))
             with open(script_path, 'w', encoding='mbcs', newline='') as script_file:
                 script_file.write(script)
-            creationflags = (getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) |
-                             getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            creationflags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             subprocess.Popen(['cmd.exe', '/d', '/c', script_path], close_fds=True, creationflags=creationflags)
         except (OSError, ValueError) as error:
             self._handle_update_download_error(error)
@@ -3064,17 +2894,16 @@ class CDS3SaveEditorApp:
         self.root.after(100, self.on_close)
 
     def setup_styles(self, theme_name=None):
-        # ***<module>.CDS3SaveEditorApp.setup_styles: Failure: Different bytecode
         style = ttk.Style()
         requested = theme_name or self.theme_var.get()
         if requested not in style.theme_names():
             requested = self.theme_names[0] if self.theme_names else 'clam'
         style.theme_use(requested)
         self.theme_var.set(requested)
-        style.configure('.', font=('Malgun Gothic', 9))
-        style.configure('TNotebook.Tab', padding=_dpi_px((10, 4)), font=('Malgun Gothic', 9))
-        style.configure('Treeview.Heading', padding=_dpi_px((4, 3)), font=('Malgun Gothic', 9, 'bold'))
-        style.configure('Treeview', rowheight=_dpi_px(22), font=('Malgun Gothic', 9))
+        style.configure('.', font=(APP_FONT_FAMILY, 9))
+        style.configure('TNotebook.Tab', padding=_dpi_px((10, 4)), font=(APP_FONT_FAMILY, 9))
+        style.configure('Treeview.Heading', padding=_dpi_px((4, 3)), font=(APP_FONT_FAMILY, 9, 'bold'))
+        style.configure('Treeview', rowheight=_dpi_px(22), font=(APP_FONT_FAMILY, 9))
 
     def _change_theme(self, _event=None):
         """상단 콤보박스에서 고른 Tk 테마를 즉시 다시 적용한다."""
@@ -3087,20 +2916,23 @@ class CDS3SaveEditorApp:
 
     def _schedule_treeview_autofit(self, *trees):
         """목록 갱신 직후 실제 배치 폭을 기준으로 열 너비를 다시 계산한다."""
+        # XP용 Python 3.4에서는 모든 셀의 글자 폭을 재는 작업이 매우 느려
+        # 첫 클릭 때 UI가 수 초 멈춘다. 이 빌드는 Treeview의 stretch 옵션으로
+        # 폭을 조절하므로, 비용이 큰 내용 기반 자동 맞춤은 사용하지 않는다.
+        if sys.version_info[:2] <= (3, 4):
+            return
         if getattr(self, '_suspend_tree_autofit', False):
             pending = getattr(self, '_pending_tree_autofit', None)
             if pending is None:
                 pending = set()
                 self._pending_tree_autofit = pending
-            pending.update(tree for tree in trees if tree is not None and tree.winfo_exists())
+            pending.update((tree for tree in trees if tree is not None and tree.winfo_exists()))
             return
-        # 여러 표가 같은 이벤트에서 갱신돼도 after 콜백을 표마다 만들지 않는다.
-        # 한 번의 유휴 배치에서 중복 없는 표만 열너비를 계산한다.
         pending = getattr(self, '_scheduled_tree_autofit', None)
         if pending is None:
             pending = set()
             self._scheduled_tree_autofit = pending
-        pending.update(tree for tree in trees if tree is not None and tree.winfo_exists())
+        pending.update((tree for tree in trees if tree is not None and tree.winfo_exists()))
         if getattr(self, '_scheduled_tree_autofit_job', None) is None:
             self._scheduled_tree_autofit_job = self.root.after(20, self._flush_scheduled_treeview_autofit)
 
@@ -3113,6 +2945,8 @@ class CDS3SaveEditorApp:
             try:
                 if tree.winfo_exists():
                     autofit_columns(tree)
+                    if tree is getattr(self, 'tree_person_details', None):
+                        self.root.after_idle(self._position_person_city_cell)
             except tk.TclError:
                 continue
 
@@ -3130,12 +2964,25 @@ class CDS3SaveEditorApp:
                 if isinstance(child, ttk.Treeview):
                     trees.append(child)
                 collect(child)
-
         collect(self.root)
         self._schedule_treeview_autofit(*trees)
 
+    def _enable_tree_column_stretch(self):
+        """창 폭의 남는 공간을 Treeview의 정보 열에 Tk가 즉시 배분하게 한다."""
+        fixed_columns = frozenset(('index', 'id', 'game_id', 'slot'))
+
+        def configure_treeviews(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, ttk.Treeview):
+                    for column in child['columns']:
+                        if column not in fixed_columns:
+                            child.column(column, stretch=True)
+                configure_treeviews(child)
+        configure_treeviews(self.root)
+
     def _enable_tree_zebra(self):
         """Apply alternating row colors to every Treeview, including future inserts."""
+
         def walk(widget):
             for child in widget.winfo_children():
                 if isinstance(child, ttk.Treeview):
@@ -3149,9 +2996,7 @@ class CDS3SaveEditorApp:
                         custom_tags = tuple(kwargs.pop('tags', ()))
                         row_index = _tree._zebra_next_index
                         zebra_tag = 'zebra_odd' if row_index % 2 == 0 else 'zebra_even'
-                        # 사용자 지정 강조 태그는 얼룩무늬 태그 뒤에 유지해 배경색을
-                        # 덮어쓴다. 삽입 뒤 item()을 다시 호출하지 않아도 된다.
-                        kwargs['tags'] = (zebra_tag, *custom_tags)
+                        kwargs['tags'] = (zebra_tag,) + tuple(custom_tags)
                         item = _insert(*args, **kwargs)
                         _tree._zebra_next_index = row_index + 1
                         return item
@@ -3161,7 +3006,6 @@ class CDS3SaveEditorApp:
                         if not _tree.get_children(''):
                             _tree._zebra_next_index = 0
                         return result
-
                     child.insert = striped_insert
                     child.delete = striped_delete
                     self._refresh_tree_zebra(child)
@@ -3171,6 +3015,7 @@ class CDS3SaveEditorApp:
 
     def _enable_tree_auto_scrollbars(self):
         """스크롤바가 없는 모든 Treeview에 필요할 때만 나타나는 세로 스크롤을 붙인다."""
+
         def add_scrollbar(tree):
             try:
                 if str(tree.cget('yscrollcommand')):
@@ -3189,13 +3034,12 @@ class CDS3SaveEditorApp:
                     visible = getattr(bar, '_auto_visible', None)
                     if visible is None:
                         visible = bool(bar.winfo_manager())
-                    if should_show and not visible:
+                    if should_show and (not visible):
                         bar.pack(side=tk.RIGHT, fill=tk.Y, before=widget)
                         bar._auto_visible = True
                     elif not should_show and visible:
                         bar.pack_forget()
                         bar._auto_visible = False
-
                 tree.configure(yscrollcommand=sync)
                 tree._auto_vertical_scrollbar = scrollbar
             except tk.TclError:
@@ -3211,27 +3055,22 @@ class CDS3SaveEditorApp:
     @staticmethod
     def _refresh_tree_zebra(tree):
         for index, item in enumerate(tree.get_children('')):
-            custom_tags = tuple(tag for tag in tree.item(item, 'tags')
-                                if tag not in ('zebra_odd', 'zebra_even'))
+            custom_tags = tuple((tag for tag in tree.item(item, 'tags') if tag not in ('zebra_odd', 'zebra_even')))
             zebra_tag = 'zebra_odd' if index % 2 == 0 else 'zebra_even'
-            tree.item(item, tags=(zebra_tag, *custom_tags))
+            tree.item(item, tags=(zebra_tag,) + tuple(custom_tags))
 
     def _enable_tree_sorting(self):
         """Enable ascending/descending sorting when a Treeview heading is clicked."""
+
         def walk(widget):
             for child in widget.winfo_children():
                 if isinstance(child, ttk.Treeview):
                     columns = tuple(child['columns'])
-                    child._sort_header_texts = {
-                        column: child.heading(column, 'text') or column for column in columns
-                    }
+                    child._sort_header_texts = {column: child.heading(column, 'text') or column for column in columns}
                     child._sort_column = None
                     child._sort_reverse = False
                     for column in columns:
-                        child.heading(
-                            column,
-                            command=lambda c=column, tree=child: self._sort_tree_by_column(tree, c),
-                        )
+                        child.heading(column, command=lambda c=column, tree=child: self._sort_tree_by_column(tree, c))
                 walk(child)
         walk(self.root)
 
@@ -3246,59 +3085,49 @@ class CDS3SaveEditorApp:
                 return (0, int(numeric_value, 0))
             except ValueError:
                 return (1, value.casefold())
-
         items = list(tree.get_children(''))
         items.sort(key=sort_key, reverse=reverse)
         for index, item in enumerate(items):
             tree.move(item, '', index)
-
         tree._sort_column = column
         tree._sort_reverse = reverse
         for current_column, header_text in tree._sort_header_texts.items():
-            marker = (' ▼' if reverse else ' ▲') if current_column == column else ''
-            tree.heading(current_column, text=f'{header_text}{marker}')
+            marker = (ui('ui_0643') if reverse else ui('ui_0644')) if current_column == column else ''
+            tree.heading(current_column, text=ui('ui_0645', header_text, marker))
         self._refresh_tree_zebra(tree)
+        if tree is getattr(self, 'tree_person_details', None):
+            self.root.after_idle(self._position_person_city_cell)
 
     def create_widgets(self):
-        # ***<module>.CDS3SaveEditorApp.create_widgets: Failure: Different bytecode
         self.root.bind('<Control-o>', lambda e: self.on_open_file())
         self.root.bind('<Control-s>', lambda e: self.on_save_file())
         top_bar = tk.Frame(self.root, height=40, bg='#F0F0F0', padx=8, pady=6)
         top_bar.pack(side=tk.TOP, fill=tk.X)
-        btn_open = EditorButton(top_bar, text=ui('ui_0114'), font=('Malgun Gothic', 9), command=self.on_open_file, bg='#E8F0FE', padx=8)
+        btn_open = EditorButton(top_bar, text=ui('ui_0114'), font=(APP_FONT_FAMILY, 9), command=self.on_open_file, bg='#E8F0FE', padx=8)
         btn_open.pack(side=tk.LEFT, padx=4)
-        self.btn_save = EditorButton(top_bar, text=ui('ui_0115'), font=('Malgun Gothic', 9), command=self.on_save_file, bg='#E6F4EA', fg='#137333', padx=8)
+        self.btn_save = EditorButton(top_bar, text=ui('ui_0115'), font=(APP_FONT_FAMILY, 9), command=self.on_save_file, bg='#E6F4EA', fg='#137333', padx=8)
         self.btn_save.pack(side=tk.LEFT, padx=4)
-        self.btn_check_update = EditorButton(top_bar, text=ui('ui_0417'), font=('Malgun Gothic', 9), command=self.check_for_updates, padx=8)
+        self.btn_check_update = EditorButton(top_bar, text=ui('ui_0417'), font=(APP_FONT_FAMILY, 9), command=self.check_for_updates, padx=8)
         self.chk_auto_backup = tk.BooleanVar(value=True)
-        self.chk_backup_widget = tk.Checkbutton(top_bar, text=ui('ui_0116'), variable=self.chk_auto_backup, font=('Malgun Gothic', 9), bg='#F0F0F0')
+        self.chk_backup_widget = tk.Checkbutton(top_bar, text=ui('ui_0116'), variable=self.chk_auto_backup, font=(APP_FONT_FAMILY, 9), bg='#F0F0F0')
         self.chk_backup_widget.pack(side=tk.LEFT, padx=10)
-        self.cbo_theme = ttk.Combobox(
-            top_bar, textvariable=self.theme_var, values=self.theme_names,
-            state='readonly', width=11,
-        )
+        self.cbo_theme = ttk.Combobox(top_bar, textvariable=self.theme_var, values=self.theme_names, state='readonly', width=11)
         self.cbo_theme.pack(side=tk.RIGHT, padx=(0, 8))
         self.cbo_theme.bind('<<ComboboxSelected>>', self._change_theme)
-        tk.Label(top_bar, text='테마:', font=('Malgun Gothic', 9), bg='#F0F0F0').pack(side=tk.RIGHT, padx=(0, 4))
-        self.lbl_status = tk.Label(top_bar, text=ui('ui_0117'), font=('Malgun Gothic', 9), fg='#5F6368')
+        tk.Label(top_bar, text=ui('ui_0584'), font=(APP_FONT_FAMILY, 9), bg='#F0F0F0').pack(side=tk.RIGHT, padx=(0, 4))
+        self.lbl_status = tk.Label(top_bar, text=ui('ui_0117'), font=(APP_FONT_FAMILY, 9), fg='#5F6368')
         self.lbl_status.pack(side=tk.RIGHT, padx=8)
         notebook_style = ttk.Style(self.root)
         notebook_style.configure('Editor.TNotebook', tabmargins=(2, 5, 2, 0))
-        notebook_style.configure(
-            'Editor.TNotebook.Tab', width=15, padding=(8, 5), font=('Malgun Gothic', 9),
-            relief='flat', anchor='center')
-        notebook_style.map(
-            'Editor.TNotebook.Tab',
-            relief=[('selected', 'raised'), ('!selected', 'flat')],
-            padding=[('selected', (8, 7, 8, 6)), ('!selected', (8, 5))])
+        notebook_style.configure('Editor.TNotebook.Tab', width=15, padding=(8, 5), font=(APP_FONT_FAMILY, 9), relief='flat', anchor='center')
+        notebook_style.map('Editor.TNotebook.Tab', relief=[('selected', 'raised'), ('!selected', 'flat')], padding=[('selected', (8, 7, 8, 6)), ('!selected', (8, 5))])
         self.notebook = ttk.Notebook(self.root, style='Editor.TNotebook')
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-        # ttk.Notebook의 직접 자식 대신 Notebook 부모의 자식 프레임을 pane으로
-        # 등록하는 Tkinter 깜빡임 우회 방식이다.
         self.tab_profile = ttk.Frame(self.root)
         self.tab_skills = ttk.Frame(self.notebook)
         self.tab_fleet = ttk.Frame(self.root)
         self.tab_cities = ttk.Frame(self.root)
+        self.tab_map = ttk.Frame(self.root)
         self.tab_items = ttk.Frame(self.root)
         self.tab_discoveries = ttk.Frame(self.root)
         self.tab_events = ttk.Frame(self.root)
@@ -3308,22 +3137,20 @@ class CDS3SaveEditorApp:
         self.notebook.add(self.tab_items, text=TAB_TITLES['items'])
         self.notebook.add(self.tab_discoveries, text=TAB_TITLES['discoveries'])
         self.notebook.add(self.tab_events, text=TAB_TITLES['events'])
+        self.notebook.add(self.tab_map, text=TAB_TITLES['map'])
         self.build_profile_tab()
         self.build_skills_tab()
         self.build_fleet_tab()
         self.build_cities_tab()
+        self.build_navigation_map_tab()
         self.build_items_tab()
         self.build_discoveries_tab()
         self.build_events_tab()
+        self.notebook.bind('<<NotebookTabChanged>>', self._on_main_tab_changed, add='+')
         center_treeview_columns(self.root)
         self._configure_text_byte_limit(self.txt_last_name, 18)
         self._configure_text_byte_limit(self.txt_first_name, 18)
-        for spinbox, minimum, maximum in (
-            (self.spn_birth_y, 1000, 3000), (self.spn_birth_m, 1, 12), (self.spn_birth_d, 1, 31),
-            (self.spn_game_y, 1000, 3000), (self.spn_game_m, 1, 12), (self.spn_game_d, 1, 31),
-            (self.spn_batch_money, 0, 99999999),
-            (self.spn_batch_reputation, 0, PLAYER_REPUTATION_MAX), (self.spn_batch_tech, 0, 3), (self.spn_batch_lang, 0, 3),
-        ):
+        for spinbox, minimum, maximum in ((self.spn_birth_y, 1000, 3000), (self.spn_birth_m, 1, 12), (self.spn_birth_d, 1, 31), (self.spn_game_y, 1000, 3000), (self.spn_game_m, 1, 12), (self.spn_game_d, 1, 31), (self.spn_batch_money, 0, 99999999), (self.spn_batch_reputation, 0, PLAYER_REPUTATION_MAX), (self.spn_batch_tech, 0, 3), (self.spn_batch_lang, 0, 3)):
             self._configure_bounded_spinbox(spinbox, minimum, maximum)
 
     def _configure_text_byte_limit(self, entry, max_bytes):
@@ -3360,8 +3187,7 @@ class CDS3SaveEditorApp:
 
     def _configure_bounded_spinbox(self, spinbox, minimum, maximum):
         """스핀 상한을 넘는 직접 입력도 즉시 최대값으로 보정한다."""
-        command = self.root.register(
-            lambda proposed: proposed == '' or proposed.isdigit())
+        command = self.root.register(lambda proposed: proposed == '' or proposed.isdigit())
         spinbox.configure(validate='key', validatecommand=(command, '%P'))
         spinbox.bind('<KeyRelease>', lambda _event: self._clamp_spinbox(spinbox, minimum, maximum), add='+')
         spinbox.bind('<FocusOut>', lambda _event: self._clamp_spinbox(spinbox, minimum, maximum), add='+')
@@ -3387,18 +3213,15 @@ class CDS3SaveEditorApp:
         result = {'value': None}
         body = tk.Frame(dialog, padx=14, pady=12)
         body.pack(fill=tk.BOTH, expand=True)
-        tk.Label(body, text=prompt, justify='left', font=('Malgun Gothic', 9)).pack(anchor='w')
+        tk.Label(body, text=prompt, justify='left', font=(APP_FONT_FAMILY, 9)).pack(anchor='w')
         value_var = tk.StringVar(value=str(initial_value))
-        entry = ttk.Spinbox(body, textvariable=value_var, from_=minimum, to=maximum,
-                             width=16, justify='center', font=('Malgun Gothic', 9))
-        digits_only = self.root.register(
-            lambda proposed, low=minimum: (proposed == '' or
-            (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit()))
+        entry = SPINBOX_WIDGET(body, textvariable=value_var, from_=minimum, to=maximum, width=16, justify='center', font=(APP_FONT_FAMILY, 9))
+        digits_only = self.root.register(lambda proposed, low=minimum: proposed == '' or (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit())
         entry.configure(validate='key', validatecommand=(digits_only, '%P'))
         entry.bind('<KeyRelease>', lambda _event: self._clamp_spinbox(entry, minimum, maximum), add='+')
         entry.pack(anchor='center', pady=(8, 2))
         error_var = tk.StringVar(value='')
-        tk.Label(body, textvariable=error_var, fg='#B3261E', font=('Malgun Gothic', 9)).pack(anchor='center')
+        tk.Label(body, textvariable=error_var, fg='#B3261E', font=(APP_FONT_FAMILY, 9)).pack(anchor='center')
         buttons = tk.Frame(body)
         buttons.pack(anchor='center', pady=(8, 0))
 
@@ -3413,14 +3236,13 @@ class CDS3SaveEditorApp:
                 return
             result['value'] = value
             dialog.destroy()
-
         EditorButton(buttons, text=ui('ui_0098'), width=8, command=confirm).pack(side=tk.LEFT)
         dialog.bind('<Return>', lambda _event: confirm())
         dialog.bind('<Escape>', lambda _event: dialog.destroy())
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f'+{max(0, x)}+{max(0, y)}')
+        dialog.geometry('+{0}+{1}'.format(max(0, x), max(0, y)))
         dialog.deiconify()
         dialog.grab_set()
         entry.focus_set()
@@ -3432,8 +3254,7 @@ class CDS3SaveEditorApp:
         """Build the fleet list, editor, and read-only ship-base information panes."""
         parent = self.tab_fleet
         configure_equal_columns(parent, 3, 'fleet_columns')
-
-        left = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_list'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=6)
+        left = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_list'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=6, pady=6)
         left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
         cols = ('index', 'name')
         self.lst_fleet = ttk.Treeview(left, columns=cols, show='headings', height=8, selectmode='browse')
@@ -3443,25 +3264,16 @@ class CDS3SaveEditorApp:
         self.lst_fleet.column('name', width=190, anchor='w', stretch=True)
         self.lst_fleet.pack(fill=tk.BOTH, expand=True)
         self.lst_fleet.bind('<<TreeviewSelect>>', self.on_fleet_select)
-        # 이미 선택된 함선을 다시 눌러도, 로드 후 보류된 영상 미리보기를 갱신한다.
         self.lst_fleet.bind('<ButtonRelease-1>', self.on_fleet_select, add='+')
         fleet_list_actions = tk.Frame(left)
         fleet_list_actions.pack(pady=(7, 0))
-        EditorButton(fleet_list_actions, text=ui('ui_0338'), width=9, bg='#E6F4EA', fg='#137333', command=self.add_fleet_ship).pack(
-            side=tk.LEFT, padx=(0, 4))
-        self.btn_fleet_reset = EditorButton(
-            fleet_list_actions, text=ui('ui_0222'), width=9, bg='#E8F0FE', fg='#1A73E8',
-            command=self.reset_fleet_edits,
-        )
+        EditorButton(fleet_list_actions, text=ui('ui_0338'), width=9, bg='#E6F4EA', fg='#137333', command=self.add_fleet_ship).pack(side=tk.LEFT, padx=(0, 4))
+        self.btn_fleet_reset = EditorButton(fleet_list_actions, text=ui('ui_0222'), width=9, bg='#E8F0FE', fg='#1A73E8', command=self.reset_fleet_edits)
         self.btn_fleet_reset.pack(side=tk.LEFT, padx=4)
         self.btn_fleet_reset.pack_forget()
-        self.btn_fleet_remove = EditorButton(
-            fleet_list_actions, text=ui('ui_0334'), width=9, bg='#FCE8E6', fg='#D93025',
-            command=self.remove_selected_fleet_ship,
-        )
+        self.btn_fleet_remove = EditorButton(fleet_list_actions, text=ui('ui_0334'), width=9, bg='#FCE8E6', fg='#D93025', command=self.remove_selected_fleet_ship)
         self.btn_fleet_remove.pack(side=tk.LEFT, padx=(4, 0))
-
-        editor = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_editor'], font=('Malgun Gothic', 9, 'bold'), padx=10, pady=10)
+        editor = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_editor'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=10, pady=10)
         editor.grid(row=0, column=1, sticky='nsew', padx=5, pady=10)
         editor.columnconfigure(1, weight=1)
         preview = tk.Frame(editor)
@@ -3469,7 +3281,6 @@ class CDS3SaveEditorApp:
         video_column = tk.Frame(preview)
         video_column.pack(side=tk.LEFT)
         self.fleet_video_column = video_column
-        # 표시 프레임은 선수상과 같은 80x80 이미지 영역(테두리 포함 84x84)으로 맞춘다.
         self.fleet_video_preview = FleetVideoPreview(video_column, frame_height=84)
         self.fleet_video_preview.pack()
         figurehead_column = tk.Frame(preview)
@@ -3482,59 +3293,42 @@ class CDS3SaveEditorApp:
         self.lbl_fleet_figurehead_img = tk.Label(figurehead_box, bg='#222222')
         self.lbl_fleet_figurehead_img.pack(fill=tk.BOTH, expand=True)
         self.fleet_edit_vars = {}
-        single_fields = [
-            (ui('ui_0062'), 'name'), (fleet_label('ui_0130', 'ui_0127'), 'crew'),
-            (ui('ui_0132'), 'max_weight'),
-            (ui('ui_0133'), 'max_capacity'),
-            (ui('ui_0136'), 'cannon_type'), (ui('ui_0137'), 'figurehead'),
-        ]
-        paired_fields = [
-            (ui('ui_0131'), 'max_power', 'current_power'),
-            (ui('ui_0134'), 'max_durability', 'current_durability'),
-            (ui('ui_0135'), 'max_cannons', 'current_cannons'),
-        ]
+        single_fields = [(ui('ui_0062'), 'name'), (fleet_label('ui_0130', 'ui_0127'), 'crew'), (ui('ui_0132'), 'max_weight'), (ui('ui_0133'), 'max_capacity'), (ui('ui_0136'), 'cannon_type'), (ui('ui_0137'), 'figurehead')]
+        paired_fields = [(ui('ui_0131'), 'max_power', 'current_power'), (ui('ui_0134'), 'max_durability', 'current_durability'), (ui('ui_0135'), 'max_cannons', 'current_cannons')]
+
         def create_fleet_widget(parent, key, width=18):
             value = tk.StringVar(value='')
             self.fleet_edit_vars[key] = value
             if key == 'ship_type':
-                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width,
-                                      values=self._fleet_ship_type_options(), font=('Malgun Gothic', 9))
+                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width, values=self._fleet_ship_type_options(), font=(APP_FONT_FAMILY, 9))
                 self.fleet_ship_type_combo = widget
-                widget.bind('<<ComboboxSelected>>', lambda _event: self._update_fleet_mast_controls())
+                widget.bind('<<ComboboxSelected>>', self._on_fleet_ship_type_selected)
             elif key == 'cannon_type':
-                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width,
-                                      values=self._fleet_cannon_type_options(), font=('Malgun Gothic', 9))
+                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width, values=self._fleet_cannon_type_options(), font=(APP_FONT_FAMILY, 9))
             elif key == 'figurehead':
-                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width,
-                                      values=self._fleet_figurehead_options(), font=('Malgun Gothic', 9))
+                widget = ttk.Combobox(parent, textvariable=value, state='readonly', width=width, values=self._fleet_figurehead_options(), font=(APP_FONT_FAMILY, 9))
+                self.fleet_figurehead_combo = widget
+                widget.bind('<<ComboboxSelected>>', self._on_fleet_figurehead_selected)
             else:
                 if key == 'name':
-                    widget = tk.Entry(parent, textvariable=value, width=width, font=('Malgun Gothic', 9))
+                    widget = tk.Entry(parent, textvariable=value, width=width, font=(APP_FONT_FAMILY, 9))
                 else:
-                    upper_bound = {'max_power': 255, 'max_durability': 0x7FFFFFFF}.get(key, 0xFFFFFFFF)
-                    widget = ttk.Spinbox(parent, textvariable=value, from_=0, to=upper_bound,
-                                         width=width, font=('Malgun Gothic', 9), justify='right')
-                    widget.configure(validate='key',
-                                     validatecommand=(self.root.register(self._validate_fleet_number_input), '%P'))
+                    upper_bound = {'max_power': 255, 'max_durability': 2147483647}.get(key, 4294967295)
+                    widget = SPINBOX_WIDGET(parent, textvariable=value, from_=0, to=upper_bound, width=width, font=(APP_FONT_FAMILY, 9), justify='right')
+                    widget.configure(validate='key', validatecommand=(self.root.register(self._validate_fleet_number_input), '%P'))
                     widget.configure(command=lambda field=key: self._limit_fleet_spin_value(field))
-                    widget.bind('<KeyRelease>', lambda _event, control=widget, maximum=upper_bound:
-                                self._clamp_spinbox(control, 0, maximum), add='+')
+                    widget.bind('<KeyRelease>', lambda _event, control=widget, maximum=upper_bound: self._clamp_spinbox(control, 0, maximum), add='+')
                 if key == 'crew':
                     self.fleet_crew_entry = widget
                     widget.bind('<KeyRelease>', lambda _event: self._limit_fleet_crew_input())
                 elif key in ('current_power', 'current_durability', 'current_cannons'):
                     widget.bind('<KeyRelease>', lambda _event, current=key: self._limit_fleet_current_value(current))
                 elif key in ('max_power', 'max_durability', 'max_cannons'):
-                    current = {'max_power': 'current_power', 'max_durability': 'current_durability',
-                               'max_cannons': 'current_cannons'}[key]
+                    current = {'max_power': 'current_power', 'max_durability': 'current_durability', 'max_cannons': 'current_cannons'}[key]
                     if key == 'max_power':
-                        widget.bind('<KeyRelease>', lambda _event, current=current: (
-                            self._limit_fleet_max_value('max_power', 255),
-                            self._limit_fleet_current_value(current)))
+                        widget.bind('<KeyRelease>', lambda _event, current=current: (self._limit_fleet_max_value('max_power', 255), self._limit_fleet_current_value(current)))
                     elif key == 'max_durability':
-                        widget.bind('<KeyRelease>', lambda _event, current=current: (
-                            self._limit_fleet_max_value('max_durability', 0x7FFFFFFF),
-                            self._limit_fleet_current_value(current)))
+                        widget.bind('<KeyRelease>', lambda _event, current=current: (self._limit_fleet_max_value('max_durability', 2147483647), self._limit_fleet_current_value(current)))
                     else:
                         widget.bind('<KeyRelease>', lambda _event, current=current: self._limit_fleet_current_value(current))
             widget.bind('<FocusOut>', lambda _event: self._apply_fleet_live(), add='+')
@@ -3542,47 +3336,30 @@ class CDS3SaveEditorApp:
             if isinstance(widget, ttk.Combobox):
                 widget.bind('<<ComboboxSelected>>', lambda _event: self._apply_fleet_live(), add='+')
             return widget
-
-        # 함선 종류는 이름보다 위에 두고, 다른 항목과 같은 라벨·입력 열을 쓴다.
-        tk.Label(editor, text=ui('ui_0126') + ':', anchor='e', font=('Malgun Gothic', 9)).grid(
-            row=1, column=0, sticky='e', padx=(0, 7), pady=3)
+        tk.Label(editor, text=ui_label(ui('ui_0126')), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=1, column=0, sticky='e', padx=(0, 7), pady=3)
         fleet_type_row = tk.Frame(editor)
         fleet_type_row.grid(row=1, column=1, sticky='ew', pady=3)
-        # 기본 창 크기에서도 기함 체크박스가 잘리지 않도록 콤보박스의 최소 요청 폭을
-        # 줄인다. fill/expand는 유지하므로 넓은 창에서는 이전처럼 확장된다.
         create_fleet_widget(fleet_type_row, 'ship_type', width=14).pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fleet_flagship_var = tk.BooleanVar(value=False)
         flagship_box = tk.Frame(fleet_type_row)
         flagship_box.pack(side=tk.RIGHT, padx=(8, 0))
-        tk.Checkbutton(flagship_box, text=ui('ui_0219').rstrip(':'), variable=self.fleet_flagship_var,
-                       font=('Malgun Gothic', 9), takefocus=0).pack(side=tk.LEFT)
-
-        form_rows = (
-            ('single', *single_fields[0]), ('single', *single_fields[1]), ('single', *single_fields[2]),
-            ('single', *single_fields[3]),
-            ('pair', *paired_fields[0]),
-            ('pair', *paired_fields[1]), ('pair', *paired_fields[2]),
-            ('single', *single_fields[4]), ('single', *single_fields[5]),
-        )
+        tk.Checkbutton(flagship_box, text=ui('ui_0219').rstrip(UI_LABEL_SUFFIX), variable=self.fleet_flagship_var, font=(APP_FONT_FAMILY, 9), takefocus=0).pack(side=tk.LEFT)
+        form_rows = (('single',) + tuple(single_fields[0]), ('single',) + tuple(single_fields[1]), ('single',) + tuple(single_fields[2]), ('single',) + tuple(single_fields[3]), ('pair',) + tuple(paired_fields[0]), ('pair',) + tuple(paired_fields[1]), ('pair',) + tuple(paired_fields[2]), ('single',) + tuple(single_fields[4]))
         row = 2
         for row_type, label, *keys in form_rows:
-            tk.Label(editor, text=label + ':', anchor='e', font=('Malgun Gothic', 9)).grid(
-                row=row, column=0, sticky='e', padx=(0, 7), pady=3)
+            tk.Label(editor, text=ui_label(label), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=row, column=0, sticky='e', padx=(0, 7), pady=3)
             if row_type == 'single':
                 widget = create_fleet_widget(editor, keys[0])
                 widget.grid(row=row, column=1, sticky='ew', pady=3)
             else:
                 pair = tk.Frame(editor)
-                # 최대·현재 영역을 정확히 반반으로 나눈다. 각 절반의 입력칸은
-                # 창을 넓힌 만큼 함께 커진다.
                 pair.grid(row=row, column=1, sticky='ew', pady=3)
                 pair.columnconfigure(0, weight=1, uniform='fleet_pair_fields')
                 pair.columnconfigure(1, weight=1, uniform='fleet_pair_fields')
                 max_group = tk.Frame(pair)
                 max_group.grid(row=0, column=0, sticky='ew', padx=(0, 6))
                 max_group.columnconfigure(1, weight=1)
-                tk.Label(max_group, text=ui('ui_0129'), font=('Malgun Gothic', 9)).grid(
-                    row=0, column=0, sticky='w', padx=(0, 3))
+                tk.Label(max_group, text=ui('ui_0129'), font=(APP_FONT_FAMILY, 9)).grid(row=0, column=0, sticky='w', padx=(0, 3))
                 max_box = tk.Frame(max_group, height=23)
                 max_box.grid(row=0, column=1, sticky='ew')
                 max_box.grid_propagate(False)
@@ -3592,8 +3369,7 @@ class CDS3SaveEditorApp:
                 current_group = tk.Frame(pair)
                 current_group.grid(row=0, column=1, sticky='ew', padx=(6, 0))
                 current_group.columnconfigure(1, weight=1)
-                tk.Label(current_group, text=ui('ui_0130'), anchor='e', font=('Malgun Gothic', 9)).grid(
-                    row=0, column=0, sticky='w', padx=(0, 3))
+                tk.Label(current_group, text=ui('ui_0130'), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=0, column=0, sticky='w', padx=(0, 3))
                 current_box = tk.Frame(current_group, height=23)
                 current_box.grid(row=0, column=1, sticky='ew')
                 current_box.grid_propagate(False)
@@ -3602,13 +3378,8 @@ class CDS3SaveEditorApp:
                 create_fleet_widget(current_box, keys[1], width=3).grid(sticky='nsew')
             row += 1
         mast_row = row
-        mast_controls = (
-            (ui('ui_0329'), 'mast_main', self._fleet_main_mast_options()),
-            (ui('ui_0330'), 'mast_sub', self._fleet_mast_options()),
-            (ui('ui_0331'), 'mast_stern', self._fleet_mast_options()),
-        )
-        tk.Label(editor, text=ui('ui_0332') + ':', anchor='e', font=('Malgun Gothic', 9)).grid(
-            row=mast_row, column=0, sticky='e', padx=(0, 7), pady=3)
+        mast_controls = ((ui('ui_0329'), 'mast_main', self._fleet_main_mast_options()), (ui('ui_0330'), 'mast_sub', self._fleet_mast_options()), (ui('ui_0331'), 'mast_stern', self._fleet_mast_options()))
+        tk.Label(editor, text=ui_label(ui('ui_0332')), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=mast_row, column=0, sticky='e', padx=(0, 7), pady=3)
         mast_group = tk.Frame(editor)
         mast_group.grid(row=mast_row, column=1, sticky='ew', pady=3)
         self.fleet_mast_rows = {}
@@ -3616,32 +3387,28 @@ class CDS3SaveEditorApp:
             mast_group.columnconfigure(column, weight=1)
             mast_slot = tk.Frame(mast_group)
             mast_slot.grid(row=0, column=column, sticky='ew', padx=1)
-            tk.Label(mast_slot, text=label, font=('Malgun Gothic', 9)).pack(anchor='center')
+            tk.Label(mast_slot, text=label, font=(APP_FONT_FAMILY, 9)).pack(anchor='center')
             value = tk.StringVar(value=options[0])
             self.fleet_edit_vars[key] = value
-            combo = ttk.Combobox(mast_slot, textvariable=value, values=options, state='readonly',
-                                 width=5, justify='center', font=('Malgun Gothic', 9))
+            combo = ttk.Combobox(mast_slot, textvariable=value, values=options, state='readonly', width=5, justify='center', font=(APP_FONT_FAMILY, 9))
             combo.pack(fill=tk.X)
             combo.bind('<<ComboboxSelected>>', lambda _event: self._apply_fleet_live())
             self.fleet_mast_rows[key] = (mast_slot, combo)
-        right = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_basic'], font=('Malgun Gothic', 9, 'bold'), padx=12, pady=10)
+        row = mast_row + 1
+        tk.Label(editor, text=ui_label(single_fields[5][0]), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=row, column=0, sticky='e', padx=(0, 7), pady=3)
+        create_fleet_widget(editor, single_fields[5][1]).grid(row=row, column=1, sticky='ew', pady=3)
+        row += 1
+        self.fleet_figurehead_sea_effect_var = tk.StringVar(value=UI_EMPTY_VALUE)
+        self.fleet_figurehead_battle_effect_var = tk.StringVar(value=UI_EMPTY_VALUE)
+        for label, value in ((ui('ui_0525'), self.fleet_figurehead_sea_effect_var), (ui('ui_0526'), self.fleet_figurehead_battle_effect_var)):
+            tk.Label(editor, text=ui_label(label), anchor='e', font=(APP_FONT_FAMILY, 9)).grid(row=row, column=0, sticky='e', padx=(0, 7), pady=3)
+            tk.Label(editor, textvariable=value, anchor='w', justify='left', font=(APP_FONT_FAMILY, 9), fg='#444444').grid(row=row, column=1, sticky='ew', pady=3)
+            row += 1
+        right = tk.LabelFrame(parent, text=GROUP_TITLES['fleet_basic'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=12, pady=10)
         right.grid(row=0, column=2, sticky='nsew', padx=(5, 10), pady=10)
-        fields = [
-            (ui('ui_0126'), 'ship_type'),
-            (ui('ui_0323'), 'shipyard_requirement'),
-            (ui('ui_0142'), 'base_min_crew'),
-            (fleet_label('ui_0128', 'ui_0131'), 'base_power'), (fleet_label('ui_0129', 'ui_0131'), 'power_limit'),
-            (fleet_label('ui_0128', 'ui_0134'), 'base_durability'), (fleet_label('ui_0129', 'ui_0134'), 'durability_limit'),
-            (fleet_label('ui_0128', 'ui_0132'), 'base_weight'), (fleet_label('ui_0129', 'ui_0132'), 'weight_limit'),
-            (fleet_label('ui_0128', 'ui_0133'), 'base_capacity'), (fleet_label('ui_0129', 'ui_0133'), 'capacity_limit'),
-            (fleet_label('ui_0128', 'ui_0135'), 'base_cannons'), (fleet_label('ui_0129', 'ui_0135'), 'cannon_limit'),
-            (ui('ui_0325'), 'unknown_38'),
-            (fleet_label('ui_0128', 'ui_0149'), 'base_masts'),
-            (fleet_label('ui_0129', 'ui_0149'), 'max_masts'),
-        ]
+        fields = [(ui('ui_0126'), 'ship_type'), (ui('ui_0323'), 'shipyard_requirement'), (ui('ui_0142'), 'base_min_crew'), (fleet_label('ui_0128', 'ui_0131'), 'base_power'), (fleet_label('ui_0129', 'ui_0131'), 'power_limit'), (fleet_label('ui_0128', 'ui_0134'), 'base_durability'), (fleet_label('ui_0129', 'ui_0134'), 'durability_limit'), (fleet_label('ui_0128', 'ui_0132'), 'base_weight'), (fleet_label('ui_0129', 'ui_0132'), 'weight_limit'), (fleet_label('ui_0128', 'ui_0133'), 'base_capacity'), (fleet_label('ui_0129', 'ui_0133'), 'capacity_limit'), (fleet_label('ui_0128', 'ui_0135'), 'base_cannons'), (fleet_label('ui_0129', 'ui_0135'), 'cannon_limit'), (ui('ui_0325'), 'unknown_38'), (fleet_label('ui_0128', 'ui_0149'), 'base_masts'), (fleet_label('ui_0129', 'ui_0149'), 'max_masts')]
         self.fleet_detail_fields = fields
-        self.lst_fleet_basic = ttk.Treeview(right, columns=('field', 'base_value'), show='headings',
-                                             height=len(fields), selectmode='none')
+        self.lst_fleet_basic = ttk.Treeview(right, columns=('field', 'base_value'), show='headings', height=len(fields), selectmode='none')
         self.lst_fleet_basic.heading('field', text=TREE_COLUMN_TITLES['fleet_basic']['field'])
         self.lst_fleet_basic.heading('base_value', text=TREE_COLUMN_TITLES['fleet_basic']['base_value'])
         self.lst_fleet_basic.column('field', width=128, anchor='w', stretch=False)
@@ -3666,27 +3433,18 @@ class CDS3SaveEditorApp:
             tooltip_text = self._fleet_base_capacity_tooltip()
         else:
             tooltip_text = None
-        tooltip_texts = {
-            'unknown_38': ui('ui_0486'),
-            'shipyard_requirement': ui('ui_0487'),
-        }
+        tooltip_texts = {'unknown_38': ui('ui_0486'), 'shipyard_requirement': ui('ui_0487')}
         tooltip_text = tooltip_text or tooltip_texts.get(row)
         if tooltip_text is None:
             self._hide_fleet_basic_tooltip()
             return
         if self._fleet_basic_tooltip is not None:
             return
-
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tk.Label(
-            tooltip,
-            text=tooltip_text,
-            justify='left', anchor='w', bg='#FFF8D6', fg='#333333',
-            relief='solid', bd=1, padx=8, pady=6, font=('Malgun Gothic', 9),
-        ).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._fleet_basic_tooltip = tooltip
         self._fleet_basic_tooltip_row = row
 
@@ -3695,21 +3453,19 @@ class CDS3SaveEditorApp:
         record = self._fleet_ship_raw_table_values(getattr(self, '_fleet_basic_ship_code', None))
         if record is None:
             return ui('ui_0428')
-        table_capacity, table_cannons = record[9], record[11]
+        table_capacity, table_cannons = (record[9], record[11])
         table_visible = self._fleet_visible_capacity(table_capacity, table_cannons)
         ship_index = getattr(self, '_fleet_basic_ship_index', None)
         if ship_index is None or not self.file_buffer:
-            return ui('ui_0427', table_capacity, table_cannons, table_visible,
-                      table_capacity, 0, table_cannons, table_visible)
+            return ui('ui_0427', table_capacity, table_cannons, table_visible, table_capacity, 0, table_cannons, table_visible)
         base = self._fleet_slot_offset(ship_index)
-        if len(self.file_buffer) < base + 0x59:
+        if len(self.file_buffer) < base + 89:
             return ui('ui_0428')
-        stored_capacity = struct.unpack_from('<I', self.file_buffer, base + 0x45)[0]
-        current_cannons = struct.unpack_from('<I', self.file_buffer, base + 0x55)[0]
+        stored_capacity = struct.unpack_from('<I', self.file_buffer, base + 69)[0]
+        current_cannons = struct.unpack_from('<I', self.file_buffer, base + 85)[0]
         adjustment = stored_capacity - table_capacity
         visible_capacity = self._fleet_visible_capacity(stored_capacity, current_cannons)
-        return ui('ui_0427', table_capacity, table_cannons, table_visible,
-                  table_capacity, adjustment, current_cannons, visible_capacity)
+        return ui('ui_0427', table_capacity, table_cannons, table_visible, table_capacity, adjustment, current_cannons, visible_capacity)
 
     def _hide_fleet_basic_tooltip(self, _event=None):
         tooltip = getattr(self, '_fleet_basic_tooltip', None)
@@ -3741,7 +3497,7 @@ class CDS3SaveEditorApp:
     @classmethod
     @lru_cache(maxsize=1)
     def _fleet_ship_type_options(cls):
-        return tuple(cls._fleet_ship_type_name(code) for code in range(8))
+        return tuple((cls._fleet_ship_type_name(code) for code in range(8)))
 
     @classmethod
     def _fleet_ship_type_code(cls, value):
@@ -3766,18 +3522,48 @@ class CDS3SaveEditorApp:
     @staticmethod
     @lru_cache(maxsize=1)
     def _fleet_figurehead_map():
-        return {int(code): ITEM_NAME_BY_ID.get(name, ui('ui_0295', name)) if isinstance(name, int) else name
-                for code, name in FLEET_DATA['figureheads'].items()}
+        return {int(code): ITEM_NAME_BY_ID.get(name, ui('ui_0295', name)) if isinstance(name, int) else name for code, name in FLEET_DATA['figureheads'].items()}
+
+    @staticmethod
+    def _fleet_figurehead_effect_texts(code):
+        """Return the sailing/battle effects identified in the original EXE."""
+        if code == 65535:
+            return (ui('ui_0319'), ui('ui_0319'))
+        if not isinstance(code, int) or not 0 <= code <= 35:
+            return (UI_EMPTY_VALUE, UI_EMPTY_VALUE)
+        if code <= 33:
+            sea_effect = ui(('ui_0527', 'ui_0528', 'ui_0529', 'ui_0530')[code % 4])
+            chance = 11 if code <= 13 else 41 if code <= 25 else 71
+            sea_text = ui('ui_0531', sea_effect, chance)
+        else:
+            sea_text = ui('ui_0319')
+        battle_text = {26: ui('ui_0532'), 27: ui('ui_0533'), 28: ui('ui_0534'), 29: ui('ui_0535'), 30: ui('ui_0536'), 31: ui('ui_0537'), 32: ui('ui_0538'), 33: ui('ui_0539'), 34: ui('ui_0540'), 35: ui('ui_0541')}.get(code, ui('ui_0319'))
+        return (sea_text, battle_text)
+
+    def _update_fleet_figurehead_effects(self):
+        """Refresh the two effect rows for the figurehead currently in the editor."""
+        sea_var = getattr(self, 'fleet_figurehead_sea_effect_var', None)
+        battle_var = getattr(self, 'fleet_figurehead_battle_effect_var', None)
+        figurehead_var = getattr(self, 'fleet_edit_vars', {}).get('figurehead')
+        if sea_var is None or battle_var is None or figurehead_var is None:
+            return
+        try:
+            code = self._fleet_combo_code(figurehead_var.get(), self._fleet_figurehead_map())
+        except ValueError:
+            code = None
+        sea_text, battle_text = self._fleet_figurehead_effect_texts(code)
+        sea_var.set(sea_text)
+        battle_var.set(battle_text)
 
     @staticmethod
     @lru_cache(maxsize=1)
     def _fleet_mast_options():
-        return tuple(FLEET_DATA['mast_names'][str(code)] for code in range(3))
+        return tuple((FLEET_DATA['mast_names'][str(code)] for code in range(3)))
 
     @staticmethod
     @lru_cache(maxsize=1)
     def _fleet_main_mast_options():
-        return tuple(FLEET_DATA['mast_names'][str(code)] for code in range(1, 3))
+        return tuple((FLEET_DATA['mast_names'][str(code)] for code in range(1, 3)))
 
     @staticmethod
     @lru_cache(maxsize=1)
@@ -3824,7 +3610,7 @@ class CDS3SaveEditorApp:
             ship_code = None
             count = 1
         base_count = self._fleet_mast_count(self._fleet_default_mast_value(ship_code)) if ship_code is not None else 1
-        default_mast = self._fleet_default_mast_value(ship_code) if ship_code is not None else 0x01
+        default_mast = self._fleet_default_mast_value(ship_code) if ship_code is not None else 1
         mast_names = self._fleet_mast_name_map()
         for number, key in enumerate(('mast_main', 'mast_sub', 'mast_stern'), start=1):
             slot, combo = self.fleet_mast_rows[key]
@@ -3832,13 +3618,11 @@ class CDS3SaveEditorApp:
             options = self._fleet_main_mast_options() if required else self._fleet_mast_options()
             combo.configure(values=options)
             if self.fleet_edit_vars[key].get() not in options:
-                default_state = (default_mast >> ((number - 1) * 2)) & 0x03
-                self.fleet_edit_vars[key].set(
-                    mast_names.get(default_state, mast_names[1]) if required else mast_names[0])
+                default_state = default_mast >> (number - 1) * 2 & 3
+                self.fleet_edit_vars[key].set(mast_names.get(default_state, mast_names[1]) if required else mast_names[0])
             if number <= count:
                 slot.grid()
             else:
-                # A type with fewer mast slots must not retain hidden mast bits.
                 self.fleet_edit_vars[key].set(mast_names[0])
                 slot.grid_remove()
         if ship_code is not None:
@@ -3850,6 +3634,16 @@ class CDS3SaveEditorApp:
                     ship_index = self.fleet_active_indices[position]
             self._set_fleet_base_info(ship_code, ship_index)
             self._limit_fleet_crew_input()
+
+    def _on_fleet_ship_type_selected(self, _event=None):
+        """Apply ship-type dependent controls and refresh its video immediately."""
+        self._update_fleet_mast_controls()
+        self._update_fleet_preview_from_editor()
+
+    def _on_fleet_figurehead_selected(self, _event=None):
+        """Refresh the selected figurehead's text and picture immediately."""
+        self._update_fleet_figurehead_effects()
+        self._update_fleet_preview_from_editor()
 
     def _fleet_max_crew(self):
         """The game permits up to five times the type's initial minimum crew."""
@@ -3882,11 +3676,7 @@ class CDS3SaveEditorApp:
 
     def _limit_fleet_current_value(self, current_key):
         """Keep a current ship stat no higher than its paired maximum stat."""
-        maximum_key = {
-            'current_power': 'max_power',
-            'current_durability': 'max_durability',
-            'current_cannons': 'max_cannons',
-        }.get(current_key)
+        maximum_key = {'current_power': 'max_power', 'current_durability': 'max_durability', 'current_cannons': 'max_cannons'}.get(current_key)
         if maximum_key is None:
             return
         try:
@@ -3918,8 +3708,6 @@ class CDS3SaveEditorApp:
             self._limit_fleet_current_value('current_durability')
         elif key == 'max_cannons':
             self._limit_fleet_current_value('current_cannons')
-        # 스핀 버튼을 길게 누르면 명령이 연속 발생한다. 매 클릭마다 유휴 저장을
-        # 쌓지 않고 키 입력과 같은 디바운스 경로로 묶는다.
         self._schedule_fleet_live_apply()
 
     def _apply_fleet_live(self):
@@ -3932,10 +3720,8 @@ class CDS3SaveEditorApp:
                 pass
         self._fleet_live_job = None
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
-        required = ('name', 'ship_type', 'crew', 'max_weight', 'max_capacity', 'max_power', 'current_power',
-                    'max_durability', 'current_durability', 'max_cannons', 'current_cannons', 'cannon_type', 'figurehead')
-        if (self.file_buffer and selected and selected[0].isdigit()
-                and all(self.fleet_edit_vars.get(key, tk.StringVar()).get().strip() for key in required)):
+        required = ('name', 'ship_type', 'crew', 'max_weight', 'max_capacity', 'max_power', 'current_power', 'max_durability', 'current_durability', 'max_cannons', 'current_cannons', 'cannon_type', 'figurehead')
+        if self.file_buffer and selected and selected[0].isdigit() and all((self.fleet_edit_vars.get(key, tk.StringVar()).get().strip() for key in required)):
             self.apply_fleet_edits(refresh_list=False)
 
     def _schedule_fleet_live_apply(self):
@@ -3958,9 +3744,7 @@ class CDS3SaveEditorApp:
             return
         selected = self.lst_fleet.selection()
         selected_index = int(selected[0]) if selected and selected[0].isdigit() else 0
-        slot_ids = tuple(str(index) for index in range(8))
-        # 운용 함선 수와 상관없이 1~8번 슬롯 행은 유지한다.
-        # 그래서 함선 제거 시 목록 자체가 사라지지 않고 이름만 빈칸으로 남는다.
+        slot_ids = tuple((str(index) for index in range(8)))
         if tuple(self.lst_fleet.get_children()) != slot_ids:
             self.lst_fleet.delete(*self.lst_fleet.get_children())
             for index in range(8):
@@ -3971,7 +3755,7 @@ class CDS3SaveEditorApp:
             if self.file_buffer and position < len(self.fleet_active_indices):
                 ship_index = self.fleet_active_indices[position]
                 base = self._fleet_slot_offset(ship_index)
-                raw_name = bytes(self.file_buffer[base + 0x08:base + 0x2D]).split(b'\x00')[0]
+                raw_name = bytes(self.file_buffer[base + 8:base + 45]).split(b'\x00')[0]
                 name = raw_name.decode('cp949', errors='ignore').strip()
                 if not name:
                     name = ui('ui_0268')
@@ -3983,7 +3767,7 @@ class CDS3SaveEditorApp:
             self.lst_fleet.see(str(selected_index))
             self._set_fleet_detail(self.fleet_active_indices[selected_index], selected_index)
         else:
-            self.lst_fleet.selection_remove(*self.lst_fleet.selection())
+            self.lst_fleet.selection_remove(self.lst_fleet.selection())
             self._set_fleet_detail(None)
         self._update_fleet_reset_state()
         self._schedule_treeview_autofit(self.lst_fleet, self.lst_fleet_basic)
@@ -3991,7 +3775,7 @@ class CDS3SaveEditorApp:
     def on_fleet_select(self, _event=None):
         self._update_fleet_reset_state()
         selected = self.lst_fleet.selection()
-        if not selected or not selected[0].isdigit() or not getattr(self, 'fleet_active_indices', []):
+        if not selected or not selected[0].isdigit() or (not getattr(self, 'fleet_active_indices', [])):
             self._set_fleet_detail(None)
             return
         fleet_position = int(selected[0])
@@ -4012,16 +3796,14 @@ class CDS3SaveEditorApp:
             self._update_fleet_preview(None, None)
             return
         base = self._fleet_slot_offset(ship_index)
-        if len(self.file_buffer) <= base + 0x64:
+        if len(self.file_buffer) <= base + 100:
             return self._set_fleet_detail(None)
         read_u32 = lambda offset: struct.unpack_from('<I', self.file_buffer, offset)[0]
-        ship_code = read_u32(base + 0x2D)
+        ship_code = read_u32(base + 45)
         self._set_fleet_base_info(ship_code, ship_index)
         if hasattr(self, 'fleet_flagship_var'):
-            # 0x48D9 stores the zero-based position in the active-fleet slot table
-            # (0x48DD).  fleet_no is that same table position.
             self.fleet_flagship_var.set(self._fleet_flagship_position() == fleet_no)
-        figurehead = struct.unpack_from('<H', self.file_buffer, base + 0x5B)[0]
+        figurehead = struct.unpack_from('<H', self.file_buffer, base + 91)[0]
         self._update_fleet_preview(ship_code, figurehead)
         self._populate_fleet_editor(ship_index)
 
@@ -4030,8 +3812,6 @@ class CDS3SaveEditorApp:
         if not hasattr(self, 'fleet_video_preview'):
             return
         if getattr(self, '_suspend_fleet_preview', False):
-            # 파일 교체 중에는 libVLC에 stop/set_media/pause를 호출하지 않는다.
-            # 재생 스레드의 ctypes 콜백과 충돌해 UI가 멈출 수 있기 때문이다.
             self.fleet_video_preview.suspend_render_for_load()
         elif ship_code is None or not 0 <= ship_code <= 7:
             self.fleet_video_preview.show_blank()
@@ -4049,7 +3829,7 @@ class CDS3SaveEditorApp:
                     self.fleet_video_column.pack(side=tk.LEFT, padx=(8, 0))
         if not hasattr(self, 'lbl_fleet_figurehead_img'):
             return
-        if figurehead_code is None or not 0 <= figurehead_code <= 0x23:
+        if figurehead_code is None or not 0 <= figurehead_code <= 35:
             self.fleet_figurehead_box.config(bg='#000000')
             self.lbl_fleet_figurehead_img.config(image='', text='', bg='#000000')
             self.fleet_figurehead_photo = None
@@ -4070,12 +3850,25 @@ class CDS3SaveEditorApp:
             if not self.fleet_figurehead_column.winfo_manager():
                 self.fleet_figurehead_column.pack(side=tk.RIGHT, padx=(0, 8))
 
+    def _update_fleet_preview_from_editor(self):
+        """Resolve the two editor dropdowns and immediately refresh both previews."""
+        edit_vars = getattr(self, 'fleet_edit_vars', {})
+        try:
+            ship_code = self._fleet_ship_type_code(edit_vars['ship_type'].get())
+        except (KeyError, ValueError):
+            ship_code = None
+        try:
+            figurehead_code = self._fleet_combo_code(edit_vars['figurehead'].get(), self._fleet_figurehead_map())
+        except (KeyError, ValueError):
+            figurehead_code = None
+        self._update_fleet_preview(ship_code, figurehead_code)
+
     def _resume_fleet_preview_after_load(self):
         """세이브·목록 갱신이 끝난 뒤 선택 함선의 영상을 안전하게 다시 시작한다."""
         self._fleet_preview_resume_job = None
         self._suspend_fleet_preview = False
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
-        if not selected or not selected[0].isdigit() or not getattr(self, 'fleet_active_indices', []):
+        if not selected or not selected[0].isdigit() or (not getattr(self, 'fleet_active_indices', [])):
             return
         position = int(selected[0])
         if 0 <= position < len(self.fleet_active_indices):
@@ -4097,34 +3890,15 @@ class CDS3SaveEditorApp:
         else:
             shipyard_requirement = record[2]
             base_min_crew = record[13] + 10
-            base_power, power_limit = record[3], record[4]
-            base_durability, durability_limit = record[5], record[6]
-            base_weight, weight_limit = f'{record[7]:,}', f'{record[8]:,}'
-            # 세이브/EXE 테이블의 용량에는 대포 설치 공간이 포함된다.
-            # 인게임 화면은 기본 대포 수만큼을 뺀 적재용량을 표시한다.
+            base_power, power_limit = (record[3], record[4])
+            base_durability, durability_limit = (record[5], record[6])
+            base_weight, weight_limit = ('{0:,}'.format(record[7]), '{0:,}'.format(record[8]))
             base_capacity = self._fleet_visible_capacity(record[9], record[11])
             capacity_limit = record[10]
-            base_cannons, cannon_limit = record[11], record[12]
+            base_cannons, cannon_limit = (record[11], record[12])
             unknown_38 = record[14]
             base_masts = self._fleet_mast_count(record[15])
-        values = {
-            'ship_type': self._fleet_ship_type_name(ship_code),
-            'shipyard_requirement': str(shipyard_requirement),
-            'base_min_crew': str(base_min_crew),
-            'base_power': str(base_power),
-            'power_limit': str(power_limit),
-            'base_durability': str(base_durability),
-            'durability_limit': str(durability_limit),
-            'base_weight': str(base_weight),
-            'weight_limit': str(weight_limit),
-            'base_capacity': str(base_capacity),
-            'capacity_limit': str(capacity_limit),
-            'base_cannons': str(base_cannons),
-            'cannon_limit': str(cannon_limit),
-            'unknown_38': str(unknown_38),
-            'base_masts': str(base_masts),
-            'max_masts': self._fleet_max_mast_count(ship_code),
-        }
+        values = {'ship_type': self._fleet_ship_type_name(ship_code), 'shipyard_requirement': str(shipyard_requirement), 'base_min_crew': str(base_min_crew), 'base_power': str(base_power), 'power_limit': str(power_limit), 'base_durability': str(base_durability), 'durability_limit': str(durability_limit), 'base_weight': str(base_weight), 'weight_limit': str(weight_limit), 'base_capacity': str(base_capacity), 'capacity_limit': str(capacity_limit), 'base_cannons': str(base_cannons), 'cannon_limit': str(cannon_limit), 'unknown_38': str(unknown_38), 'base_masts': str(base_masts), 'max_masts': self._fleet_max_mast_count(ship_code)}
         for key, text in values.items():
             self.lst_fleet_basic.set(key, 'base_value', text)
 
@@ -4135,38 +3909,22 @@ class CDS3SaveEditorApp:
         if ship_index is None or not self.file_buffer:
             for value in self.fleet_edit_vars.values():
                 value.set('')
+            self._update_fleet_figurehead_effects()
             return
         base = self._fleet_slot_offset(ship_index)
-        if len(self.file_buffer) <= base + 0x64:
+        if len(self.file_buffer) <= base + 100:
             return self._populate_fleet_editor(None)
         read_u16 = lambda offset: struct.unpack_from('<H', self.file_buffer, offset)[0]
         read_u32 = lambda offset: struct.unpack_from('<I', self.file_buffer, offset)[0]
-        raw_name = bytes(self.file_buffer[base + 0x08:base + 0x2D]).split(b'\x00')[0]
-        values = {
-            'name': raw_name.decode('cp949', errors='ignore').strip(),
-            'ship_type': self._fleet_ship_type_name(read_u32(base + 0x2D)),
-            'crew': str(read_u32(base + 0x35)),
-            'current_power': str(read_u32(base + 0x39)),
-            'max_power': str(read_u32(base + 0x3D)),
-            'max_weight': str(read_u32(base + 0x41)),
-            'max_capacity': str(self._fleet_visible_capacity(
-                read_u32(base + 0x45), read_u32(base + 0x55))),
-            'current_durability': str(read_u32(base + 0x49)),
-            'max_durability': str(read_u32(base + 0x4D)),
-            'current_cannons': str(read_u32(base + 0x51)),
-            'max_cannons': str(read_u32(base + 0x55)),
-            'cannon_type': self._fleet_dropdown_value(
-                self._fleet_cannon_type_map(), read_u16(base + 0x59)),
-            'figurehead': self._fleet_dropdown_value(
-                self._fleet_figurehead_map(), read_u16(base + 0x5B)),
-        }
+        raw_name = bytes(self.file_buffer[base + 8:base + 45]).split(b'\x00')[0]
+        values = {'name': raw_name.decode('cp949', errors='ignore').strip(), 'ship_type': self._fleet_ship_type_name(read_u32(base + 45)), 'crew': str(read_u32(base + 53)), 'current_power': str(read_u32(base + 57)), 'max_power': str(read_u32(base + 61)), 'max_weight': str(read_u32(base + 65)), 'max_capacity': str(self._fleet_visible_capacity(read_u32(base + 69), read_u32(base + 85))), 'current_durability': str(read_u32(base + 73)), 'max_durability': str(read_u32(base + 77)), 'current_cannons': str(read_u32(base + 81)), 'max_cannons': str(read_u32(base + 85)), 'cannon_type': self._fleet_dropdown_value(self._fleet_cannon_type_map(), read_u16(base + 89)), 'figurehead': self._fleet_dropdown_value(self._fleet_figurehead_map(), read_u16(base + 91))}
         for key, text in values.items():
             self.fleet_edit_vars[key].set(text)
-        mast_value = self.file_buffer[base + 0x63]
+        mast_value = self.file_buffer[base + 99]
         for index, key in enumerate(('mast_main', 'mast_sub', 'mast_stern')):
-            mast_code = (mast_value >> (index * 2)) & 0x03
-            self.fleet_edit_vars[key].set(self._fleet_dropdown_value(
-                self._fleet_mast_name_map(), mast_code))
+            mast_code = mast_value >> index * 2 & 3
+            self.fleet_edit_vars[key].set(self._fleet_dropdown_value(self._fleet_mast_name_map(), mast_code))
+        self._update_fleet_figurehead_effects()
         self._update_fleet_mast_controls()
 
     @staticmethod
@@ -4179,9 +3937,7 @@ class CDS3SaveEditorApp:
         original = getattr(self, 'fleet_original_buffer', None)
         if not self.file_buffer or not original:
             return
-        # 0x48D9~0x48EC는 기함 위치와 8개 운용 함선 참조, 0x499A~0x9249는
-        # 200개 함선 풀이다. 둘을 함께 되돌려 추가·삭제도 완전히 취소한다.
-        for start, end in ((0x48D9, 0x48ED), (0x499A, 0x924A)):
+        for start, end in ((18649, 18669), (18842, 37450)):
             if end <= len(self.file_buffer) and end <= len(original):
                 self.file_buffer[start:end] = original[start:end]
         self.refresh_fleet_list()
@@ -4195,9 +3951,8 @@ class CDS3SaveEditorApp:
         changed = False
         original = getattr(self, 'fleet_original_buffer', None)
         if self.file_buffer and original:
-            for start, end in ((0x48D9, 0x48ED), (0x499A, 0x924A)):
-                if (end <= len(self.file_buffer) and end <= len(original)
-                        and self.file_buffer[start:end] != original[start:end]):
+            for start, end in ((18649, 18669), (18842, 37450)):
+                if end <= len(self.file_buffer) and end <= len(original) and (self.file_buffer[start:end] != original[start:end]):
                     changed = True
                     break
         if changed:
@@ -4213,36 +3968,29 @@ class CDS3SaveEditorApp:
         The released pool slot is marked unused for a future ship-add operation.
         """
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
-        if (not self.file_buffer or not selected or not selected[0].isdigit()
-                or not getattr(self, 'fleet_active_indices', [])):
+        if not self.file_buffer or not selected or (not selected[0].isdigit()) or (not getattr(self, 'fleet_active_indices', [])):
             messagebox.showwarning(ui('ui_0151'), ui('ui_0152'))
             return
         position = int(selected[0])
         if not 0 <= position < len(self.fleet_active_indices):
             return
-
         ship_index = self.fleet_active_indices[position]
         base = self._fleet_slot_offset(ship_index)
-        raw_name = bytes(self.file_buffer[base + 0x08:base + 0x2D]).split(b'\x00')[0]
+        raw_name = bytes(self.file_buffer[base + 8:base + 45]).split(b'\x00')[0]
         name = raw_name.decode('cp949', errors='ignore').strip() or ui('ui_0268')
         if not messagebox.askyesno(ui('ui_0334'), ui('ui_0336', name), parent=self.root):
             return
-
         active_indices = list(self.fleet_active_indices)
         del active_indices[position]
         write_active_ship_indices(self.file_buffer, active_indices)
-
         old_flagship = self._fleet_flagship_position()
         if not active_indices:
             write_flagship_position(self.file_buffer, None)
         elif old_flagship == position:
-            # 기함을 지우면 다음 배(마지막이었다면 앞 배)가 그 자리를 이어받는다.
             write_flagship_position(self.file_buffer, min(position, len(active_indices) - 1))
         elif old_flagship is not None and old_flagship > position:
             write_flagship_position(self.file_buffer, old_flagship - 1)
-
-        # 비활성화된 슬롯의 나머지 필드는 새 함선 생성 시 모두 초기화한다.
-        struct.pack_into('<I', self.file_buffer, base + 0x2D, 0xFFFFFFFF)
+        struct.pack_into('<I', self.file_buffer, base + 45, 4294967295)
         self.refresh_fleet_list()
         self.lbl_status.config(text=ui('ui_0337', name))
 
@@ -4256,30 +4004,24 @@ class CDS3SaveEditorApp:
         result = {'value': None}
         body = tk.Frame(dialog, padx=14, pady=12)
         body.pack(fill=tk.BOTH, expand=True)
-
-        tk.Label(body, text=ui('ui_0126') + ':', font=('Malgun Gothic', 9)).grid(
-            row=0, column=0, sticky='e', padx=(0, 7), pady=3)
+        tk.Label(body, text=ui_label(ui('ui_0126')), font=(APP_FONT_FAMILY, 9)).grid(row=0, column=0, sticky='e', padx=(0, 7), pady=3)
         type_var = tk.StringVar(value=self._fleet_ship_type_name(0))
-        type_combo = ttk.Combobox(body, textvariable=type_var, state='readonly', width=18,
-                                  values=self._fleet_ship_type_options(), font=('Malgun Gothic', 9))
+        type_combo = ttk.Combobox(body, textvariable=type_var, state='readonly', width=18, values=self._fleet_ship_type_options(), font=(APP_FONT_FAMILY, 9))
         type_combo.grid(row=0, column=1, sticky='ew', pady=3)
-        tk.Label(body, text=ui('ui_0226'), font=('Malgun Gothic', 9)).grid(
-            row=1, column=0, sticky='e', padx=(0, 7), pady=3)
+        tk.Label(body, text=ui('ui_0226'), font=(APP_FONT_FAMILY, 9)).grid(row=1, column=0, sticky='e', padx=(0, 7), pady=3)
         name_var = tk.StringVar(value=ui('ui_0339'))
-        name_entry = tk.Entry(body, textvariable=name_var, width=21, font=('Malgun Gothic', 9))
+        name_entry = tk.Entry(body, textvariable=name_var, width=21, font=(APP_FONT_FAMILY, 9))
+
         def validate_name(proposed):
             try:
                 return len(proposed.encode('cp949')) <= 36
             except UnicodeEncodeError:
                 return False
-        name_entry.configure(validate='key',
-                             validatecommand=(self.root.register(validate_name), '%P'))
+        name_entry.configure(validate='key', validatecommand=(self.root.register(validate_name), '%P'))
         name_entry.grid(row=1, column=1, sticky='ew', pady=3)
         error_var = tk.StringVar(value='')
-        tk.Label(body, textvariable=error_var, fg='#B3261E', font=('Malgun Gothic', 9)).grid(
-            row=2, column=0, columnspan=2, pady=(2, 0))
-        tk.Label(body, text=ui('ui_0345'), fg='#8B3A00', font=('Malgun Gothic', 9)).grid(
-            row=3, column=0, columnspan=2, pady=(5, 0))
+        tk.Label(body, textvariable=error_var, fg='#B3261E', font=(APP_FONT_FAMILY, 9)).grid(row=2, column=0, columnspan=2, pady=(2, 0))
+        tk.Label(body, text=ui('ui_0345'), fg='#8B3A00', font=(APP_FONT_FAMILY, 9)).grid(row=3, column=0, columnspan=2, pady=(5, 0))
         buttons = tk.Frame(body)
         buttons.grid(row=4, column=0, columnspan=2, pady=(9, 0))
 
@@ -4295,7 +4037,6 @@ class CDS3SaveEditorApp:
                 return
             result['value'] = (self._fleet_ship_type_code(type_var.get()), name)
             dialog.destroy()
-
         EditorButton(buttons, text=ui('ui_0098'), width=8, command=confirm).pack(side=tk.LEFT, padx=(0, 4))
         EditorButton(buttons, text=ui('ui_0102'), width=8, command=dialog.destroy).pack(side=tk.LEFT, padx=(4, 0))
         dialog.bind('<Return>', lambda _event: confirm())
@@ -4303,7 +4044,7 @@ class CDS3SaveEditorApp:
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
         y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f'+{max(0, x)}+{max(0, y)}')
+        dialog.geometry('+{0}+{1}'.format(max(0, x), max(0, y)))
         dialog.deiconify()
         dialog.grab_set()
         name_entry.focus_set()
@@ -4318,7 +4059,7 @@ class CDS3SaveEditorApp:
             if ship_index in active:
                 continue
             base = self._fleet_slot_offset(ship_index)
-            if base + 0x64 <= len(self.file_buffer) and struct.unpack_from('<I', self.file_buffer, base + 0x2D)[0] == 0xFFFFFFFF:
+            if base + 100 <= len(self.file_buffer) and struct.unpack_from('<I', self.file_buffer, base + 45)[0] == 4294967295:
                 return ship_index
         return None
 
@@ -4343,31 +4084,27 @@ class CDS3SaveEditorApp:
         if record is None:
             messagebox.showerror(ui('ui_0338'), ui('ui_0075'))
             return
-
         base = self._fleet_slot_offset(ship_index)
         name_bytes = name.encode('cp949')
-        # 구매 직후 저장된 실제 레코드와 같은 기본값: 승선원/대포는 0,
-        # 용량에는 조선소에서 생성되는 개별 보정 +5가 반영되어 있다.
-        self.file_buffer[base + 0x08:base + 0x2D] = b'\x00' * 0x25
-        self.file_buffer[base + 0x08:base + 0x08 + len(name_bytes)] = name_bytes
-        struct.pack_into('<I', self.file_buffer, base + 0x2D, ship_code)
-        struct.pack_into('<I', self.file_buffer, base + 0x31, record[13])
-        struct.pack_into('<I', self.file_buffer, base + 0x35, 0)
-        struct.pack_into('<I', self.file_buffer, base + 0x39, record[3])
-        struct.pack_into('<I', self.file_buffer, base + 0x3D, record[3])
-        struct.pack_into('<I', self.file_buffer, base + 0x41, record[7])
-        struct.pack_into('<I', self.file_buffer, base + 0x45, record[9] + 5)
-        struct.pack_into('<I', self.file_buffer, base + 0x49, record[5])
-        struct.pack_into('<I', self.file_buffer, base + 0x4D, record[5])
-        struct.pack_into('<I', self.file_buffer, base + 0x51, 0)
-        struct.pack_into('<I', self.file_buffer, base + 0x55, record[11])
-        struct.pack_into('<H', self.file_buffer, base + 0x59, 0xFFFF)
-        struct.pack_into('<H', self.file_buffer, base + 0x5B, 0xFFFF)
-        self.file_buffer[base + 0x5D:base + 0x63] = b'\x00' * 6
-        self.file_buffer[base + 0x63] = self._fleet_default_mast_value(ship_code)
-
+        self.file_buffer[base + 8:base + 45] = b'\x00' * 37
+        self.file_buffer[base + 8:base + 8 + len(name_bytes)] = name_bytes
+        struct.pack_into('<I', self.file_buffer, base + 45, ship_code)
+        struct.pack_into('<I', self.file_buffer, base + 49, record[13])
+        struct.pack_into('<I', self.file_buffer, base + 53, 0)
+        struct.pack_into('<I', self.file_buffer, base + 57, record[3])
+        struct.pack_into('<I', self.file_buffer, base + 61, record[3])
+        struct.pack_into('<I', self.file_buffer, base + 65, record[7])
+        struct.pack_into('<I', self.file_buffer, base + 69, record[9] + 5)
+        struct.pack_into('<I', self.file_buffer, base + 73, record[5])
+        struct.pack_into('<I', self.file_buffer, base + 77, record[5])
+        struct.pack_into('<I', self.file_buffer, base + 81, 0)
+        struct.pack_into('<I', self.file_buffer, base + 85, record[11])
+        struct.pack_into('<H', self.file_buffer, base + 89, 65535)
+        struct.pack_into('<H', self.file_buffer, base + 91, 65535)
+        self.file_buffer[base + 93:base + 99] = b'\x00' * 6
+        self.file_buffer[base + 99] = self._fleet_default_mast_value(ship_code)
         fleet_position = len(active_indices)
-        write_active_ship_indices(self.file_buffer, [*active_indices, ship_index])
+        write_active_ship_indices(self.file_buffer, list(active_indices) + [ship_index])
         if self._fleet_flagship_position() is None:
             write_flagship_position(self.file_buffer, fleet_position)
         self.refresh_fleet_list()
@@ -4380,7 +4117,7 @@ class CDS3SaveEditorApp:
     def apply_fleet_edits(self, save_after=False, refresh_list=True):
         """Write the edit pane back to the selected active ship record in memory."""
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
-        if not self.file_buffer or not selected or not selected[0].isdigit():
+        if not self.file_buffer or not selected or (not selected[0].isdigit()):
             messagebox.showwarning(ui('ui_0151'), ui('ui_0152'))
             return
         position = int(selected[0])
@@ -4388,7 +4125,6 @@ class CDS3SaveEditorApp:
             return
         ship_index = self.fleet_active_indices[position]
         base = self._fleet_slot_offset(ship_index)
-
         try:
             name_bytes = self.fleet_edit_vars['name'].get().strip().encode('cp949')
         except UnicodeEncodeError:
@@ -4398,7 +4134,7 @@ class CDS3SaveEditorApp:
             messagebox.showerror(ui('ui_0151'), ui('ui_0153'))
             return
 
-        def decimal(key, label, minimum=0, maximum=0xFFFFFFFF):
+        def decimal(key, label, minimum=0, maximum=4294967295):
             try:
                 value = int(self.fleet_edit_vars[key].get().strip(), 10)
             except ValueError:
@@ -4406,47 +4142,21 @@ class CDS3SaveEditorApp:
             if not minimum <= value <= maximum:
                 raise ValueError(ui('ui_0032', label, minimum, maximum))
             return value
-
         try:
-            values = {
-                'ship_type': self._fleet_ship_type_code(self.fleet_edit_vars['ship_type'].get()),
-                'crew': decimal('crew', fleet_label('ui_0130', 'ui_0127'), 0, self._fleet_max_crew() or 0),
-                'current_power': decimal('current_power', fleet_label('ui_0130', 'ui_0131')),
-                'max_power': decimal('max_power', fleet_label('ui_0129', 'ui_0131'), 0, 255),
-                'max_weight': decimal('max_weight', fleet_label('ui_0129', 'ui_0132')),
-                'max_capacity': decimal('max_capacity', fleet_label('ui_0129', 'ui_0133')),
-                'current_durability': decimal('current_durability', fleet_label('ui_0130', 'ui_0134')),
-                'max_durability': decimal('max_durability', fleet_label('ui_0129', 'ui_0134'), 0, 0x7FFFFFFF),
-                'current_cannons': decimal('current_cannons', fleet_label('ui_0130', 'ui_0135')),
-                'max_cannons': decimal('max_cannons', fleet_label('ui_0129', 'ui_0135')),
-                'cannon_type': self._fleet_combo_code(
-                    self.fleet_edit_vars['cannon_type'].get(), self._fleet_cannon_type_map()),
-                'figurehead': self._fleet_combo_code(
-                    self.fleet_edit_vars['figurehead'].get(), self._fleet_figurehead_map()),
-            }
-            values['mast'] = pack_mast_slots(
-                self._fleet_combo_code(self.fleet_edit_vars[key].get(), self._fleet_mast_name_map())
-                for key in ('mast_main', 'mast_sub', 'mast_stern')
-            )
-            for current_key, maximum_key, label in (
-                ('current_power', 'max_power', fleet_label('ui_0130', 'ui_0131')),
-                ('current_durability', 'max_durability', fleet_label('ui_0130', 'ui_0134')),
-                ('current_cannons', 'max_cannons', fleet_label('ui_0130', 'ui_0135')),
-            ):
+            values = {'ship_type': self._fleet_ship_type_code(self.fleet_edit_vars['ship_type'].get()), 'crew': decimal('crew', fleet_label('ui_0130', 'ui_0127'), 0, self._fleet_max_crew() or 0), 'current_power': decimal('current_power', fleet_label('ui_0130', 'ui_0131')), 'max_power': decimal('max_power', fleet_label('ui_0129', 'ui_0131'), 0, 255), 'max_weight': decimal('max_weight', fleet_label('ui_0129', 'ui_0132')), 'max_capacity': decimal('max_capacity', fleet_label('ui_0129', 'ui_0133')), 'current_durability': decimal('current_durability', fleet_label('ui_0130', 'ui_0134')), 'max_durability': decimal('max_durability', fleet_label('ui_0129', 'ui_0134'), 0, 2147483647), 'current_cannons': decimal('current_cannons', fleet_label('ui_0130', 'ui_0135')), 'max_cannons': decimal('max_cannons', fleet_label('ui_0129', 'ui_0135')), 'cannon_type': self._fleet_combo_code(self.fleet_edit_vars['cannon_type'].get(), self._fleet_cannon_type_map()), 'figurehead': self._fleet_combo_code(self.fleet_edit_vars['figurehead'].get(), self._fleet_figurehead_map())}
+            values['mast'] = pack_mast_slots((self._fleet_combo_code(self.fleet_edit_vars[key].get(), self._fleet_mast_name_map()) for key in ('mast_main', 'mast_sub', 'mast_stern')))
+            for current_key, maximum_key, label in (('current_power', 'max_power', fleet_label('ui_0130', 'ui_0131')), ('current_durability', 'max_durability', fleet_label('ui_0130', 'ui_0134')), ('current_cannons', 'max_cannons', fleet_label('ui_0130', 'ui_0135'))):
                 if values[current_key] > values[maximum_key]:
                     raise ValueError(ui('ui_0052', label))
         except ValueError as exc:
             messagebox.showerror(ui('ui_0151'), str(exc))
             return
-
-        old_mast = self.file_buffer[base + 0x63]
+        old_mast = self.file_buffer[base + 99]
         new_mast_count = self._fleet_mast_count(values['mast'])
         base_mast_count = self._fleet_mast_count(self._fleet_default_mast_value(values['ship_type']))
         max_mast_count = int(self._fleet_max_mast_count(values['ship_type']))
         if new_mast_count < base_mast_count:
-            messagebox.showerror(
-                ui('ui_0154'),
-                ui('ui_0015', self._fleet_ship_type_name(values['ship_type']), base_mast_count))
+            messagebox.showerror(ui('ui_0154'), ui('ui_0015', self._fleet_ship_type_name(values['ship_type']), base_mast_count))
             return
         if new_mast_count > max_mast_count:
             messagebox.showerror(ui('ui_0154'), ui('ui_0016', max_mast_count))
@@ -4458,32 +4168,24 @@ class CDS3SaveEditorApp:
                 messagebox.showerror(ui('ui_0154'), ui('ui_0198'))
                 return
             values['max_capacity'] = adjusted_capacity
-            current_min_crew = struct.unpack_from('<I', self.file_buffer, base + 0x31)[0]
+            current_min_crew = struct.unpack_from('<I', self.file_buffer, base + 49)[0]
             adjusted_min_crew = current_min_crew + mast_delta * 2
             if adjusted_min_crew < 0:
                 messagebox.showerror(ui('ui_0154'), ui('ui_0199'))
                 return
         else:
             adjusted_min_crew = None
-
-        self.file_buffer[base + 0x08:base + 0x2D] = b'\x00' * 0x25
-        self.file_buffer[base + 0x08:base + 0x08 + len(name_bytes)] = name_bytes
-        struct.pack_into('<I', self.file_buffer, base + 0x2D, values['ship_type'])
+        self.file_buffer[base + 8:base + 45] = b'\x00' * 37
+        self.file_buffer[base + 8:base + 8 + len(name_bytes)] = name_bytes
+        struct.pack_into('<I', self.file_buffer, base + 45, values['ship_type'])
         if adjusted_min_crew is not None:
-            struct.pack_into('<I', self.file_buffer, base + 0x31, adjusted_min_crew)
-        for key, offset in (
-            ('crew', 0x35), ('current_power', 0x39), ('max_power', 0x3D),
-            ('max_weight', 0x41),
-            ('current_durability', 0x49), ('max_durability', 0x4D),
-            ('current_cannons', 0x51), ('max_cannons', 0x55),
-        ):
+            struct.pack_into('<I', self.file_buffer, base + 49, adjusted_min_crew)
+        for key, offset in (('crew', 53), ('current_power', 57), ('max_power', 61), ('max_weight', 65), ('current_durability', 73), ('max_durability', 77), ('current_cannons', 81), ('max_cannons', 85)):
             struct.pack_into('<I', self.file_buffer, base + offset, values[key])
-        # 편집창의 용량은 인게임 표시값이므로 저장할 때 대포 설치 공간을 더한다.
-        struct.pack_into('<I', self.file_buffer, base + 0x45,
-                         values['max_capacity'] + values['max_cannons'])
-        struct.pack_into('<H', self.file_buffer, base + 0x59, values['cannon_type'])
-        struct.pack_into('<H', self.file_buffer, base + 0x5B, values['figurehead'])
-        self.file_buffer[base + 0x63] = values['mast']
+        struct.pack_into('<I', self.file_buffer, base + 69, values['max_capacity'] + values['max_cannons'])
+        struct.pack_into('<H', self.file_buffer, base + 89, values['cannon_type'])
+        struct.pack_into('<H', self.file_buffer, base + 91, values['figurehead'])
+        self.file_buffer[base + 99] = values['mast']
         if getattr(self, 'fleet_flagship_var', None) is not None and self.fleet_flagship_var.get():
             write_flagship_position(self.file_buffer, position)
         if refresh_list:
@@ -4497,70 +4199,46 @@ class CDS3SaveEditorApp:
                 messagebox.showerror(ui('ui_0154'), ui('ui_0200'))
                 return
             self.save_to_path(self.file_path)
-    # 도시 레코드는 0x5B5부터 0x4C 바이트 단위로 226개가 이어진다.
-    # EXE의 0x429C10/0x429AF0 직렬화 순서와 일치하는 오프셋이다.
     CITY_RECORDS = CITY_DATA['records']
-    CITY_LAYOUT = CityRecordLayout(
-        CITY_DATA['record_offset'], CITY_DATA['record_size'], len(CITY_RECORDS)
-    )
-    # EXE 정적 도시 테이블(+0x18)의 조선소 판매 후보 마스크. 세이브의 현재 판매 목록과 다르다.
-    CITY_SHIP_CANDIDATE_MASKS = tuple(
-        int(mask)
-        for mask, count in CITY_DATA.get('ship_candidate_mask_runs', ())
-        for _ in range(int(count))
-    ) or tuple(int(value) for value in CITY_DATA.get('ship_candidate_masks', ()))
-    # EXE 도시 기본정보(0x4D14B0 + 도시 ID * 0x88)의 +0x10/+0x14에서 추출한 값이다.
-    # 세이브에는 저장되지 않으므로 표시 전용으로 둔다.
-    CITY_INLAND_CONNECTIONS = {
-        int(city_id): tuple(city_ids)
-        for city_id, city_ids in CITY_DATA.get('inland_city_connections', {}).items()
-    }
+    CITY_LAYOUT = CityRecordLayout(CITY_DATA['record_offset'], CITY_DATA['record_size'], len(CITY_RECORDS))
+    NAVIGATION_MAP_WIDTH = 625
+    NAVIGATION_MAP_HEIGHT = 313
+    NAVIGATION_MAP_ROW_BYTES = 79
+    NAVIGATION_MAP_SAVE_OFFSET = 286085
+    NAVIGATION_MAP_SAVE_SIZE = 24727
+    WORLD_MAP_WIDTH = 2500
+    WORLD_MAP_HEIGHT = 1250
+    WORLD_TERRAIN_CLASS_RVA = 839752
+    NAVIGATION_MAP_MARKER_RENDER_SCALE = 2
+    BUNDLED_NAVIGATION_MAP = os.path.join('Resources', 'map', 'navigation_world.png')
+    MAP_CITY_POINTS = tuple(MAP_LOCATION_DATA.get('city_points', ()))
+    MAP_DISCOVERY_REGIONS = tuple(MAP_LOCATION_DATA.get('discovery_regions', ()))
+    MAP_CITY_COLORS = {'discovered': '#00E676', 'undiscovered': '#FFD54F', 'unspawned': '#EF5350'}
+    MAP_DISCOVERY_COLORS = {'known': '#40C4FF', 'undiscovered': '#FF9100', 'unspawned': '#B388FF'}
+    CITY_SHIP_CANDIDATE_MASKS = tuple((int(mask) for mask, count in CITY_DATA['ship_candidate_mask_runs'] for _ in range(int(count))))
+    CITY_INLAND_CONNECTIONS = {int(city_id): tuple(city_ids) for city_id, city_ids in CITY_DATA.get('inland_city_connections', {}).items()}
     CITY_FACILITY_NAMES = {int(bit): UI_TEXTS.get(name, name) for bit, name in CITY_DATA['facility_names'].items()}
     CITY_STATUS_NAMES = {int(code): name for code, name in CITY_DATA['status_names'].items()}
     CITY_CULTURE_NAMES = {int(entry['id']): entry['name'] for entry in GAME_STRINGS['city_cultures']}
     TRADE_GOOD_NAMES = {int(entry['id']): entry['name'] for entry in TRADE_GOODS_DATA['records']}
     CITY_GOODS_SUPPLY_BY_SIZE = (20, 50, 100, 200, 350, 500, 700, 1000)
-    CITY_FIELD_DEFINITIONS = (
-        ('state', 'ui_0300', 0x00, 'i16', 'default_state'),
-        ('flags', 'ui_0301', 0x02, 'u16', 'default_flags'),
-        ('shipyard_level', 'ui_0302', 0x04, 'u8', 'shipyard_level'),
-        ('update_counter', 'ui_0303', 0x05, 'u8', 'default_update_counter'),
-        ('value_a', 'ui_0304', 0x06, 'i16', 'default_value_a'),
-        ('value_b', 'ui_0305', 0x08, 'u32', 'default_value_b'),
-        ('value_c', 'ui_0306', 0x0C, 'u32', 'default_value_c'),
-        ('facility_flags', 'ui_0307', 0x10, 'u16', 'facility_flags'),
-        ('ship_mask', 'ui_0308', 0x12, 'u16', 'default_ship_mask'),
-        *tuple((f'good_{number}', 'ui_0309', 0x14 + number * 4, 'i32', 'default_goods', number)
-               for number in range(8)),
-        ('city_status', 'ui_0310', 0x34, 'i16', 'default_city_value'),
-        *tuple((f'economy_{number}', 'ui_0311', 0x36 + number * 4, 'u32', 'default_economy_values', number)
-               for number in range(5)),
-        ('link_value', 'ui_0312', 0x4A, 'i16', 'default_link_value'),
-    )
+    CITY_FIELD_DEFINITIONS = (('state', 'ui_0300', 0, 'i16', 'default_state'), ('flags', 'ui_0301', 2, 'u16', 'default_flags'), ('shipyard_level', 'ui_0302', 4, 'u8', 'shipyard_level'), ('update_counter', 'ui_0303', 5, 'u8', 'default_update_counter'), ('value_a', 'ui_0304', 6, 'i16', 'default_value_a'), ('value_b', 'ui_0305', 8, 'u32', 'default_value_b'), ('value_c', 'ui_0306', 12, 'u32', 'default_value_c'), ('facility_flags', 'ui_0307', 16, 'u16', 'facility_flags'), ('ship_mask', 'ui_0308', 18, 'u16', 'default_ship_mask')) + tuple(tuple((('good_{0}'.format(number), 'ui_0309', 20 + number * 4, 'i32', 'default_goods', number) for number in range(8)))) + (('city_status', 'ui_0310', 52, 'i16', 'default_city_value'),) + tuple(tuple((('economy_{0}'.format(number), 'ui_0311', 54 + number * 4, 'u32', 'default_economy_values', number) for number in range(5)))) + (('link_value', 'ui_0312', 74, 'i16', 'default_link_value'),)
     CITY_HIDDEN_FIELD_KEYS = frozenset()
-    # 도시 선택/자동 적용 때마다 만들지 않도록 레코드 메타데이터를 클래스 단위로
-    # 재사용한다.
     CITY_FIELD_BY_KEY = {definition[0]: definition for definition in CITY_FIELD_DEFINITIONS}
+
     def build_cities_tab(self):
         """Build a save-city editor alongside the EXE-derived city defaults."""
         parent = self.tab_cities
         configure_equal_columns(parent, 3, 'city_columns')
-        left = tk.LabelFrame(parent, text=GROUP_TITLES['city_list'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=6)
+        left = tk.LabelFrame(parent, text=GROUP_TITLES['city_list'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=6, pady=6)
         left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
         city_filter = tk.Frame(left)
         city_filter.pack(fill=tk.X, pady=(0, 5))
         tk.Label(city_filter, text=ui('ui_0251')).pack(side=tk.LEFT, padx=(0, 3))
         city_search_host = tk.Frame(city_filter, width=138, height=23)
         city_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.txt_city_search = NativeWinEdit(
-            city_search_host,
-            lambda: self._schedule_search_refresh('cities', self.refresh_cities_list),
-            width=138, height=23,
-        )
-        self.btn_city_reset = EditorButton(
-            city_filter, text=ui('ui_0222'), width=8,
-            bg='#E8F0FE', fg='#1A73E8', command=self.reset_city_edits,
-        )
+        self.txt_city_search = NativeWinEdit(city_search_host, lambda: self._schedule_search_refresh('cities', self.refresh_cities_list), width=138, height=23)
+        self.btn_city_reset = EditorButton(city_filter, text=ui('ui_0222'), width=8, bg='#E8F0FE', fg='#1A73E8', command=self.reset_city_edits)
         self.btn_city_reset.pack(side=tk.RIGHT, padx=(5, 0))
         self.btn_city_reset.pack_forget()
         city_tree_frame = tk.Frame(left)
@@ -4576,17 +4254,15 @@ class CDS3SaveEditorApp:
         self.lst_cities.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         city_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.lst_cities.bind('<<TreeviewSelect>>', self.on_city_select)
-        center = tk.LabelFrame(parent, text=GROUP_TITLES['city_save'], font=('Malgun Gothic', 9, 'bold'), padx=8, pady=8)
+        center = tk.LabelFrame(parent, text=GROUP_TITLES['city_save'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=8)
         center.grid(row=0, column=1, sticky='nsew', padx=5, pady=10)
         center.rowconfigure(0, weight=1)
         center.columnconfigure(0, weight=1)
         self.city_edit_vars = {}
         self.city_field_widgets = {}
         self.city_goods_combos = []
-        # 상단 에디터 탭과 같은 버튼형 탭 스타일을 사용한다.
         city_tabs = ttk.Notebook(center, style='Editor.TNotebook')
         city_tabs.grid(row=0, column=0, sticky='nsew')
-        # Notebook의 직접 자식 대신 부모의 자식 pane을 등록해 탭 전환 깜빡임을 줄인다.
         basic_tab = tk.Frame(center, padx=8, pady=8)
         market_tab = tk.Frame(center, padx=8, pady=8)
         trade_tab = tk.Frame(center, padx=8, pady=8)
@@ -4596,116 +4272,69 @@ class CDS3SaveEditorApp:
         city_tabs.bind('<<NotebookTabChanged>>', self._on_city_editor_tab_changed)
         self.city_tabs = city_tabs
         self.city_trade_tab = trade_tab
-
-        # 고 DPI 또는 낮은 창 높이에서는 보유 시설의 마지막 행이 탭 아래로
-        # 밀릴 수 있다. 기본 탭의 내용만 Canvas 안에 넣어 세로로 스크롤한다.
         basic_canvas = tk.Canvas(basic_tab, highlightthickness=0, bd=0)
-        # Canvas 스크롤은 테마별 ttk 얇은 막대가 배경에 묻기 쉬워, 폭을
-        # 명시한 Windows 기본 스크롤바를 사용한다.
-        basic_scrollbar = tk.Scrollbar(
-            basic_tab, orient=tk.VERTICAL, command=basic_canvas.yview,
-            width=_dpi_px(14), takefocus=0,
-        )
+        basic_scrollbar = tk.Scrollbar(basic_tab, orient=tk.VERTICAL, command=basic_canvas.yview, width=_dpi_px(14), takefocus=0)
         basic_canvas.configure(yscrollcommand=basic_scrollbar.set)
         basic_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         basic_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         basic_form = tk.Frame(basic_canvas)
-        basic_window = basic_canvas.create_window((0, 0), window=basic_form,
-                                                   anchor='nw')
-        basic_form.bind(
-            '<Configure>',
-            lambda _event: basic_canvas.configure(
-                scrollregion=basic_canvas.bbox('all')), add='+')
-        basic_canvas.bind(
-            '<Configure>',
-            lambda event: basic_canvas.itemconfigure(basic_window, width=event.width),
-            add='+')
+        basic_window = basic_canvas.create_window((0, 0), window=basic_form, anchor='nw')
+        basic_form.bind('<Configure>', lambda _event: basic_canvas.configure(scrollregion=basic_canvas.bbox('all')), add='+')
+        basic_canvas.bind('<Configure>', lambda event: basic_canvas.itemconfigure(basic_window, width=event.width), add='+')
 
         def make_scrollable_city_form(tab):
             """도시 편집 탭의 내용이 높이를 넘을 때 쓸 세로 스크롤 폼."""
             canvas = tk.Canvas(tab, highlightthickness=0, bd=0)
-            scrollbar = tk.Scrollbar(
-                tab, orient=tk.VERTICAL, command=canvas.yview,
-                width=_dpi_px(14), takefocus=0,
-            )
+            scrollbar = tk.Scrollbar(tab, orient=tk.VERTICAL, command=canvas.yview, width=_dpi_px(14), takefocus=0)
             canvas.configure(yscrollcommand=scrollbar.set)
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             form = tk.Frame(canvas)
             window = canvas.create_window((0, 0), window=form, anchor='nw')
-            form.bind(
-                '<Configure>',
-                lambda _event: canvas.configure(scrollregion=canvas.bbox('all')),
-                add='+')
-            canvas.bind(
-                '<Configure>',
-                lambda event: canvas.itemconfigure(window, width=event.width),
-                add='+')
+            form.bind('<Configure>', lambda _event: canvas.configure(scrollregion=canvas.bbox('all')), add='+')
+            canvas.bind('<Configure>', lambda event: canvas.itemconfigure(window, width=event.width), add='+')
             return form
-
         market_form = make_scrollable_city_form(market_tab)
         trade_form = make_scrollable_city_form(trade_tab)
-
-        # 도시 CG를 연결할 자리. 원본 CITYCG의 400:320 비율을 유지한다.
         self.city_image_box = tk.Frame(basic_form, width=100, height=80)
         self.city_image_box.grid(row=0, column=0, columnspan=4, pady=(0, 6))
         self.city_image_box.grid_propagate(False)
         self.city_image_photo = get_black_photo(100, 80)
         self.lbl_city_image = tk.Label(self.city_image_box, image=self.city_image_photo, bg='#000000')
         self.lbl_city_image.place(x=0, y=0, width=100, height=80)
-
         self.city_name_var = tk.StringVar(value='')
-        tk.Label(basic_form, text=ui('ui_0344') + ':', font=('Malgun Gothic', 9)).grid(row=1, column=0, sticky='e', padx=(0, 6), pady=5)
-        tk.Label(basic_form, textvariable=self.city_name_var, anchor='w', font=('Malgun Gothic', 9)).grid(
-            row=1, column=1, columnspan=2, sticky='ew', pady=5)
+        tk.Label(basic_form, text=ui_label(ui('ui_0344')), font=(APP_FONT_FAMILY, 9)).grid(row=1, column=0, sticky='e', padx=(0, 6), pady=5)
+        tk.Label(basic_form, textvariable=self.city_name_var, anchor='w', font=(APP_FONT_FAMILY, 9)).grid(row=1, column=1, columnspan=2, sticky='ew', pady=5)
         self.city_flag_active_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(basic_form, text=ui('ui_0314').rstrip(':'), variable=self.city_flag_active_var,
-                       font=('Malgun Gothic', 9), command=self.apply_city_edits,
-                       takefocus=0, highlightthickness=0).grid(
-                           row=1, column=3, sticky='e', pady=5)
-
-        tk.Label(basic_form, text=ui('ui_0300') + ':', font=('Malgun Gothic', 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=5)
-        self.cbo_city_nation = ttk.Combobox(basic_form, values=NATION_NAMES, state='readonly', width=20, font=('Malgun Gothic', 9))
+        tk.Checkbutton(basic_form, text=ui('ui_0314').rstrip(UI_LABEL_SUFFIX), variable=self.city_flag_active_var, font=(APP_FONT_FAMILY, 9), command=self.apply_city_edits, takefocus=0, highlightthickness=0).grid(row=1, column=3, sticky='e', pady=5)
+        tk.Label(basic_form, text=ui_label(ui('ui_0300')), font=(APP_FONT_FAMILY, 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=5)
+        self.cbo_city_nation = ttk.Combobox(basic_form, values=NATION_NAMES, state='readonly', width=20, font=(APP_FONT_FAMILY, 9))
         self.cbo_city_nation.grid(row=2, column=1, columnspan=3, sticky='ew', pady=5)
         self.cbo_city_nation.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
         basic_form.columnconfigure(1, weight=1)
         basic_form.columnconfigure(3, weight=1)
-
         culture_definition = self._city_definition('link_value')
         self.city_culture_var = tk.StringVar(value='')
         self.city_culture_options = [self.CITY_CULTURE_NAMES[code] for code in sorted(self.CITY_CULTURE_NAMES)]
         self.city_culture_codes_by_name = {name: code for code, name in self.CITY_CULTURE_NAMES.items()}
-        tk.Label(basic_form, text=self._city_field_label(culture_definition) + ':', font=('Malgun Gothic', 9)).grid(
-            row=3, column=0, sticky='e', padx=(0, 6), pady=5)
-        self.cbo_city_culture = ttk.Combobox(basic_form, textvariable=self.city_culture_var,
-                                             values=self.city_culture_options, state='readonly', width=14,
-                                             font=('Malgun Gothic', 9))
+        tk.Label(basic_form, text=ui_label(self._city_field_label(culture_definition)), font=(APP_FONT_FAMILY, 9)).grid(row=3, column=0, sticky='e', padx=(0, 6), pady=5)
+        self.cbo_city_culture = ttk.Combobox(basic_form, textvariable=self.city_culture_var, values=self.city_culture_options, state='readonly', width=14, font=(APP_FONT_FAMILY, 9))
         self.cbo_city_culture.grid(row=3, column=1, columnspan=3, sticky='ew', pady=5)
         self.cbo_city_culture.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
-
         status_definition = self._city_definition('city_status')
         self.city_status_var = tk.StringVar(value='')
         self.city_status_options = [self._city_status_option(code) for code in sorted(self.CITY_STATUS_NAMES)]
-        self.city_status_codes_by_option = {
-            self._city_status_option(code): code for code in self.CITY_STATUS_NAMES
-        }
-        tk.Label(basic_form, text=self._city_field_label(status_definition) + ':',
-                 font=('Malgun Gothic', 9)).grid(row=4, column=0, sticky='e', padx=(0, 6), pady=4)
-        self.cbo_city_status = ttk.Combobox(basic_form, textvariable=self.city_status_var,
-                                            values=self.city_status_options, state='readonly', width=14,
-                                            font=('Malgun Gothic', 9))
+        self.city_status_codes_by_option = {self._city_status_option(code): code for code in self.CITY_STATUS_NAMES}
+        tk.Label(basic_form, text=ui_label(self._city_field_label(status_definition)), font=(APP_FONT_FAMILY, 9)).grid(row=4, column=0, sticky='e', padx=(0, 6), pady=4)
+        self.cbo_city_status = ttk.Combobox(basic_form, textvariable=self.city_status_var, values=self.city_status_options, state='readonly', width=14, font=(APP_FONT_FAMILY, 9))
         self.cbo_city_status.grid(row=4, column=1, columnspan=3, sticky='ew', pady=4)
         self.cbo_city_status.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
-
         self._build_city_numeric_form_field(basic_form, 5, 0, 'shipyard_level')
-        # 도시 규모는 기본 탭의 마지막 입력 행을 단독으로 사용하므로, 오른쪽의
-        # 남는 열까지 차지하게 해 창 확장 시 입력칸도 함께 넓어진다.
         self.city_field_widgets['shipyard_level'].grid_configure(columnspan=3)
-
-        facility_box = tk.LabelFrame(basic_form, text=ui('ui_0343'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
-        facility_box.grid(row=6, column=0, columnspan=4, sticky='ew', pady=(10, 0))
-        # 보유 시설의 세 열을 같은 비율로 늘려, 최대화 시 체크박스 위치도
-        # 그룹 폭에 맞춰 자연스럽게 분산되게 한다.
+        self._build_city_numeric_form_field(basic_form, 6, 0, 'update_counter')
+        self.city_field_widgets['update_counter'].grid_configure(columnspan=3)
+        facility_box = tk.LabelFrame(basic_form, text=ui('ui_0343'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=6)
+        facility_box.grid(row=7, column=0, columnspan=4, sticky='ew', pady=(10, 0))
         for column in range(3):
             facility_box.columnconfigure(column, weight=1, uniform='city_facility_columns')
         self.city_facility_vars = {}
@@ -4713,14 +4342,12 @@ class CDS3SaveEditorApp:
         for position, (bit, name) in enumerate(sorted(self.CITY_FACILITY_NAMES.items())):
             variable = tk.BooleanVar(value=False)
             self.city_facility_vars[bit] = variable
-            checkbox = tk.Checkbutton(facility_box, text=name, variable=variable, font=('Malgun Gothic', 9),
-                                      command=self.apply_city_edits)
+            checkbox = tk.Checkbutton(facility_box, text=name, variable=variable, font=(APP_FONT_FAMILY, 9), command=self.apply_city_edits)
             checkbox.grid(row=position // 3, column=position % 3, sticky='w', padx=(0, 4), pady=1)
             self.city_facility_checks[bit] = checkbox
-
-        market_goods_box = tk.LabelFrame(market_form, text=ui('ui_0358'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
+        market_goods_box = tk.LabelFrame(market_form, text=ui('ui_0358'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=6)
         market_goods_box.grid(row=0, column=0, sticky='ew', pady=(0, 8))
-        ship_box = tk.LabelFrame(market_form, text=ui('ui_0308'), font=('Malgun Gothic', 9, 'bold'), padx=8, pady=6)
+        ship_box = tk.LabelFrame(market_form, text=ui('ui_0308'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=6)
         ship_box.grid(row=1, column=0, sticky='ew')
         self.city_market_goods_box = market_goods_box
         self.city_ship_box = ship_box
@@ -4729,14 +4356,10 @@ class CDS3SaveEditorApp:
         for column in range(2):
             ship_box.columnconfigure(column, weight=1, uniform='city_ship_columns')
         for code, var in enumerate(self.city_ship_vars):
-            checkbox = tk.Checkbutton(ship_box, text=self._fleet_ship_type_name(code), variable=var,
-                                      font=('Malgun Gothic', 9),
-                                      command=self.apply_city_edits)
-            checkbox.grid(
-                row=code // 2, column=code % 2, sticky='w', padx=(0, 12) if code % 2 == 0 else 0)
+            checkbox = tk.Checkbutton(ship_box, text=self._fleet_ship_type_name(code), variable=var, font=(APP_FONT_FAMILY, 9), command=self.apply_city_edits)
+            checkbox.grid(row=code // 2, column=code % 2, sticky='w', padx=(0, 12) if code % 2 == 0 else 0)
             self.city_ship_checks.append(checkbox)
-        self.city_good_options = [(ui('ui_0319'), -1)] + [
-            (item['name'], item['id']) for item in self.item_db]
+        self.city_good_options = [(ui('ui_0319'), -1)] + [(item['name'], item['id']) for item in self.item_db]
         self.city_good_values = [text for text, _item_id in self.city_good_options]
         self.city_good_text_by_id = {item_id: text for text, item_id in self.city_good_options}
         self.city_good_id_by_text = {text: item_id for text, item_id in self.city_good_options}
@@ -4745,42 +4368,76 @@ class CDS3SaveEditorApp:
             if item_id >= 0:
                 self.city_good_ids_by_casefold.setdefault(text.casefold(), []).append(item_id)
         for number in range(8):
-            tk.Label(market_goods_box, text=ui('ui_0309', number + 1), font=('Malgun Gothic', 9)).grid(
-                row=number, column=0, sticky='e', padx=(0, 6), pady=3)
-            combo = ttk.Combobox(market_goods_box, values=self.city_good_values,
-                                 state='readonly', width=22, font=('Malgun Gothic', 9))
+            tk.Label(market_goods_box, text=ui('ui_0309', number + 1), font=(APP_FONT_FAMILY, 9)).grid(row=number, column=0, sticky='e', padx=(0, 6), pady=3)
+            combo = ttk.Combobox(market_goods_box, values=self.city_good_values, state='readonly', width=22, font=(APP_FONT_FAMILY, 9))
             combo.grid(row=number, column=1, sticky='ew', pady=3)
             combo.bind('<<ComboboxSelected>>', lambda _event: self.apply_city_edits())
             self.city_goods_combos.append(combo)
-
-        self._build_city_numeric_form_field(trade_form, 0, 0, 'update_counter')
-        specialty_definition = self._city_definition('value_a')
+        specialty_box = tk.LabelFrame(trade_form, text=ui('ui_0304'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=7, pady=3)
+        specialty_box.grid(row=0, column=0, sticky='ew', pady=(0, 8))
+        specialty_box.columnconfigure(1, weight=1)
         self.city_specialty_var = tk.StringVar(value='')
         self.city_specialty_id = -1
-        self.lbl_city_specialty_image = tk.Label(trade_form, anchor='center')
-        self.lbl_city_specialty_image.grid(row=1, column=0, columnspan=4, sticky='n', pady=(4, 2))
-        default_specialty_photo = get_black_photo(80, 80)
+        tk.Label(specialty_box, text=ui_label(ui('ui_0062')), font=(APP_FONT_FAMILY, 9)).grid(row=0, column=0, sticky='e', padx=(0, 6))
+        tk.Label(specialty_box, textvariable=self.city_specialty_var, anchor='w', font=(APP_FONT_FAMILY, 9)).grid(row=0, column=1, sticky='ew')
+        self._build_city_numeric_form_field(specialty_box, 1, 0, 'value_b', label_text=ui('ui_0658'), row_pady=0)
+        self._build_city_numeric_form_field(specialty_box, 2, 0, 'value_c', label_text=ui('ui_0657'), row_pady=0)
+        self.city_specialty_empty_vars = {'value_b': tk.StringVar(value=''), 'value_c': tk.StringVar(value='')}
+        self.lbl_city_specialty_image = tk.Label(specialty_box, anchor='center', bd=0, highlightthickness=0, padx=0, pady=0)
+        self.lbl_city_specialty_image.grid(row=0, column=2, rowspan=3, sticky='e', padx=(8, 0))
+        default_specialty_photo = get_black_photo(64, 64)
         self.lbl_city_specialty_image.configure(image=default_specialty_photo)
         self.lbl_city_specialty_image.image = default_specialty_photo
-        tk.Label(trade_form, text=self._city_field_label(specialty_definition) + ':',
-                 font=('Malgun Gothic', 9)).grid(row=2, column=0, sticky='e', padx=(0, 6), pady=4)
-        tk.Label(trade_form, textvariable=self.city_specialty_var, anchor='w', width=14,
-                 font=('Malgun Gothic', 9)).grid(row=2, column=1, sticky='ew', pady=4)
-        for row, key in enumerate(('value_b', 'value_c'), start=3):
-            self._build_city_numeric_form_field(trade_form, row, 0, key)
+        common_goods_box = tk.LabelFrame(trade_form, text=ui('ui_0656'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=7, pady=2)
+        common_goods_box.grid(row=1, column=0, sticky='ew')
+        common_goods_box.columnconfigure(0, weight=1)
+        self.city_common_good_cards = []
+        self.city_common_good_names = []
+        self.city_common_good_prices = []
+        self.city_common_good_empty_vars = []
+        validate_supply = self.root.register(lambda proposed: proposed == '' or proposed.isdigit())
         for number in range(5):
-            self._build_city_supply_form_field(trade_form, number + 5, f'economy_{number}')
-
+            if number:
+                ttk.Separator(common_goods_box, orient=tk.HORIZONTAL).grid(row=number * 2 - 1, column=0, sticky='ew', padx=2, pady=1)
+            row_frame = tk.Frame(common_goods_box)
+            row_frame.grid(row=number * 2, column=0, sticky='ew', padx=1, pady=1)
+            row_frame.columnconfigure(1, weight=1)
+            name_var = tk.StringVar(value=ui('ui_0319'))
+            price_var = tk.StringVar(value='')
+            tk.Label(row_frame, text=ui_label(ui('ui_0062')), font=(APP_FONT_FAMILY, 9)).grid(row=0, column=0, sticky='e', padx=(0, 6))
+            name_value = tk.Label(row_frame, textvariable=name_var, anchor='w', font=(APP_FONT_FAMILY, 9))
+            name_value.grid(row=0, column=1, sticky='ew')
+            price_label = tk.Label(row_frame, text=ui_label(ui('ui_0658')), font=(APP_FONT_FAMILY, 9))
+            price_label.grid(row=1, column=0, sticky='e', padx=(0, 6))
+            price_value = tk.Label(row_frame, textvariable=price_var, anchor='e', font=(APP_FONT_FAMILY, 9))
+            price_value.grid(row=1, column=1, sticky='ew')
+            price_label.bind('<Motion>', lambda event, index=number: self._on_city_common_price_motion(event, index), add='+')
+            price_label.bind('<Leave>', self._hide_city_price_tooltip, add='+')
+            price_label.bind('<ButtonPress>', self._hide_city_price_tooltip, add='+')
+            tk.Label(row_frame, text=ui_label(ui('ui_0657')), font=(APP_FONT_FAMILY, 9)).grid(row=2, column=0, sticky='e', padx=(0, 6))
+            empty_var = tk.StringVar(value='')
+            entry = SPINBOX_WIDGET(row_frame, textvariable=empty_var, from_=0, to=VALUE_LIMITS['u32'][1], width=12, justify='right', font=(APP_FONT_FAMILY, 9), state=tk.DISABLED, validate='key', validatecommand=(validate_supply, '%P'))
+            entry.grid(row=2, column=1, sticky='ew')
+            entry.configure(command=self.apply_city_edits)
+            entry.bind('<KeyRelease>', lambda _event, control=entry: self._clamp_spinbox(control, 0, VALUE_LIMITS['u32'][1]), add='+')
+            entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
+            image_label = tk.Label(row_frame, anchor='center', bd=0, highlightthickness=0, padx=0, pady=0)
+            image_label.grid(row=0, column=2, rowspan=3, sticky='e', padx=(8, 0))
+            empty_photo = get_black_photo(64, 64)
+            image_label.configure(image=empty_photo)
+            image_label.image = empty_photo
+            self.city_common_good_cards.append((image_label, name_value, price_value, entry))
+            self.city_common_good_names.append(name_var)
+            self.city_common_good_prices.append(price_var)
+            self.city_common_good_empty_vars.append(empty_var)
+        for number in range(5):
+            self.city_edit_vars['economy_{0}'.format(number)] = tk.StringVar(value='')
         market_goods_box.columnconfigure(1, weight=1)
-        # 각 탭이 실제로 사용하는 열만 가변으로 둔다. 이전에는 시장·조선과
-        # 교역 탭에도 사용하지 않는 1·3열의 가중치를 줘서, 내용이 탭 폭의
-        # 절반 정도에서 멈췄다.
         basic_form.columnconfigure(1, weight=1)
         basic_form.columnconfigure(3, weight=1)
         market_form.columnconfigure(0, weight=1)
-        trade_form.columnconfigure(1, weight=1)
-
-        right = tk.LabelFrame(parent, text=GROUP_TITLES['city_basic'], font=('Malgun Gothic', 9, 'bold'), padx=8, pady=8)
+        trade_form.columnconfigure(0, weight=1)
+        right = tk.LabelFrame(parent, text=GROUP_TITLES['city_basic'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=8, pady=8)
         right.grid(row=0, column=2, sticky='nsew', padx=(5, 10), pady=10)
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
@@ -4797,11 +4454,10 @@ class CDS3SaveEditorApp:
     def _fit_city_field_label_columns(self):
         """도시 기본 정보 목록의 '항목' 열을 실제 항목명 폭에 맞춘다."""
         try:
-            font = tkfont.Font(font=('Malgun Gothic', 9))
-            labels = [self._city_basic_field_label(definition) for definition in self.CITY_FIELD_DEFINITIONS
-                      if definition[0] not in self.CITY_HIDDEN_FIELD_KEYS]
+            font = tkfont.Font(font=(APP_FONT_FAMILY, 9))
+            labels = [self._city_basic_field_label(definition) for definition in self.CITY_FIELD_DEFINITIONS if definition[0] not in self.CITY_HIDDEN_FIELD_KEYS]
             header = TREE_COLUMN_TITLES['cities']['field']
-            width = max(font.measure(text) for text in (header, *labels)) + 24
+            width = max((font.measure(text) for text in (header,) + tuple(labels))) + 24
             for tree_name in ('lst_city_basic',):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
@@ -4819,7 +4475,7 @@ class CDS3SaveEditorApp:
         is_visible = getattr(self.scr_city_basic, '_auto_visible', None)
         if is_visible is None:
             is_visible = bool(self.scr_city_basic.winfo_manager())
-        if should_show and not is_visible:
+        if should_show and (not is_visible):
             self.scr_city_basic.grid(row=0, column=1, sticky='ns')
             self.scr_city_basic._auto_visible = True
         elif not should_show and is_visible:
@@ -4842,47 +4498,43 @@ class CDS3SaveEditorApp:
     def _city_field_label(definition):
         key, text_key, offset, _kind, *_ = definition
         if key.startswith('good_'):
-            return ui(text_key, int(key.removeprefix('good_')) + 1, offset)
+            return ui(text_key, int(key[len('good_'):]) + 1, offset)
         if key.startswith('economy_'):
-            return ui(text_key, int(key.removeprefix('economy_')) + 1, offset)
+            return ui(text_key, int(key[len('economy_'):]) + 1, offset)
         return ui(text_key)
 
     @classmethod
     def _city_basic_field_label(cls, definition):
         """도시 기본정보 목록에서만 시장 품목임을 명확히 표기한다."""
         label = cls._city_field_label(definition)
-        return f'{ui("ui_0358")} {label}' if definition[0].startswith('good_') else label
+        return ui('ui_0595', ui('ui_0358'), label) if definition[0].startswith('good_') else label
 
     @classmethod
     def _city_definition(cls, key):
         return cls.CITY_FIELD_BY_KEY.get(key)
 
-    def _build_city_numeric_form_field(self, parent, row, column, key, width=12, fixed_width=None):
+    def _build_city_numeric_form_field(self, parent, row, column, key, width=12, fixed_width=None, label_text=None, row_pady=4):
         definition = self._city_definition(key)
         if definition is None:
             return
         _key, _text_key, _offset, kind, *_ = definition
         minimum, maximum = VALUE_LIMITS[kind]
         if key == 'shipyard_level':
-            minimum, maximum = 0, 7
+            minimum, maximum = (0, 7)
         variable = tk.StringVar(value='')
-        validate = self.root.register(
-            lambda proposed, low=minimum: (proposed == '' or
-            (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit()))
-        label = tk.Label(parent, text=self._city_field_label(definition) + ':', font=('Malgun Gothic', 9))
-        label.grid(row=row, column=column, sticky='e', padx=(0, 6), pady=4)
-        entry = ttk.Spinbox(parent, textvariable=variable, from_=minimum, to=maximum, width=width,
-                            justify='right', font=('Malgun Gothic', 9), validate='key',
-                            validatecommand=(validate, '%P'))
+        validate = self.root.register(lambda proposed, low=minimum: proposed == '' or (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit())
+        field_label = self._city_field_label(definition) if label_text is None else label_text
+        label = tk.Label(parent, text=ui_label(field_label), font=(APP_FONT_FAMILY, 9))
+        label.grid(row=row, column=column, sticky='e', padx=(0, 6), pady=row_pady)
+        entry = SPINBOX_WIDGET(parent, textvariable=variable, from_=minimum, to=maximum, width=width, justify='right', font=(APP_FONT_FAMILY, 9), validate='key', validatecommand=(validate, '%P'))
         entry.configure(command=self.apply_city_edits)
-        entry.bind('<KeyRelease>', lambda _event, control=entry, low=minimum, high=maximum:
-                   self._clamp_spinbox(control, low, high), add='+')
+        entry.bind('<KeyRelease>', lambda _event, control=entry, low=minimum, high=maximum: self._clamp_spinbox(control, low, high), add='+')
         entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
         if fixed_width is None:
-            entry.grid(row=row, column=column + 1, sticky='ew', pady=4)
+            entry.grid(row=row, column=column + 1, sticky='ew', pady=row_pady)
         else:
             entry_box = tk.Frame(parent, width=fixed_width, height=23)
-            entry_box.grid(row=row, column=column + 1, sticky='w', pady=4)
+            entry_box.grid(row=row, column=column + 1, sticky='w', pady=row_pady)
             entry_box.grid_propagate(False)
             entry_box.columnconfigure(0, weight=1)
             entry_box.rowconfigure(0, weight=1)
@@ -4890,73 +4542,27 @@ class CDS3SaveEditorApp:
         self.city_edit_vars[key] = variable
         self.city_field_widgets[key] = entry
         if key == 'value_b':
-            # 특산품 가격은 기준가이므로, 현재 도시 시세를 반영한 실제 구매가를 함께 안내한다.
-            self._city_specialty_price_tooltip = None
-            for widget in (label, entry):
-                widget.bind('<Motion>', self._on_city_specialty_price_motion, add='+')
-                widget.bind('<Leave>', self._hide_city_specialty_price_tooltip, add='+')
-                widget.bind('<ButtonPress>', self._hide_city_specialty_price_tooltip, add='+')
+            self._city_price_tooltip = None
+            label.bind('<Motion>', self._on_city_specialty_price_motion, add='+')
+            label.bind('<Leave>', self._hide_city_price_tooltip, add='+')
+            label.bind('<ButtonPress>', self._hide_city_price_tooltip, add='+')
 
     def _on_city_specialty_price_motion(self, event):
         """특산품 기준가에서 교역소 실제 구매가까지의 계산을 표시한다."""
-        if getattr(self, '_city_specialty_price_tooltip', None) is not None:
+        if getattr(self, 'city_specialty_id', -1) < 0:
             return
         try:
             price = int(self.city_edit_vars['value_b'].get())
-            market = int(self.city_edit_vars['update_counter'].get())
         except (KeyError, TypeError, ValueError):
             return
-        market_price = price * market // 100
-        buy_price = market_price * 3 // 2
-        tooltip_text = ui('ui_0488', price, market, market_price, buy_price)
-        tooltip = tk.Toplevel(self.root)
-        tooltip.wm_overrideredirect(True)
-        tooltip.attributes('-topmost', True)
-        tk.Label(
-            tooltip, text=tooltip_text, justify='left', anchor='w', bg='#FFF8D6', fg='#333333',
-            relief='solid', bd=1, padx=8, pady=6, font=('Malgun Gothic', 9),
-        ).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
-        self._city_specialty_price_tooltip = tooltip
+        self._show_city_price_tooltip(event, price, 'ui_0488')
 
-    def _hide_city_specialty_price_tooltip(self, _event=None):
-        tooltip = getattr(self, '_city_specialty_price_tooltip', None)
-        self._city_specialty_price_tooltip = None
-        if tooltip is not None:
-            try:
-                tooltip.destroy()
-            except tk.TclError:
-                pass
 
-    def _build_city_supply_form_field(self, parent, row, key):
-        """교역품 공급량 5개를 항목명과 함께 세로 입력칸으로 배치한다."""
-        definition = self._city_definition(key)
-        if definition is None:
-            return
-        _key, _text_key, _offset, kind, *_ = definition
-        minimum, maximum = VALUE_LIMITS[kind]
-        variable = tk.StringVar(value='')
-        validate = self.root.register(
-            lambda proposed, low=minimum: (proposed == '' or
-            (proposed == '-' and low < 0) or proposed.lstrip('-').isdigit()))
-        tk.Label(parent, text=self._city_field_label(definition) + ':', font=('Malgun Gothic', 9)).grid(
-            row=row, column=0, sticky='e', padx=(0, 6), pady=4)
-        entry = ttk.Spinbox(parent, textvariable=variable, from_=minimum, to=maximum, width=12,
-                            justify='right', font=('Malgun Gothic', 9), validate='key',
-                            validatecommand=(validate, '%P'))
-        entry.grid(row=row, column=1, sticky='ew', pady=4)
-        entry.configure(command=self.apply_city_edits)
-        entry.bind('<KeyRelease>', lambda _event, control=entry, low=minimum, high=maximum:
-                   self._clamp_spinbox(control, low, high), add='+')
-        entry.bind('<KeyRelease>', lambda _event: self._schedule_city_live_apply(), add='+')
-        self.city_edit_vars[key] = variable
 
     @staticmethod
     def _city_default_value(record, definition):
         key, _text_key, _offset, _kind, default_key, *optional_index = definition
         if key == 'value_c':
-            # CDS_95.EXE 도시 기본 레코드(+0x38)는 공급량 표(20~1000)의
-            # 색인이다. 도시 규모 기반의 공용 교역품 공급량이 아니다.
             supplies = CITY_DATA.get('default_specialty_supplies', ())
             city_index = int(record['index'])
             if 0 <= city_index < len(supplies):
@@ -4966,8 +4572,8 @@ class CDS3SaveEditorApp:
 
     @staticmethod
     def _city_ship_names(mask):
-        names = [CDS3SaveEditorApp._fleet_ship_type_name(code) for code in range(8) if mask & (1 << code)]
-        return ', '.join(names) if names else ui('ui_0319')
+        names = [CDS3SaveEditorApp._fleet_ship_type_name(code) for code in range(8) if mask & 1 << code]
+        return UI_LIST_SEPARATOR.join(names) if names else ui('ui_0319')
 
     @staticmethod
     def _city_current_year(buffer):
@@ -4980,40 +4586,26 @@ class CDS3SaveEditorApp:
 
     def _city_refresh_ship_mask(self, record, base, year):
         """EXE 0x42A340의 도시별 판매 선박 추가 판정을 세이브에 적용한다."""
-        facility_mask = self._city_read(self.file_buffer, base + 0x10, 'u16')
-        if not facility_mask & (1 << 6):
+        facility_mask = self._city_read(self.file_buffer, base + 16, 'u16')
+        if not facility_mask & 1 << 6:
             return False
-
-        city_scale = self._city_read(self.file_buffer, base + 0x04, 'u8')
+        city_scale = self._city_read(self.file_buffer, base + 4, 'u8')
         threshold = year + city_scale * 5 - 1475
-        # 날짜를 되돌릴 수 있는 에디터에서는 최초 로드 시점의 목록을 기준으로 다시 만든다.
         original_buffer = getattr(self, 'city_original_buffer', None)
         if original_buffer is not None and self.CITY_LAYOUT.contains(original_buffer, record['index']):
-            base_mask = self._city_read(original_buffer, base + 0x12, 'u16')
+            base_mask = self._city_read(original_buffer, base + 18, 'u16')
             base_year = self._city_current_year(original_buffer)
         else:
             base_mask = record['default_ship_mask']
             base_year = year
-        # EXE 0x42A340: 도시 정적 기본 판매 마스크에 들어 있는 8종만 검사한 뒤,
-        # 출시된 후보 중 번호가 가장 높은 한 종만 도시 판매 목록에 추가한다. 에디터에서는
-        # 연도를 한 번에 건너뛸 수 있으므로 최초 로드 연도부터 매년의 결과를 누적한다.
         city_index = record['index']
-        candidate_mask = (self.CITY_SHIP_CANDIDATE_MASKS[city_index]
-                          if 0 <= city_index < len(self.CITY_SHIP_CANDIDATE_MASKS)
-                          else record['default_ship_mask'])
-        release_coefficients = tuple(
-            (ship_record[2] if ship_record is not None else 0x7FFFFFFF)
-            for ship_code in range(8)
-            for ship_record in (self._fleet_ship_raw_table_values(ship_code),)
-        )
-        new_mask = refreshed_ship_mask(
-            base_mask, candidate_mask, city_scale, base_year, year, release_coefficients
-        )
-
-        old_mask = self._city_read(self.file_buffer, base + 0x12, 'u16')
+        candidate_mask = self.CITY_SHIP_CANDIDATE_MASKS[city_index] if 0 <= city_index < len(self.CITY_SHIP_CANDIDATE_MASKS) else record['default_ship_mask']
+        release_coefficients = tuple((ship_record[2] if ship_record is not None else 2147483647 for ship_code in range(8) for ship_record in (self._fleet_ship_raw_table_values(ship_code),)))
+        new_mask = refreshed_ship_mask(base_mask, candidate_mask, city_scale, base_year, year, release_coefficients)
+        old_mask = self._city_read(self.file_buffer, base + 18, 'u16')
         if new_mask == old_mask:
             return False
-        self._city_write(self.file_buffer, base + 0x12, 'u16', new_mask)
+        self._city_write(self.file_buffer, base + 18, 'u16', new_mask)
         return True
 
     def refresh_all_city_shipyards(self, completion_message=None):
@@ -5034,13 +4626,11 @@ class CDS3SaveEditorApp:
             record_changed = self._city_refresh_ship_mask(record, base, year)
             changed += int(record_changed)
             selected_changed |= record_changed and record['index'] == selected_city
-        # 도시 목록은 번호와 이름만 표시하므로 판매 선박 갱신과 무관하다. 선택된
-        # 도시의 상세 화면도 실제로 달라진 경우에만 다시 구성한다.
         if selected_changed:
             self.on_city_select()
         status_message = ui('ui_0380', changed)
         if completion_message:
-            status_message = f'{status_message}\n{completion_message}'
+            status_message = ui('ui_0596', status_message, completion_message)
         self.lbl_status.config(text=status_message)
 
     def _schedule_city_shipyard_refresh(self, _event=None, completion_message=None):
@@ -5048,9 +4638,7 @@ class CDS3SaveEditorApp:
         pending_job = getattr(self, '_city_shipyard_refresh_job', None)
         if pending_job is not None:
             self.root.after_cancel(pending_job)
-        self._city_shipyard_refresh_job = self.root.after(
-            250, lambda: self._refresh_city_shipyards_for_current_date(completion_message)
-        )
+        self._city_shipyard_refresh_job = self.root.after(250, lambda: self._refresh_city_shipyards_for_current_date(completion_message))
 
     def _refresh_city_shipyards_for_current_date(self, completion_message=None):
         self._city_shipyard_refresh_job = None
@@ -5096,8 +4684,8 @@ class CDS3SaveEditorApp:
             return
         good_id = getattr(self, 'city_specialty_id', -1)
         image_path = get_trade_good_image_path(good_id)
-        photo = get_cached_photo(image_path) if image_path else None
-        display_photo = photo or get_black_photo(80, 80)
+        photo = get_cached_photo_sized(image_path, 64, 64) if image_path else None
+        display_photo = photo or get_black_photo(64, 64)
         label.configure(image=display_photo)
         label.image = display_photo
 
@@ -5116,10 +4704,7 @@ class CDS3SaveEditorApp:
             return
         selected = self._selected_city_index()
         search = self.txt_city_search.get().strip().casefold() if hasattr(self, 'txt_city_search') else ''
-        # 도시 목록의 행은 정적 번호·이름뿐이다. 같은 검색어로 중복 호출되면
-        # 기존 목록과 선택을 유지하고 재삽입하지 않는다.
-        if (getattr(self, '_city_list_filter_cache', object()) == search
-                and self.lst_cities.get_children()):
+        if getattr(self, '_city_list_filter_cache', object()) == search and self.lst_cities.get_children():
             if selected is not None and self.lst_cities.exists(str(selected)):
                 self.lst_cities.selection_set(str(selected))
                 self.lst_cities.focus(str(selected))
@@ -5134,7 +4719,7 @@ class CDS3SaveEditorApp:
             offset = self._city_record_offset(index)
             if not self.CITY_LAYOUT.contains(self.file_buffer, index):
                 break
-            if search and search not in str(index) and search not in record['name'].casefold():
+            if search and search not in str(index) and (search not in record['name'].casefold()):
                 continue
             self.lst_cities.insert('', tk.END, iid=str(index), values=(index, record['name']))
         if selected is not None and self.lst_cities.exists(str(selected)):
@@ -5146,7 +4731,6 @@ class CDS3SaveEditorApp:
     def _selected_city_index(self):
         selection = self.lst_cities.selection() if hasattr(self, 'lst_cities') else ()
         return int(selection[0]) if selection else None
-
 
     def _city_good_id_from_text(self, value):
         """목록의 정확한 항목 또는 유일한 이름 입력을 시장 품목 ID로 변환한다."""
@@ -5160,22 +4744,19 @@ class CDS3SaveEditorApp:
 
     def _set_city_facility_ui_state(self, facility_flags):
         """현재 보유 시설에 맞춰 시장·조선소·교역소 편집 컨트롤을 잠근다."""
-        has_market = bool(facility_flags & (1 << 7))
-        has_shipyard = bool(facility_flags & (1 << 6))
-        has_trade_post = bool(facility_flags & (1 << 1))
-
+        has_market = bool(facility_flags & 1 << 7)
+        has_shipyard = bool(facility_flags & 1 << 6)
+        has_trade_post = bool(facility_flags & 1 << 1)
         for combo in getattr(self, 'city_goods_combos', ()):
             combo.configure(state='readonly' if has_market else tk.DISABLED)
         for checkbox in getattr(self, 'city_ship_checks', ()):
             checkbox.configure(state=tk.NORMAL if has_shipyard else tk.DISABLED)
-
-        for key in ('update_counter', 'value_b', 'value_c',
-                    'economy_0', 'economy_1', 'economy_2', 'economy_3', 'economy_4'):
+        for key in ('update_counter', 'value_b', 'value_c', 'economy_0', 'economy_1', 'economy_2', 'economy_3', 'economy_4'):
             widget = getattr(self, 'city_field_widgets', {}).get(key)
             if widget is not None:
                 widget.configure(state=tk.NORMAL if has_trade_post else tk.DISABLED)
         if hasattr(self, 'city_tabs') and hasattr(self, 'city_trade_tab'):
-            self.city_tabs.tab(self.city_trade_tab, state='normal' if has_trade_post else 'disabled')
+            self.city_tabs.tab(self.city_trade_tab, state='normal')
 
     def _sync_city_goods_supply_with_size(self):
         """도시 규모 변경에 맞춰 공통 교역품 공급량 다섯 칸을 게임의 일일 재고값으로 맞춘다."""
@@ -5186,7 +4767,7 @@ class CDS3SaveEditorApp:
         city_size = max(0, min(city_size, len(self.CITY_GOODS_SUPPLY_BY_SIZE) - 1))
         supply = str(self.CITY_GOODS_SUPPLY_BY_SIZE[city_size])
         for number in range(5):
-            variable = self.city_edit_vars.get(f'economy_{number}')
+            variable = self.city_edit_vars.get('economy_{0}'.format(number))
             if variable is not None:
                 variable.set(supply)
 
@@ -5194,9 +4775,10 @@ class CDS3SaveEditorApp:
         index = self._selected_city_index()
         if index is None or not self.file_buffer:
             self._update_city_image()
+            self._clear_city_trade_goods()
             self._update_city_reset_state()
             return
-        record, base = self.CITY_RECORDS[index], self._city_record_offset(index)
+        record, base = (self.CITY_RECORDS[index], self._city_record_offset(index))
         self._update_city_image(record['index'])
         if hasattr(self, 'city_name_var'):
             self.city_name_var.set(record['name'])
@@ -5210,11 +4792,11 @@ class CDS3SaveEditorApp:
             if key == 'state':
                 self.cbo_city_nation.current(saved_value if 0 <= saved_value < len(NATION_NAMES) else -1)
             elif key == 'flags':
-                self.city_flag_active_var.set(bool(saved_value & 0x0001))
+                self.city_flag_active_var.set(bool(saved_value & 1))
             elif key == 'ship_mask':
                 pass
             elif key.startswith('good_'):
-                good_index = int(key.removeprefix('good_'))
+                good_index = int(key[len('good_'):])
                 combo = self.city_goods_combos[good_index]
                 combo.configure(values=self.city_good_values)
                 combo.set(self.city_good_text_by_id.get(saved_value, ui('ui_0319')))
@@ -5223,8 +4805,6 @@ class CDS3SaveEditorApp:
             elif key == 'city_status':
                 self.city_status_var.set(self._city_status_option(saved_value))
             elif key == 'value_a':
-                # current(-1)은 일부 Tk 버전에서 TclError를 내며 뒤의 기본정보 갱신까지 끊는다.
-                # 저장된 특산품 이름을 텍스트 변수에 직접 넣으면 없는 ID도 안전하게 표시된다.
                 self.city_specialty_id = saved_value
                 self.city_specialty_var.set(self._trade_good_name(saved_value))
             elif key in self.city_edit_vars:
@@ -5245,27 +4825,31 @@ class CDS3SaveEditorApp:
                 default_text = str(default_value)
             label = self._city_basic_field_label(definition)
             self.lst_city_basic.insert('', tk.END, iid=key, values=(label, default_text))
-        # EXE 고정 도시 기본정보다. 세이브 필드 뒤에 표시 전용으로 붙인다.
         inland_city_ids = self.CITY_INLAND_CONNECTIONS.get(record['index'], (-1, -1))
         for slot, inland_city_id in enumerate(inland_city_ids):
-            inland_name = (self.CITY_RECORDS[inland_city_id]['name']
-                           if 0 <= inland_city_id < len(self.CITY_RECORDS) else ui('ui_0319'))
-            self.lst_city_basic.insert(
-                '', tk.END, iid=f'inland_city_{slot}',
-                values=(ui('ui_0383' if slot == 0 else 'ui_0384'), inland_name))
-        mask = self._city_read(self.file_buffer, base + 0x12, 'u16')
+            inland_name = self.CITY_RECORDS[inland_city_id]['name'] if 0 <= inland_city_id < len(self.CITY_RECORDS) else ui('ui_0319')
+            self.lst_city_basic.insert('', tk.END, iid='inland_city_{0}'.format(slot), values=(ui('ui_0383' if slot == 0 else 'ui_0384'), inland_name))
+        mask = self._city_read(self.file_buffer, base + 18, 'u16')
         for code, variable in enumerate(self.city_ship_vars):
-            variable.set(bool(mask & (1 << code)))
+            variable.set(bool(mask & 1 << code))
+        facility_flags = 0
         if hasattr(self, 'city_facility_vars'):
             default_facility_flags = record['facility_flags']
-            facility_flags = self._city_read(self.file_buffer, base + 0x10, 'u16')
+            facility_flags = self._city_read(self.file_buffer, base + 16, 'u16')
             for bit, variable in self.city_facility_vars.items():
                 if hasattr(self, 'city_facility_checks'):
-                    self.city_facility_checks[bit].configure(
-                        state=tk.NORMAL if default_facility_flags & (1 << bit) else tk.DISABLED)
-                variable.set(bool(facility_flags & (1 << bit)))
+                    self.city_facility_checks[bit].configure(state=tk.NORMAL if default_facility_flags & 1 << bit else tk.DISABLED)
+                variable.set(bool(facility_flags & 1 << bit))
             self._set_city_facility_ui_state(facility_flags)
-        self._refresh_city_specialty_image()
+        if facility_flags & 1 << 1:
+            for key in ('value_b', 'value_c'):
+                widget = self.city_field_widgets.get(key)
+                if widget is not None:
+                    widget.configure(textvariable=self.city_edit_vars[key], state=tk.NORMAL)
+            self._refresh_city_common_goods(record['index'])
+            self._refresh_city_specialty_image()
+        else:
+            self._clear_city_trade_goods()
         self._update_city_reset_state()
         self._schedule_treeview_autofit(self.lst_city_basic)
 
@@ -5280,15 +4864,18 @@ class CDS3SaveEditorApp:
             return False
         self._city_write(self.file_buffer, base, 'i16', nation_code)
         city_size_definition = self._city_definition('shipyard_level')
-        old_city_size = self._city_read(
-            self.file_buffer, base + city_size_definition[2], city_size_definition[3])
+        old_city_size = self._city_read(self.file_buffer, base + city_size_definition[2], city_size_definition[3])
         try:
             new_city_size = int(self.city_edit_vars['shipyard_level'].get())
         except (KeyError, TypeError, ValueError):
             new_city_size = old_city_size
         if new_city_size != old_city_size:
             self._sync_city_goods_supply_with_size()
+        facility_mask = sum((1 << bit for bit, variable in self.city_facility_vars.items() if variable.get()))
+        trade_field_keys = {'update_counter', 'value_b', 'value_c', 'economy_0', 'economy_1', 'economy_2', 'economy_3', 'economy_4'}
         for key, variable in self.city_edit_vars.items():
+            if not facility_mask & 1 << 1 and key in trade_field_keys:
+                continue
             definition = self._city_definition(key)
             _key, _text_key, relative_offset, kind, *_ = definition
             try:
@@ -5301,9 +4888,9 @@ class CDS3SaveEditorApp:
         saved_flags = self._city_read(self.file_buffer, base + flags_definition[2], flags_definition[3])
         flags = saved_flags
         if self.city_flag_active_var.get():
-            flags |= 0x0001
+            flags |= 1
         else:
-            flags &= ~0x0001
+            flags &= ~1
         self._city_write(self.file_buffer, base + flags_definition[2], flags_definition[3], flags)
         culture_code = self.city_culture_codes_by_name.get(self.city_culture_var.get())
         if culture_code is None:
@@ -5322,15 +4909,17 @@ class CDS3SaveEditorApp:
             if item_id is None:
                 messagebox.showerror(ui('ui_0154'), ui('ui_0051', ui('ui_0309', number + 1)))
                 return False
-            self._city_write(self.file_buffer, base + 0x14 + number * 4, 'i32', item_id)
-        mask = sum((1 << code) for code, variable in enumerate(self.city_ship_vars) if variable.get())
-        self._city_write(self.file_buffer, base + 0x12, 'u16', mask)
-        facility_mask = sum((1 << bit) for bit, variable in self.city_facility_vars.items() if variable.get())
-        self._city_write(self.file_buffer, base + 0x10, 'u16', facility_mask)
+            self._city_write(self.file_buffer, base + 20 + number * 4, 'i32', item_id)
+        mask = sum((1 << code for code, variable in enumerate(self.city_ship_vars) if variable.get()))
+        self._city_write(self.file_buffer, base + 18, 'u16', mask)
+        self._city_write(self.file_buffer, base + 16, 'u16', facility_mask)
+        if self._selected_player_city_id() == city_index:
+            self._refresh_player_building_options(self._selected_player_building_id())
+            self._update_player_restore_state()
         if new_city_size != old_city_size:
-            self._city_refresh_ship_mask(
-                self.CITY_RECORDS[city_index], base, self._city_current_year(self.file_buffer))
+            self._city_refresh_ship_mask(self.CITY_RECORDS[city_index], base, self._city_current_year(self.file_buffer))
         self.on_city_select()
+        self._schedule_navigation_map_refresh()
         self.lbl_status.config(text=ui('ui_0315', self.CITY_RECORDS[city_index]['name']))
         return True
 
@@ -5348,9 +4937,7 @@ class CDS3SaveEditorApp:
 
     def _apply_city_live(self):
         self._city_live_job = None
-        if (self._selected_city_index() is not None and self.cbo_city_nation.current() >= 0
-                and all(variable.get().strip() not in ('', '-') for variable in self.city_edit_vars.values())
-                and all(self._city_good_id_from_text(combo.get()) is not None for combo in self.city_goods_combos)):
+        if self._selected_city_index() is not None and self.cbo_city_nation.current() >= 0 and all((variable.get().strip() not in ('', '-') for variable in self.city_edit_vars.values())) and all((self._city_good_id_from_text(combo.get()) is not None for combo in self.city_goods_combos)):
             self.apply_city_edits()
 
     def reset_city_edits(self):
@@ -5367,7 +4954,10 @@ class CDS3SaveEditorApp:
             self._city_shipyard_refresh_job = None
         if not self.CITY_LAYOUT.reset(self.file_buffer, self.city_original_buffer):
             return
+        self._refresh_player_building_options(self._selected_player_building_id(), keep_unavailable=True)
+        self._update_player_restore_state()
         self.on_city_select()
+        self._schedule_navigation_map_refresh()
         self.lbl_status.config(text=ui('ui_0333'))
 
     def _update_city_reset_state(self):
@@ -5383,26 +4973,707 @@ class CDS3SaveEditorApp:
             else:
                 button.pack_forget()
 
+    def _selected_player_city_id(self):
+        combo = getattr(self, 'cbo_player_city', None)
+        codes = getattr(self, '_player_city_codes', ())
+        if combo is None:
+            return None
+        index = combo.current()
+        return int(codes[index]) if 0 <= index < len(codes) else None
+
+    def _selected_player_building_id(self):
+        combo = getattr(self, 'cbo_player_building', None)
+        codes = getattr(self, '_player_building_codes', ())
+        if combo is None:
+            return None
+        index = combo.current()
+        return int(codes[index]) if 0 <= index < len(codes) else None
+
+    def _player_building_name(self, building_id):
+        if building_id == 65535:
+            return ui('ui_0319')
+        return self.CITY_FACILITY_NAMES.get(building_id, ui('ui_0296', building_id))
+
+    def _refresh_player_building_options(self, preferred_code=None, keep_unavailable=False):
+        """선택한 도시의 현재 활성 시설만 주인공 건물 목록에 표시한다."""
+        combo = getattr(self, 'cbo_player_building', None)
+        if combo is None:
+            return
+        if preferred_code is None:
+            preferred_code = self._selected_player_building_id()
+        city_id = self._selected_player_city_id()
+        codes = []
+        building_enabled = False
+        if city_id == 65535:
+            codes = [preferred_code if preferred_code is not None else 65535]
+        elif city_id is not None and 0 <= city_id < len(self.CITY_RECORDS):
+            record = self.CITY_RECORDS[city_id]
+            facility_mask = int(record.get('facility_flags', 0))
+            if self.file_buffer is not None and self.CITY_LAYOUT.contains(self.file_buffer, city_id):
+                base = self.CITY_LAYOUT.offset(city_id)
+                facility_mask = self._city_read(self.file_buffer, base + 16, 'u16')
+            codes = [bit for bit in sorted(self.CITY_FACILITY_NAMES) if facility_mask & 1 << bit]
+            building_enabled = bool(self.file_buffer)
+            if keep_unavailable and preferred_code is not None and (preferred_code not in codes):
+                codes.append(preferred_code)
+        elif keep_unavailable and preferred_code is not None:
+            codes = [preferred_code]
+        if not codes:
+            codes = [65535]
+        self._player_building_codes = codes
+        combo.configure(values=[self._player_building_name(code) for code in codes])
+        combo.current(codes.index(preferred_code) if preferred_code in codes else 0)
+        combo.configure(state='readonly' if building_enabled else 'disabled')
+
+    def _on_player_city_changed(self, _event=None):
+        previous_building = self._selected_player_building_id()
+        self._refresh_player_building_options(previous_building)
+        self._update_player_restore_state()
+
+    def _set_player_location_from_buffer(self, buffer):
+        if buffer is None or len(buffer) < 95:
+            return
+        city_id = struct.unpack_from('<H', buffer, 91)[0]
+        building_id = struct.unpack_from('<H', buffer, 93)[0]
+        is_city_location = 0 <= city_id < len(self.CITY_RECORDS)
+        self._player_location_is_city = is_city_location
+        if is_city_location:
+            self._player_city_codes = list(range(len(self.CITY_RECORDS)))
+            city_names = [record['name'] for record in self.CITY_RECORDS]
+            city_state = 'readonly'
+        else:
+            self._player_city_codes = [city_id]
+            city_names = [ui('ui_0544') if city_id == 65535 else ui('ui_0545', city_id)]
+            city_state = 'disabled'
+        self.cbo_player_city.configure(values=city_names)
+        self.cbo_player_city.current(self._player_city_codes.index(city_id))
+        self.cbo_player_city.configure(state=city_state)
+        self._refresh_player_building_options(building_id, keep_unavailable=True)
+
+    def build_navigation_map_tab(self):
+        """전체 세계지형 위에 세이브의 실제 항해지도 탐사 비트를 겹쳐 표시한다."""
+        parent = self.tab_map
+        self._navigation_map_base_key = None
+        self._navigation_map_base_image = None
+        self._navigation_map_native_image = None
+        self._navigation_map_photo = None
+        self._navigation_map_refresh_job = None
+        self._navigation_map_draw_job = None
+        self._navigation_map_dirty = True
+        self._navigation_map_preserve_view_on_refresh = False
+        self._navigation_map_zoom = 1.0
+        self._navigation_map_pan_x = 0.0
+        self._navigation_map_pan_y = 0.0
+        self._navigation_map_drag_origin = None
+        self._navigation_map_image_item = None
+        self._navigation_map_border_item = None
+        self._navigation_map_marker_records = []
+        self._navigation_map_source_default = ui('ui_0558')
+        self._navigation_map_reveal_backup = None
+        marker_size, marker_colors = load_navigation_map_marker_settings()
+        self._navigation_map_marker_size = marker_size
+        self._navigation_map_city_colors = dict(self.MAP_CITY_COLORS)
+        self._navigation_map_city_colors.update(marker_colors.get('city', {}))
+        self._navigation_map_discovery_colors = dict(self.MAP_DISCOVERY_COLORS)
+        self._navigation_map_discovery_colors.update(marker_colors.get('discovery', {}))
+        header = tk.Frame(parent, padx=10, pady=7)
+        header.pack(fill=tk.X)
+        tk.Label(header, text=ui('ui_0547'), font=(APP_FONT_FAMILY, 10, 'bold'), anchor='w').pack(side=tk.LEFT)
+        self.navigation_map_zoom_var = tk.StringVar(value=ui('ui_0560', 100))
+        tk.Label(header, textvariable=self.navigation_map_zoom_var, font=(APP_FONT_FAMILY, 9), fg='#5F6368', anchor='w').pack(side=tk.LEFT, padx=(10, 0))
+        self.navigation_map_summary_var = tk.StringVar(value=ui('ui_0548'))
+        self.navigation_map_reveal_all_var = tk.BooleanVar(value=False)
+        self.chk_navigation_map_reveal_all = tk.Checkbutton(header, text=ui('ui_0582'), variable=self.navigation_map_reveal_all_var, command=self._on_navigation_map_reveal_all_changed, font=(APP_FONT_FAMILY, 9), state=tk.DISABLED)
+        self.chk_navigation_map_reveal_all.pack(side=tk.RIGHT)
+        marker_legend = tk.Frame(parent, padx=10, pady=1)
+        marker_legend.pack(fill=tk.X)
+        marker_controls = tk.Frame(marker_legend)
+        marker_controls.pack(side=tk.RIGHT)
+        tk.Label(marker_controls, text=ui('ui_0574'), font=(APP_FONT_FAMILY, 8), fg='#5F6368').pack(side=tk.LEFT, padx=(4, 2))
+        self.navigation_map_marker_size_var = tk.StringVar(value=ui('ui_0646', marker_size))
+        marker_size_combo = ttk.Combobox(marker_controls, textvariable=self.navigation_map_marker_size_var, values=tuple((ui('ui_0646', value / 2.0) for value in range(1, 13))), state='readonly', width=3, font=(APP_FONT_FAMILY, 8))
+        marker_size_combo.pack(side=tk.LEFT)
+        marker_size_combo.bind('<<ComboboxSelected>>', self._on_navigation_map_marker_size_changed)
+        tk.Label(marker_controls, text=ui('ui_0575'), font=(APP_FONT_FAMILY, 8), fg='#5F6368').pack(side=tk.LEFT, padx=(7, 0))
+        for symbol, text_key, group, color_key in ((ui('ui_0598'), 'ui_0561', 'city', 'discovered'), (ui('ui_0598'), 'ui_0562', 'city', 'undiscovered'), (ui('ui_0598'), 'ui_0563', 'city', 'unspawned'), (ui('ui_0599'), 'ui_0564', 'discovery', 'known'), (ui('ui_0599'), 'ui_0565', 'discovery', 'undiscovered'), (ui('ui_0599'), 'ui_0566', 'discovery', 'unspawned')):
+            colors = self._navigation_map_city_colors if group == 'city' else self._navigation_map_discovery_colors
+            color_label = tk.Label(marker_legend, text=symbol, fg=colors[color_key], cursor='hand2', font=(APP_FONT_FAMILY, 10, 'bold'))
+            color_label.pack(side=tk.LEFT)
+            color_label.bind('<Button-1>', lambda _event, marker_group=group, key=color_key, widget=color_label: self._choose_navigation_map_marker_color(marker_group, key, widget))
+            tk.Label(marker_legend, text=ui(text_key), font=(APP_FONT_FAMILY, 8)).pack(side=tk.LEFT, padx=(1, 9))
+        map_frame = tk.Frame(parent, bg='#202124', bd=1, relief='sunken')
+        map_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 4))
+        self.navigation_map_canvas = tk.Canvas(map_frame, bg='#202124', highlightthickness=0, bd=0)
+        self.navigation_map_canvas.pack(fill=tk.BOTH, expand=True)
+        self.navigation_map_canvas.bind('<Configure>', self._schedule_navigation_map_draw)
+        self.navigation_map_canvas.bind('<MouseWheel>', self._on_navigation_map_mousewheel, add='+')
+        self.navigation_map_canvas.bind('<ButtonPress-1>', self._on_navigation_map_drag_start, add='+')
+        self.navigation_map_canvas.bind('<B1-Motion>', self._on_navigation_map_drag_motion, add='+')
+        self.navigation_map_canvas.bind('<ButtonRelease-1>', self._on_navigation_map_drag_end, add='+')
+        self.navigation_map_canvas.bind('<Double-Button-1>', self._reset_navigation_map_view, add='+')
+        self.navigation_map_canvas.bind('<Motion>', self._on_navigation_map_motion, add='+')
+        self.navigation_map_canvas.bind('<Leave>', self._restore_navigation_map_source, add='+')
+        footer = tk.Frame(parent, padx=10, pady=2)
+        footer.pack(fill=tk.X, pady=(0, 4))
+        self.navigation_map_source_var = tk.StringVar(value=ui('ui_0558'))
+        tk.Label(footer, textvariable=self.navigation_map_source_var, font=(APP_FONT_FAMILY, 8), fg='#666666', anchor='w').pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(footer, textvariable=self.navigation_map_summary_var, font=(APP_FONT_FAMILY, 8), fg='#1A73E8', anchor='e').pack(side=tk.RIGHT, padx=(12, 0))
+        self._set_navigation_map_message(ui('ui_0551'))
+
+    def _save_navigation_map_marker_settings(self):
+        save_navigation_map_marker_settings(self._navigation_map_marker_size, self._navigation_map_city_colors, self._navigation_map_discovery_colors)
+
+    def _on_navigation_map_marker_size_changed(self, _event=None):
+        try:
+            marker_size = normalize_navigation_map_marker_size(self.navigation_map_marker_size_var.get())
+        except (TypeError, ValueError, tk.TclError):
+            marker_size = 1.0
+        self._navigation_map_marker_size = marker_size
+        self.navigation_map_marker_size_var.set(ui('ui_0646', marker_size))
+        self._save_navigation_map_marker_settings()
+        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+
+    def _choose_navigation_map_marker_color(self, group, key, widget):
+        colors = self._navigation_map_city_colors if group == 'city' else self._navigation_map_discovery_colors
+        _rgb, selected = colorchooser.askcolor(color=colors[key], title=ui('ui_0576'), parent=self.root)
+        if not selected:
+            return
+        colors[key] = selected.upper()
+        widget.configure(fg=colors[key])
+        self._save_navigation_map_marker_settings()
+        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+
+    def _on_main_tab_changed(self, _event=None):
+        if hasattr(self, 'tab_map') and hasattr(self, 'notebook') and (self.notebook.select() == str(self.tab_map)):
+            if self._navigation_map_dirty:
+                self._schedule_navigation_map_refresh(force=True)
+            else:
+                self._schedule_navigation_map_draw()
+
+    def _find_navigation_map_resource(self, filename):
+        base_dirs = []
+        if self.file_path:
+            base_dirs.append(os.path.dirname(os.path.abspath(self.file_path)))
+        if getattr(sys, 'frozen', False):
+            if hasattr(sys, '_MEIPASS'):
+                base_dirs.append(sys._MEIPASS)
+            base_dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+        base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
+        for base_dir in dict.fromkeys(base_dirs):
+            for relative in (filename, os.path.join('CDS3SaveEditor', filename)):
+                path = os.path.join(base_dir, relative)
+                if os.path.isfile(path):
+                    return path
+        return None
+
+    def _load_navigation_map_base(self):
+        """내장 지도를 우선 사용하고, 없을 때만 게임 원본에서 다시 생성한다."""
+        if Image is None:
+            raise RuntimeError(ui('ui_0552'))
+        bundled_path = self._find_navigation_map_resource(self.BUNDLED_NAVIGATION_MAP)
+        if bundled_path is not None:
+            bundled_stat = os.stat(bundled_path)
+            cache_key = ('bundled', os.path.normcase(os.path.abspath(bundled_path)), bundled_stat.st_size, bundled_stat.st_mtime_ns)
+            if self._navigation_map_base_key == cache_key and self._navigation_map_base_image is not None:
+                return (self._navigation_map_base_image, bundled_path)
+            with Image.open(bundled_path) as source:
+                base_image = source.convert('RGB')
+            expected_size = (self.NAVIGATION_MAP_WIDTH, self.NAVIGATION_MAP_HEIGHT)
+            if base_image.size != expected_size:
+                raise ValueError(ui('ui_0555'))
+            self._navigation_map_base_key = cache_key
+            self._navigation_map_base_image = base_image
+            return (base_image, bundled_path)
+        world_path = self._find_navigation_map_resource('WORLD.CDS')
+        if world_path is None:
+            raise FileNotFoundError(ui('ui_0553'))
+        exe_path = self._find_navigation_map_resource('CDS_95.EXE')
+        if exe_path is None:
+            raise FileNotFoundError(ui('ui_0554'))
+        world_stat = os.stat(world_path)
+        exe_stat = os.stat(exe_path)
+        cache_key = (os.path.normcase(os.path.abspath(world_path)), world_stat.st_size, world_stat.st_mtime_ns, os.path.normcase(os.path.abspath(exe_path)), exe_stat.st_size, exe_stat.st_mtime_ns)
+        if self._navigation_map_base_key == cache_key and self._navigation_map_base_image is not None:
+            return (self._navigation_map_base_image, world_path)
+        with open(world_path, 'rb') as source:
+            world_data = source.read()
+        expected_world_size = self.WORLD_MAP_WIDTH * self.WORLD_MAP_HEIGHT * 2
+        if len(world_data) < expected_world_size:
+            raise ValueError(ui('ui_0555'))
+        with open(exe_path, 'rb') as source:
+            exe_data = source.read()
+        table_offset = _pe_rva_to_file_offset(exe_data, self.WORLD_TERRAIN_CLASS_RVA)
+        if table_offset is None or table_offset + 16384 > len(exe_data):
+            raise ValueError(ui('ui_0555'))
+        terrain_classes = exe_data[table_offset:table_offset + 16384]
+        words = memoryview(world_data[:expected_world_size]).cast('H')
+        classified = bytes((1 if terrain_classes[value & 16383] > 1 else 0 for value in words))
+        coarse_mask = bytearray(self.NAVIGATION_MAP_WIDTH * self.NAVIGATION_MAP_HEIGHT)
+        target = 0
+        for map_y in range(self.NAVIGATION_MAP_HEIGHT):
+            source_y = map_y * 4
+            source_end_y = min(source_y + 4, self.WORLD_MAP_HEIGHT)
+            row_offsets = [y * self.WORLD_MAP_WIDTH for y in range(source_y, source_end_y)]
+            sample_count = len(row_offsets) * 4
+            for map_x in range(self.NAVIGATION_MAP_WIDTH):
+                source_x = map_x * 4
+                land_count = sum((classified[row + source_x] + classified[row + source_x + 1] + classified[row + source_x + 2] + classified[row + source_x + 3] for row in row_offsets))
+                coarse_mask[target] = 255 if land_count > sample_count - land_count else 0
+                target += 1
+        land_mask = Image.frombytes('L', (self.NAVIGATION_MAP_WIDTH, self.NAVIGATION_MAP_HEIGHT), bytes(coarse_mask))
+        sea = Image.new('RGB', land_mask.size, '#347AA0')
+        land = Image.new('RGB', land_mask.size, '#C4AD73')
+        base_image = Image.composite(land, sea, land_mask)
+        self._navigation_map_base_key = cache_key
+        self._navigation_map_base_image = base_image
+        return (base_image, world_path)
+
+    def _navigation_exploration_mask(self):
+        required_end = self.NAVIGATION_MAP_SAVE_OFFSET + self.NAVIGATION_MAP_SAVE_SIZE
+        if self.file_buffer is None or len(self.file_buffer) < required_end:
+            raise ValueError(ui('ui_0556'))
+        packed = self.file_buffer[self.NAVIGATION_MAP_SAVE_OFFSET:required_end]
+        unpacked = bytearray(self.NAVIGATION_MAP_WIDTH * self.NAVIGATION_MAP_HEIGHT)
+        explored_count = 0
+        target = 0
+        for y in range(self.NAVIGATION_MAP_HEIGHT):
+            row_offset = y * self.NAVIGATION_MAP_ROW_BYTES
+            for x in range(self.NAVIGATION_MAP_WIDTH):
+                explored = bool(packed[row_offset + x // 8] & 1 << (x & 7))
+                if explored:
+                    unpacked[target] = 255
+                    explored_count += 1
+                target += 1
+        return (Image.frombytes('L', (self.NAVIGATION_MAP_WIDTH, self.NAVIGATION_MAP_HEIGHT), bytes(unpacked)), explored_count)
+
+    @classmethod
+    def _navigation_map_full_packed_data(cls, original=None):
+        """유효 탐사 비트만 모두 켜고 각 행 끝의 미사용 비트는 보존한다."""
+        full_bytes, remaining_bits = divmod(cls.NAVIGATION_MAP_WIDTH, 8)
+        if original is not None and len(original) == cls.NAVIGATION_MAP_SAVE_SIZE:
+            packed = bytearray(original)
+        else:
+            packed = bytearray(cls.NAVIGATION_MAP_SAVE_SIZE)
+        valid_tail_mask = (1 << remaining_bits) - 1 if remaining_bits else 0
+        for y in range(cls.NAVIGATION_MAP_HEIGHT):
+            row_offset = y * cls.NAVIGATION_MAP_ROW_BYTES
+            packed[row_offset:row_offset + full_bytes] = b'\xff' * full_bytes
+            if remaining_bits:
+                packed[row_offset + full_bytes] |= valid_tail_mask
+        return bytes(packed)
+
+    def _navigation_map_is_fully_explored(self):
+        required_end = self.NAVIGATION_MAP_SAVE_OFFSET + self.NAVIGATION_MAP_SAVE_SIZE
+        if self.file_buffer is None or len(self.file_buffer) < required_end:
+            return False
+        packed = self.file_buffer[self.NAVIGATION_MAP_SAVE_OFFSET:required_end]
+        full_bytes, remaining_bits = divmod(self.NAVIGATION_MAP_WIDTH, 8)
+        valid_tail_mask = (1 << remaining_bits) - 1 if remaining_bits else 0
+        for y in range(self.NAVIGATION_MAP_HEIGHT):
+            row_offset = y * self.NAVIGATION_MAP_ROW_BYTES
+            if packed[row_offset:row_offset + full_bytes] != b'\xff' * full_bytes:
+                return False
+            if remaining_bits and packed[row_offset + full_bytes] & valid_tail_mask != valid_tail_mask:
+                return False
+        return True
+
+    def _sync_navigation_map_reveal_all_state(self):
+        variable = getattr(self, 'navigation_map_reveal_all_var', None)
+        checkbox = getattr(self, 'chk_navigation_map_reveal_all', None)
+        if variable is not None:
+            variable.set(self._navigation_map_is_fully_explored())
+        if checkbox is not None:
+            checkbox.configure(state=tk.NORMAL if self.file_buffer else tk.DISABLED)
+
+    def _on_navigation_map_reveal_all_changed(self):
+        """전체 개방을 적용하고, 같은 세이브에서는 해제 시 적용 전 비트로 복원한다."""
+        required_end = self.NAVIGATION_MAP_SAVE_OFFSET + self.NAVIGATION_MAP_SAVE_SIZE
+        if self.file_buffer is None or len(self.file_buffer) < required_end:
+            self._sync_navigation_map_reveal_all_state()
+            return
+        start = self.NAVIGATION_MAP_SAVE_OFFSET
+        if self.navigation_map_reveal_all_var.get():
+            if self._navigation_map_reveal_backup is None:
+                self._navigation_map_reveal_backup = bytes(self.file_buffer[start:required_end])
+            self.file_buffer[start:required_end] = self._navigation_map_full_packed_data(self.file_buffer[start:required_end])
+        elif self._navigation_map_reveal_backup is not None:
+            self.file_buffer[start:required_end] = self._navigation_map_reveal_backup
+            self._navigation_map_reveal_backup = None
+        self._sync_navigation_map_reveal_all_state()
+        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+
+    def _navigation_city_marker_state(self, city_id):
+        """도시 플래그를 발견/미발견/미출현의 지도 상태로 바꾼다."""
+        if not self.CITY_LAYOUT.contains(self.file_buffer, city_id):
+            return 'unspawned'
+        flags = self._city_read(self.file_buffer, self.CITY_LAYOUT.offset(city_id) + 2, 'u16')
+        if flags & 1:
+            return 'discovered'
+        if flags & 4:
+            return 'unspawned'
+        return 'undiscovered'
+
+    @classmethod
+    def _navigation_map_latitude_text(cls, world_y):
+        latitude = 90.0 - float(world_y) * 180.0 / cls.WORLD_MAP_HEIGHT
+        if abs(latitude) < 0.005:
+            return ui('ui_0581')
+        return ui('ui_0577' if latitude > 0 else 'ui_0578', abs(latitude))
+
+    @classmethod
+    def _navigation_map_longitude_text(cls, world_x):
+        longitude = float(world_x) * 360.0 / cls.WORLD_MAP_WIDTH - 180.0
+        if abs(longitude) < 0.005:
+            return ui('ui_0581')
+        return ui('ui_0579' if longitude > 0 else 'ui_0580', abs(longitude))
+
+    @classmethod
+    def _navigation_map_coordinate_text(cls, world_x, world_y):
+        return ui('ui_0571', cls._navigation_map_latitude_text(world_y), cls._navigation_map_longitude_text(world_x))
+
+    @classmethod
+    def _navigation_map_range_text(cls, min_x, min_y, max_x, max_y):
+        return ui('ui_0572', cls._navigation_map_latitude_text(min_y), cls._navigation_map_latitude_text(max_y), cls._navigation_map_longitude_text(min_x), cls._navigation_map_longitude_text(max_x))
+
+    def _draw_navigation_map_markers(self, image):
+        """EXE에서 추출해 내장한 세계 좌표를 상태별 마커로 그린다."""
+        draw = ImageDraw.Draw(image)
+        marker_records = []
+        render_scale = image.width / float(self.NAVIGATION_MAP_WIDTH)
+        marker_size = normalize_navigation_map_marker_size(getattr(self, '_navigation_map_marker_size', 1))
+        marker_diameter = max(1, int(round(marker_size * render_scale)))
+        marker_radius = marker_diameter / 2.0
+        range_line_width = max(1, int(round(marker_size * render_scale / 2.0)))
+
+        def draw_dot(center_x, center_y, color):
+            if marker_diameter == 1:
+                draw.point((center_x, center_y), fill=color)
+                return
+            left = center_x - marker_diameter // 2
+            top = center_y - marker_diameter // 2
+            draw.ellipse((left, top, left + marker_diameter - 1, top + marker_diameter - 1), fill=color)
+        discovery_state_by_id = {int(discovery['index']): self.discovery_state[index] for index, discovery in enumerate(self.discovery_db) if index < len(self.discovery_state)}
+        discovery_count = 0
+        for region in self.MAP_DISCOVERY_REGIONS:
+            if not region:
+                continue
+            discovery_id = int(region['id'])
+            state = int(discovery_state_by_id.get(discovery_id, 0))
+            state_key = 'unspawned' if state == 0 else 'undiscovered' if state == 1 else 'known'
+            min_x, min_y = (int(region['min_x']), int(region['min_y']))
+            max_x, max_y = (int(region['max_x']), int(region['max_y']))
+            center_x = int(round((min_x + max_x) * render_scale / 8.0))
+            center_y = int(round((min_y + max_y) * render_scale / 8.0))
+            is_range = max_x - min_x + 1 >= 8 or max_y - min_y + 1 >= 8
+            marker = {'x': center_x, 'y': center_y, 'kind': ui('ui_0570'), 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)), 'state': discovery_state_text(state), 'hit_radius': marker_radius}
+            if is_range:
+                bounds = tuple((int(round(value * render_scale / 4.0)) for value in (min_x, min_y, max_x, max_y)))
+                draw.rectangle(bounds, outline=self._navigation_map_discovery_colors[state_key], width=range_line_width)
+                marker['bounds'] = bounds
+                marker['hit_radius'] = range_line_width / 2.0
+                marker['coordinate'] = self._navigation_map_range_text(min_x, min_y, max_x, max_y)
+            else:
+                draw_dot(center_x, center_y, self._navigation_map_discovery_colors[state_key])
+                marker['coordinate'] = self._navigation_map_coordinate_text((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+            marker_records.append(marker)
+            discovery_count += 1
+        city_count = 0
+        for point in self.MAP_CITY_POINTS:
+            city_id = int(point['id'])
+            center_x = int(round(int(point['world_x']) * render_scale / 4.0))
+            center_y = int(round(int(point['world_y']) * render_scale / 4.0))
+            state_key = self._navigation_city_marker_state(city_id)
+            draw_dot(center_x, center_y, self._navigation_map_city_colors[state_key])
+            marker_records.append({'x': center_x, 'y': center_y, 'kind': ui('ui_0354'), 'name': self.CITY_RECORDS[city_id]['name'], 'hit_radius': marker_radius, 'state': ui({'discovered': 'ui_0314', 'undiscovered': 'ui_0112', 'unspawned': 'ui_0466'}[state_key]), 'coordinate': self._navigation_map_coordinate_text(int(point['world_x']), int(point['world_y']))})
+            city_count += 1
+        self._navigation_map_marker_records = marker_records
+        return (city_count, discovery_count)
+
+    def _compose_navigation_map(self):
+        base_image, _world_path = self._load_navigation_map_base()
+        exploration_mask, explored_count = self._navigation_exploration_mask()
+        shadow = Image.new('RGB', base_image.size, '#202428')
+        unexplored = Image.blend(base_image, shadow, 0.72)
+        explored_tint = Image.new('RGB', base_image.size, '#FFE09A')
+        explored = Image.blend(base_image, explored_tint, 0.1)
+        composed = Image.composite(explored, unexplored, exploration_mask)
+        marker_render_scale = self.NAVIGATION_MAP_MARKER_RENDER_SCALE
+        if marker_render_scale != 1:
+            composed = composed.resize((composed.width * marker_render_scale, composed.height * marker_render_scale), Image.Resampling.NEAREST)
+        self._draw_navigation_map_markers(composed)
+        total = self.NAVIGATION_MAP_WIDTH * self.NAVIGATION_MAP_HEIGHT
+        exploration_percent = explored_count * 100.0 / total
+        city_total = len(self.MAP_CITY_POINTS)
+        city_discovered = sum((self._navigation_city_marker_state(int(point['id'])) == 'discovered' for point in self.MAP_CITY_POINTS))
+        city_percent = city_discovered * 100.0 / city_total if city_total else 0.0
+        discovery_total = len(self.discovery_db)
+        discovery_discovered = sum((int(state) >= 2 for state in self.discovery_state[:discovery_total]))
+        discovery_percent = discovery_discovered * 100.0 / discovery_total if discovery_total else 0.0
+        self.navigation_map_summary_var.set(ui('ui_0557', exploration_percent, city_percent, discovery_percent))
+        self._navigation_map_source_default = ui('ui_0558')
+        self.navigation_map_source_var.set(self._navigation_map_source_default)
+        return composed
+
+    def _set_navigation_map_message(self, message):
+        canvas = getattr(self, 'navigation_map_canvas', None)
+        if canvas is None:
+            return
+        self._hide_navigation_map_tooltip()
+        canvas.delete('navigation_map')
+        self._navigation_map_image_item = None
+        self._navigation_map_border_item = None
+        width = max(1, canvas.winfo_width())
+        height = max(1, canvas.winfo_height())
+        canvas.create_text(width // 2, height // 2, text=message, fill='#DADCE0', font=(APP_FONT_FAMILY, 10), tags='navigation_map', justify='center')
+
+    def _schedule_navigation_map_refresh(self, force=False, preserve_view=False):
+        self._navigation_map_dirty = True
+        if preserve_view:
+            self._navigation_map_preserve_view_on_refresh = True
+        if not force and self.notebook.select() != str(self.tab_map):
+            return
+        previous = getattr(self, '_navigation_map_refresh_job', None)
+        if previous is not None:
+            self.root.after_cancel(previous)
+        self._navigation_map_refresh_job = self.root.after(20, self.refresh_navigation_map)
+
+    def refresh_navigation_map(self):
+        self._navigation_map_refresh_job = None
+        preserve_view = getattr(self, '_navigation_map_preserve_view_on_refresh', False)
+        self._navigation_map_preserve_view_on_refresh = False
+        if not self.file_buffer:
+            self.navigation_map_summary_var.set(ui('ui_0548'))
+            self._navigation_map_source_default = ui('ui_0558')
+            self.navigation_map_source_var.set(self._navigation_map_source_default)
+            self._navigation_map_native_image = None
+            self._navigation_map_marker_records = []
+            self._sync_navigation_map_reveal_all_state()
+            self._set_navigation_map_message(ui('ui_0551'))
+            return
+        self._set_navigation_map_message(ui('ui_0559'))
+        self.root.update_idletasks()
+        try:
+            self._navigation_map_native_image = self._compose_navigation_map()
+            self._navigation_map_dirty = False
+            if not preserve_view:
+                self._navigation_map_zoom = 1.0
+                self._navigation_map_pan_x = 0.0
+                self._navigation_map_pan_y = 0.0
+                self.navigation_map_zoom_var.set(ui('ui_0560', 100))
+            self._draw_navigation_map()
+        except Exception as exc:
+            self._navigation_map_native_image = None
+            self._navigation_map_marker_records = []
+            self._navigation_map_source_default = ui('ui_0558')
+            self.navigation_map_source_var.set(self._navigation_map_source_default)
+            self._set_navigation_map_message(str(exc))
+
+    def _schedule_navigation_map_draw(self, _event=None, delay=80):
+        previous = getattr(self, '_navigation_map_draw_job', None)
+        if previous is not None:
+            self.root.after_cancel(previous)
+        self._navigation_map_draw_job = self.root.after(delay, self._draw_navigation_map)
+
+    def _navigation_map_fit_scale(self, image=None):
+        canvas = self.navigation_map_canvas
+        image = image or self._navigation_map_native_image
+        if image is None:
+            return 1.0
+        available_width = max(1, canvas.winfo_width() - _dpi_px(24))
+        available_height = max(1, canvas.winfo_height() - _dpi_px(24))
+        return min(available_width / image.width, available_height / image.height)
+
+    def _clamp_navigation_map_pan(self, width, height):
+        canvas = self.navigation_map_canvas
+        available_width = max(1, canvas.winfo_width() - _dpi_px(24))
+        available_height = max(1, canvas.winfo_height() - _dpi_px(24))
+        limit_x = max(0.0, (width - available_width) / 2.0)
+        limit_y = max(0.0, (height - available_height) / 2.0)
+        self._navigation_map_pan_x = max(-limit_x, min(limit_x, self._navigation_map_pan_x))
+        self._navigation_map_pan_y = max(-limit_y, min(limit_y, self._navigation_map_pan_y))
+
+    def _position_navigation_map_items(self):
+        canvas = self.navigation_map_canvas
+        image_item = getattr(self, '_navigation_map_image_item', None)
+        border_item = getattr(self, '_navigation_map_border_item', None)
+        width = getattr(self, '_navigation_map_render_width', 0)
+        height = getattr(self, '_navigation_map_render_height', 0)
+        if image_item is None or border_item is None or (not width) or (not height):
+            return
+        center_x = canvas.winfo_width() / 2.0 + self._navigation_map_pan_x
+        center_y = canvas.winfo_height() / 2.0 + self._navigation_map_pan_y
+        canvas.coords(image_item, center_x, center_y)
+        canvas.coords(border_item, center_x - width / 2.0, center_y - height / 2.0, center_x + width / 2.0, center_y + height / 2.0)
+
+    def _draw_navigation_map(self):
+        self._navigation_map_draw_job = None
+        canvas = getattr(self, 'navigation_map_canvas', None)
+        image = getattr(self, '_navigation_map_native_image', None)
+        if canvas is None or image is None or ImageTk is None:
+            return
+        scale = self._navigation_map_fit_scale(image) * self._navigation_map_zoom
+        width = max(1, int(image.width * scale))
+        height = max(1, int(image.height * scale))
+        self._clamp_navigation_map_pan(width, height)
+        resized = image.resize((width, height), Image.Resampling.NEAREST)
+        self._navigation_map_photo = ImageTk.PhotoImage(resized)
+        self._hide_navigation_map_tooltip()
+        canvas.delete('navigation_map')
+        self._navigation_map_render_width = width
+        self._navigation_map_render_height = height
+        self._navigation_map_image_item = canvas.create_image(0, 0, image=self._navigation_map_photo, tags=('navigation_map', 'navigation_map_image'))
+        self._navigation_map_border_item = canvas.create_rectangle(0, 0, 0, 0, outline='#DADCE0', width=1, tags=('navigation_map', 'navigation_map_border'))
+        self._position_navigation_map_items()
+
+    def _on_navigation_map_mousewheel(self, event):
+        image = getattr(self, '_navigation_map_native_image', None)
+        if image is None or not getattr(event, 'delta', 0):
+            return None
+        old_zoom = self._navigation_map_zoom
+        factor = 1.2 if event.delta > 0 else 1.0 / 1.2
+        new_zoom = max(1.0, min(4.0, old_zoom * factor))
+        if abs(new_zoom - old_zoom) < 0.0001:
+            return 'break'
+        canvas = self.navigation_map_canvas
+        fit_scale = self._navigation_map_fit_scale(image)
+        old_scale = fit_scale * old_zoom
+        new_scale = fit_scale * new_zoom
+        old_center_x = canvas.winfo_width() / 2.0 + self._navigation_map_pan_x
+        old_center_y = canvas.winfo_height() / 2.0 + self._navigation_map_pan_y
+        source_x = (event.x - old_center_x) / old_scale
+        source_y = (event.y - old_center_y) / old_scale
+        self._navigation_map_zoom = new_zoom
+        self._navigation_map_pan_x = event.x - canvas.winfo_width() / 2.0 - source_x * new_scale
+        self._navigation_map_pan_y = event.y - canvas.winfo_height() / 2.0 - source_y * new_scale
+        self.navigation_map_zoom_var.set(ui('ui_0560', round(new_zoom * 100)))
+        self._schedule_navigation_map_draw(delay=15)
+        return 'break'
+
+    def _on_navigation_map_drag_start(self, event):
+        if self._navigation_map_native_image is None or self._navigation_map_zoom <= 1.0:
+            self._navigation_map_drag_origin = None
+            return None
+        self._navigation_map_drag_origin = (event.x, event.y, self._navigation_map_pan_x, self._navigation_map_pan_y)
+        self.navigation_map_canvas.configure(cursor='fleur')
+        return 'break'
+
+    def _on_navigation_map_drag_motion(self, event):
+        origin = self._navigation_map_drag_origin
+        if origin is None:
+            return None
+        start_x, start_y, pan_x, pan_y = origin
+        self._navigation_map_pan_x = pan_x + event.x - start_x
+        self._navigation_map_pan_y = pan_y + event.y - start_y
+        self._clamp_navigation_map_pan(self._navigation_map_render_width, self._navigation_map_render_height)
+        self._position_navigation_map_items()
+        return 'break'
+
+    def _on_navigation_map_drag_end(self, _event=None):
+        if self._navigation_map_drag_origin is None:
+            return None
+        self._navigation_map_drag_origin = None
+        self.navigation_map_canvas.configure(cursor='')
+        return 'break'
+
+    def _restore_navigation_map_source(self, _event=None):
+        source_var = getattr(self, 'navigation_map_source_var', None)
+        if source_var is not None:
+            source_var.set(getattr(self, '_navigation_map_source_default', ui('ui_0558')))
+        self._hide_navigation_map_tooltip()
+
+    def _hide_navigation_map_tooltip(self):
+        canvas = getattr(self, 'navigation_map_canvas', None)
+        if canvas is not None:
+            canvas.delete('navigation_map_tooltip')
+
+    def _show_navigation_map_tooltip(self, event, marker):
+        """마커 옆에 이름·상태·세계좌표를 담은 툴팁을 표시한다."""
+        canvas = self.navigation_map_canvas
+        self._hide_navigation_map_tooltip()
+        text = ui('ui_0573', marker['kind'], marker['name'], marker['state'], marker['coordinate'])
+        gap = _dpi_px(12)
+        padding = _dpi_px(5)
+        x, y = (event.x + gap, event.y + gap)
+        text_item = canvas.create_text(x, y, text=text, anchor='nw', justify='left', fill='#202124', font=(APP_FONT_FAMILY, 9), tags=('navigation_map_tooltip',))
+        bbox = canvas.bbox(text_item)
+        if bbox is None:
+            return
+        tooltip_width = bbox[2] - bbox[0] + padding * 2
+        tooltip_height = bbox[3] - bbox[1] + padding * 2
+        if x + tooltip_width > canvas.winfo_width():
+            x = max(padding, event.x - gap - tooltip_width)
+        if y + tooltip_height > canvas.winfo_height():
+            y = max(padding, event.y - gap - tooltip_height)
+        canvas.coords(text_item, x + padding, y + padding)
+        background = canvas.create_rectangle(x, y, x + tooltip_width, y + tooltip_height, fill='#FFF8DC', outline='#5F6368', width=1, tags=('navigation_map_tooltip',))
+        canvas.tag_lower(background, text_item)
+        canvas.tag_raise('navigation_map_tooltip')
+
+    def _on_navigation_map_motion(self, event):
+        """확대·이동된 지도에서도 가장 가까운 마커의 이름과 상태를 표시한다."""
+        image = getattr(self, '_navigation_map_native_image', None)
+        render_width = getattr(self, '_navigation_map_render_width', 0)
+        render_height = getattr(self, '_navigation_map_render_height', 0)
+        markers = getattr(self, '_navigation_map_marker_records', ())
+        if image is None or not render_width or (not render_height) or (not markers):
+            self._restore_navigation_map_source()
+            return
+        canvas = self.navigation_map_canvas
+        center_x = canvas.winfo_width() / 2.0 + self._navigation_map_pan_x
+        center_y = canvas.winfo_height() / 2.0 + self._navigation_map_pan_y
+        map_x = (event.x - (center_x - render_width / 2.0)) * image.width / render_width
+        map_y = (event.y - (center_y - render_height / 2.0)) * image.height / render_height
+        if not 0 <= map_x < image.width or not 0 <= map_y < image.height:
+            self._restore_navigation_map_source()
+            return
+
+        def range_distance(marker):
+            bounds = marker.get('bounds')
+            left, top, right, bottom = bounds
+            dx = max(left - map_x, 0, map_x - right)
+            dy = max(top - map_y, 0, map_y - bottom)
+            return (dx * dx + dy * dy, max(1, right - left + 1) * max(1, bottom - top + 1))
+        point_markers = [marker for marker in markers if 'bounds' not in marker]
+        nearest = min(reversed(point_markers), key=lambda marker: (marker['x'] - map_x) ** 2 + (marker['y'] - map_y) ** 2) if point_markers else None
+        point_distance_sq = (nearest['x'] - map_x) ** 2 + (nearest['y'] - map_y) ** 2 if nearest is not None else float('inf')
+        point_hit_radius = nearest.get('hit_radius', 0.5) if nearest is not None else 0.5
+        if point_distance_sq > point_hit_radius ** 2:
+            range_markers = [marker for marker in markers if 'bounds' in marker]
+            nearest = min(reversed(range_markers), key=range_distance) if range_markers else None
+            distance_sq = range_distance(nearest)[0] if nearest is not None else float('inf')
+        else:
+            distance_sq = point_distance_sq
+        hit_radius = nearest.get('hit_radius', 0.5) if nearest is not None else 0.5
+        if nearest is not None and distance_sq <= hit_radius ** 2:
+            self.navigation_map_source_var.set(self._navigation_map_source_default)
+            self._show_navigation_map_tooltip(event, nearest)
+        else:
+            self._restore_navigation_map_source()
+
+    def _reset_navigation_map_view(self, _event=None):
+        if self._navigation_map_native_image is None:
+            return None
+        self._navigation_map_drag_origin = None
+        self.navigation_map_canvas.configure(cursor='')
+        self._navigation_map_zoom = 1.0
+        self._navigation_map_pan_x = 0.0
+        self._navigation_map_pan_y = 0.0
+        self.navigation_map_zoom_var.set(ui('ui_0560', 100))
+        self._schedule_navigation_map_draw(delay=0)
+        return 'break'
+
     def build_profile_tab(self):
-        # ***<module>.CDS3SaveEditorApp.build_profile_tab: Failure: Different bytecode
         parent = self.tab_profile
-        # 윈도우 네이티브 이름 입력칸(기본 9pt)과 맞춰 상단 모든 행을 9pt로 통일한다.
-        LBL_FONT = ('Malgun Gothic', 9)
-        VAL_FONT = ('Malgun Gothic', 9)
+        LBL_FONT = (APP_FONT_FAMILY, 9)
+        VAL_FONT = (APP_FONT_FAMILY, 9)
         configure_equal_columns(parent, 2, 'profile_columns')
-        profile_left = tk.LabelFrame(parent, text=ui('ui_0414'), font=('Malgun Gothic', 9, 'bold'), padx=4, pady=4)
+        profile_left = tk.LabelFrame(parent, text=ui('ui_0414'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=4, pady=4)
         profile_left.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=4)
-        # 상단 신상 영역은 고정 높이, 하단 Notebook은 남은 높이를 사용한다.
-        # pack의 최소 크기 경쟁으로 상단 버튼이 잘리는 현상을 막기 위해 grid로
-        # 두 영역을 명확히 나눈다.
         profile_left.columnconfigure(0, weight=1)
         profile_left.rowconfigure(1, weight=1)
-        profile_right = tk.LabelFrame(parent, text=ui('ui_0392'), font=('Malgun Gothic', 9, 'bold'), padx=4, pady=4)
+        profile_right = tk.LabelFrame(parent, text=ui('ui_0392'), font=(APP_FONT_FAMILY, 9, 'bold'), padx=4, pady=4)
         profile_right.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=4)
-        # 기존 역할별 페이지는 세이브 갱신 로직을 그대로 재사용하기 위한 비표시 컨테이너다.
-        # 실제 화면은 아래의 단일 인물 브라우저만 사용한다.
         self.profile_companion_tabs = ttk.Notebook(profile_right, style='Editor.TNotebook')
-
         self.profile_details = ttk.Notebook(profile_left, style='Editor.TNotebook')
         self.profile_page_stats = ttk.Frame(profile_left)
         self.profile_page_money = ttk.Frame(profile_left)
@@ -5426,21 +5697,13 @@ class CDS3SaveEditorApp:
         self.profile_companion_tabs.add(self.profile_page_interpreter, text=ui('ui_0397'))
         self.build_officer_profile()
         self._crew_profiles = {}
-        self._crew_profiles['officer'] = {
-            'offset': ROLE_SLOT_BY_KEY['officer'], 'name': ui('ui_0394'),
-            'category': self.cbo_officer_category, 'query': self.cbo_officer_name,
-            'tree': self.tree_officer_search,
-        }
+        self._crew_profiles['officer'] = {'offset': ROLE_SLOT_BY_KEY['officer'], 'name': ui('ui_0394'), 'category': self.cbo_officer_category, 'query': self.cbo_officer_name, 'tree': self.tree_officer_search}
         self.build_crew_profile('navigator', self.profile_page_navigator, ROLE_SLOT_BY_KEY['navigator'], ui('ui_0395'))
         self.build_crew_profile('surveyor', self.profile_page_surveyor, ROLE_SLOT_BY_KEY['surveyor'], ui('ui_0396'))
         self.build_crew_profile('interpreter', self.profile_page_interpreter, ROLE_SLOT_BY_KEY['interpreter'], ui('ui_0397'))
         self._build_person_browser(profile_right)
-
-        # 얼굴 변경·되돌리기 버튼을 모두 표시할 수 있도록 상단 영역을 확보한다.
-        # 우측 인물 브라우저의 상단 선택 영역(164px)과 같은 크기·여백을 쓴다.
-        grp_player = tk.Frame(profile_left, height=164)
+        grp_player = tk.Frame(profile_left, height=190)
         grp_player.grid(row=0, column=0, sticky='ew', pady=(3, 4))
-        # 내부 항목은 grid로 배치하므로 grid 전파를 막아야 지정 높이가 유지된다.
         grp_player.grid_propagate(False)
         self.profile_details.grid(row=1, column=0, sticky='nsew', pady=(0, 4))
         self.player_face_column = tk.Frame(grp_player, width=84)
@@ -5450,25 +5713,17 @@ class CDS3SaveEditorApp:
         f_p_face_box.pack(fill=tk.X)
         self.lbl_player_face = tk.Label(f_p_face_box, bg='#222222')
         self.lbl_player_face.pack(fill=tk.BOTH, expand=True)
-        self.btn_player_face_change = EditorButton(
-            self.player_face_column, text=ui('ui_0382'), font=('Malgun Gothic', 9),
-            bg='#E6F4EA', fg='#137333', command=self.open_player_face_picker,
-        )
+        self.btn_player_face_change = EditorButton(self.player_face_column, text=ui('ui_0382'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', command=self.open_player_face_picker)
         self.btn_player_face_change.pack(fill=tk.X, pady=(4, 0))
-        self.btn_player_restore = EditorButton(
-            self.player_face_column, text=ui('ui_0222'), font=('Malgun Gothic', 9),
-            bg='#E8F0FE', fg='#1A73E8', activebackground='#D2E3FC',
-            activeforeground='#174EA6', command=self.restore_player_edits,
-        )
+        self.btn_player_restore = EditorButton(self.player_face_column, text=ui('ui_0222'), font=(APP_FONT_FAMILY, 9), bg='#E8F0FE', fg='#1A73E8', activebackground='#D2E3FC', activeforeground='#174EA6', command=self.restore_player_edits)
         self.btn_player_restore.pack(fill=tk.X, pady=(3, 0))
         self.btn_player_restore.pack_forget()
+
         def fit_player_header_height():
             required_height = self.player_face_column.winfo_reqheight() + _dpi_px(8)
-            grp_player.configure(height=max(_dpi_px(164), required_height))
+            grp_player.configure(height=max(_dpi_px(190), required_height))
         self._fit_player_header_height = fit_player_header_height
         self.root.after_idle(fit_player_header_height)
-        # 별도 Frame을 두면 그 배경이 LabelFrame 테두리를 덮는다. 오른쪽 항목은
-        # 그룹에 직접 grid 배치하고 첫 열만 얼굴 영역만큼 비워 둔다.
         f_p_right = grp_player
         grp_player.grid_columnconfigure(0, minsize=92)
         grp_player.grid_columnconfigure(6, weight=1)
@@ -5497,21 +5752,32 @@ class CDS3SaveEditorApp:
         self.chk_all_nations = tk.BooleanVar(value=False)
         self.chk_nat_widget = tk.Checkbutton(f_nat, text=ui('ui_0156'), variable=self.chk_all_nations, command=self.toggle_all_nations, font=VAL_FONT)
         self.chk_nat_widget.pack(side=tk.LEFT)
-        # 날짜를 먼저 두고, 직업·혈액형·성격 버튼은 그 아래 한 행에 나란히 둔다.
+        location_line = tk.Frame(f_p_right)
+        location_line.grid(row=2, column=1, columnspan=6, pady=(2, 1), sticky='ew')
+        tk.Label(location_line, text=ui('ui_0542'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
+        self._player_city_codes = [65535] + list(range(len(self.CITY_RECORDS)))
+        self.cbo_player_city = ttk.Combobox(location_line, values=[ui('ui_0544')] + list([record['name'] for record in self.CITY_RECORDS]), state='readonly', width=18, font=VAL_FONT)
+        self.cbo_player_city.current(0)
+        self.cbo_player_city.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.cbo_player_city.bind('<<ComboboxSelected>>', self._on_player_city_changed)
+        tk.Label(location_line, text=ui('ui_0543'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(8, 2))
+        self._player_building_codes = [65535]
+        self.cbo_player_building = ttk.Combobox(location_line, values=(ui('ui_0319'),), state='disabled', width=12, font=VAL_FONT)
+        self.cbo_player_building.current(0)
+        self.cbo_player_building.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.cbo_player_building.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
         date_line = tk.Frame(f_p_right)
-        date_line.grid(row=2, column=1, columnspan=6, pady=(2, 1), sticky='ew')
+        date_line.grid(row=3, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(date_line, text=ui('ui_0232'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(0, 4))
         f_birth = tk.Frame(date_line)
         f_birth.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.spn_birth_y = ttk.Spinbox(f_birth, from_=1000, to=3000, width=5)
-        self.spn_birth_m = ttk.Spinbox(f_birth, from_=1, to=12, width=3)
-        self.spn_birth_d = ttk.Spinbox(f_birth, from_=1, to=31, width=3)
+        self.spn_birth_y = SPINBOX_WIDGET(f_birth, from_=1000, to=3000, width=5)
+        self.spn_birth_m = SPINBOX_WIDGET(f_birth, from_=1, to=12, width=3)
+        self.spn_birth_d = SPINBOX_WIDGET(f_birth, from_=1, to=31, width=3)
         self.set_spin_val(self.spn_birth_y, 1450)
         self.set_spin_val(self.spn_birth_m, 1)
         self.set_spin_val(self.spn_birth_d, 1)
-        self.birth_date_picker = CalendarDatePicker(
-            f_birth, self._get_birth_date, self._set_birth_date_from_calendar, font=VAL_FONT,
-        )
+        self.birth_date_picker = CalendarDatePicker(f_birth, self._get_birth_date, self._set_birth_date_from_calendar, font=VAL_FONT)
         self.birth_date_picker.pack(side=tk.LEFT, fill=tk.X, expand=True)
         for spinner in (self.spn_birth_y, self.spn_birth_m, self.spn_birth_d):
             spinner.bind('<KeyRelease>', self._on_birth_date_changed, add='+')
@@ -5522,9 +5788,9 @@ class CDS3SaveEditorApp:
         tk.Label(date_line, text=ui('ui_0236'), font=LBL_FONT, anchor='e', fg='#1A73E8').pack(side=tk.LEFT, padx=(8, 2))
         f_game = tk.Frame(date_line)
         f_game.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.spn_game_y = ttk.Spinbox(f_game, from_=1480, to=1559, width=5)
-        self.spn_game_m = ttk.Spinbox(f_game, from_=1, to=12, width=3)
-        self.spn_game_d = ttk.Spinbox(f_game, from_=1, to=31, width=3)
+        self.spn_game_y = SPINBOX_WIDGET(f_game, from_=1480, to=1559, width=5)
+        self.spn_game_m = SPINBOX_WIDGET(f_game, from_=1, to=12, width=3)
+        self.spn_game_d = SPINBOX_WIDGET(f_game, from_=1, to=31, width=3)
         self.set_spin_val(self.spn_game_y, 1480)
         self.set_spin_val(self.spn_game_m, 1)
         self.set_spin_val(self.spn_game_d, 1)
@@ -5534,13 +5800,10 @@ class CDS3SaveEditorApp:
             spinner.bind('<FocusOut>', self._on_game_date_changed, add='+')
             spinner.bind('<<Increment>>', self._on_game_date_changed, add='+')
             spinner.bind('<<Decrement>>', self._on_game_date_changed, add='+')
-        self.game_date_picker = CalendarDatePicker(
-            f_game, self._get_game_date, self._set_game_date_from_calendar,
-            font=VAL_FONT, min_year=1480, max_year=1559,
-        )
+        self.game_date_picker = CalendarDatePicker(f_game, self._get_game_date, self._set_game_date_from_calendar, font=VAL_FONT, min_year=1480, max_year=1559)
         self.game_date_picker.pack(side=tk.LEFT, fill=tk.X, expand=True)
         info_line = tk.Frame(f_p_right)
-        info_line.grid(row=3, column=1, columnspan=6, pady=(2, 1), sticky='ew')
+        info_line.grid(row=4, column=1, columnspan=6, pady=(2, 1), sticky='ew')
         tk.Label(info_line, text=ui('ui_0229'), font=LBL_FONT, anchor='e').pack(side=tk.LEFT, padx=(0, 4))
         self.cbo_job = ttk.Combobox(info_line, values=JOB_NAMES, state='readonly', width=9, font=VAL_FONT)
         self.cbo_job.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -5550,32 +5813,19 @@ class CDS3SaveEditorApp:
         self.cbo_blood.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda e: self.update_wife_combo_options())
         self.cbo_blood.bind('<<ComboboxSelected>>', lambda _event: self._update_player_restore_state(), add='+')
-        self.btn_player_personality = EditorButton(
-            info_line, text=ui('ui_0501'), font=VAL_FONT,
-            bg='#E8F0FE', fg='#1A73E8', activebackground='#D2E3FC', activeforeground='#174EA6',
-            command=self.open_player_personality_html,
-        )
-        self.btn_player_personality.pack(side=tk.LEFT, padx=(8, 0))
         self.sponsor_contract_line = tk.Frame(f_p_right)
-        self.sponsor_contract_line.grid(row=4, column=1, columnspan=6, pady=(3, 1), sticky='ew')
+        self.sponsor_contract_line.grid(row=5, column=1, columnspan=6, pady=(3, 1), sticky='ew')
         tk.Label(self.sponsor_contract_line, text=ui('ui_0448'), font=LBL_FONT, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
         self.lbl_sponsor_contract = tk.Label(self.sponsor_contract_line, text='', font=VAL_FONT, anchor='w')
         self.lbl_sponsor_contract.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.sponsor_remaining_line = tk.Frame(f_p_right)
-        self.sponsor_remaining_line.grid(row=5, column=1, columnspan=6, pady=(2, 0), sticky='ew')
-        self.lbl_sponsor_remaining_days = tk.Label(
-            self.sponsor_remaining_line, text=ui('ui_0449'), font=LBL_FONT, anchor='w')
+        self.sponsor_remaining_line.grid(row=6, column=1, columnspan=6, pady=(2, 0), sticky='ew')
+        self.lbl_sponsor_remaining_days = tk.Label(self.sponsor_remaining_line, text=ui('ui_0449'), font=LBL_FONT, anchor='w')
         self.lbl_sponsor_remaining_days.pack(side=tk.LEFT, padx=(0, 4))
-        self.lbl_sponsor_remaining_day_unit = tk.Label(
-            self.sponsor_remaining_line, text=ui('ui_0235'), font=VAL_FONT)
+        self.lbl_sponsor_remaining_day_unit = tk.Label(self.sponsor_remaining_line, text=ui('ui_0235'), font=VAL_FONT)
         self.sponsor_remaining_days_var = tk.StringVar(value='')
         sponsor_days_validate = self.root.register(self._validate_sponsor_remaining_days)
-        self.spn_sponsor_remaining_days = ttk.Spinbox(
-            self.sponsor_remaining_line, textvariable=self.sponsor_remaining_days_var,
-            from_=0, to=0xFFFF, width=6, justify='right', font=VAL_FONT,
-            command=self._apply_sponsor_remaining_days,
-            validate='key', validatecommand=(sponsor_days_validate, '%P'),
-        )
+        self.spn_sponsor_remaining_days = SPINBOX_WIDGET(self.sponsor_remaining_line, textvariable=self.sponsor_remaining_days_var, from_=0, to=65535, width=6, justify='right', font=VAL_FONT, command=self._apply_sponsor_remaining_days, validate='key', validatecommand=(sponsor_days_validate, '%P'))
         self.spn_sponsor_remaining_days.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
         self.lbl_sponsor_remaining_day_unit.pack(side=tk.LEFT)
         self.spn_sponsor_remaining_days.bind('<Return>', self._apply_sponsor_remaining_days, add='+')
@@ -5583,14 +5833,9 @@ class CDS3SaveEditorApp:
         self.sponsor_contract_button_host = tk.Frame(self.sponsor_remaining_line, width=84, height=25)
         self.sponsor_contract_button_host.pack_propagate(False)
         self.sponsor_contract_button_host.pack(side=tk.RIGHT, padx=(0, 2))
-        self.btn_clear_sponsor_contract = EditorButton(
-            self.sponsor_contract_button_host, text=ui('ui_0437'),
-            command=self.clear_sponsor_contract, bg='#FCE8E6', fg='#D93025',
-            font=('Malgun Gothic', 9), padx=5,
-        )
+        self.btn_clear_sponsor_contract = EditorButton(self.sponsor_contract_button_host, text=ui('ui_0437'), command=self.clear_sponsor_contract, bg='#FCE8E6', fg='#D93025', font=(APP_FONT_FAMILY, 9), padx=5)
         self.btn_clear_sponsor_contract.pack(fill=tk.BOTH, expand=True)
         self._refresh_sponsor_contract_display()
-        # 상단의 여급 선택 영역과 하단 신상정보 영역이 내부 높이를 반씩 사용한다.
         self.profile_page_spouse.columnconfigure(0, weight=1)
         self.profile_page_spouse.rowconfigure(0, weight=2)
         self.profile_page_spouse.rowconfigure(1, weight=3)
@@ -5615,12 +5860,10 @@ class CDS3SaveEditorApp:
         wife_name_host.pack(side=tk.LEFT)
         self.cbo_wife = NativeWinEdit(wife_name_host, lambda: self._schedule_search_refresh('wife', self._refresh_wife_search_results), width=110, height=23)
         self.cbo_wife.set('')
-        btn_wife_book = EditorButton(f_w_right, text=ui('ui_0158'), font=('Malgun Gothic', 9), command=self.open_barmaid_guide_html, bg='#FFF8E1', fg='#B06000', padx=4, pady=1)
-        btn_wife_book.grid(row=0, column=3, padx=(0, 4), pady=(4, 2), sticky='e')
         wife_search_frame = tk.Frame(f_w_right)
         wife_search_frame.grid(row=1, column=1, columnspan=3, rowspan=3, padx=(0, 4), pady=(0, 4), sticky='nsew')
         self.tree_wife_search = ttk.Treeview(wife_search_frame, columns=('id', 'name'), show='headings', height=5, selectmode='browse')
-        self.tree_wife_search.heading('id', text='No')
+        self.tree_wife_search.heading('id', text=ui('ui_0346'))
         self.tree_wife_search.heading('name', text=ui('ui_0062'))
         self.tree_wife_search.column('id', width=38, anchor='center', stretch=False)
         self.tree_wife_search.column('name', width=110, anchor='w', stretch=True)
@@ -5631,7 +5874,7 @@ class CDS3SaveEditorApp:
         self.tree_wife_search.bind('<<TreeviewSelect>>', self.on_wife_search_selected)
         self.lbl_wife_city_title = tk.Label(f_w_right, text=ui('ui_0238'), font=LBL_FONT, anchor='e')
         self.lbl_wife_city_title.grid(row=1, column=1, padx=(0, 4), pady=3, sticky='e')
-        self.lbl_wife_city = tk.Label(f_w_right, text=UI_EMPTY_VALUE, font=('Malgun Gothic', 9), anchor='w')
+        self.lbl_wife_city = tk.Label(f_w_right, text=UI_EMPTY_VALUE, font=(APP_FONT_FAMILY, 9), anchor='w')
         self.lbl_wife_city.grid(row=1, column=2, pady=3, sticky='w')
         self.lbl_wife_year_title = tk.Label(f_w_right, text=ui('ui_0398'), font=LBL_FONT, anchor='e')
         self.lbl_wife_year_title.grid(row=1, column=3, padx=(10, 4), pady=3, sticky='e')
@@ -5651,7 +5894,7 @@ class CDS3SaveEditorApp:
         self.lbl_wife_personality.grid(row=3, column=2, pady=2, sticky='w')
         self.lbl_wife_fortune_title = tk.Label(f_w_right, text=ui('ui_0241'), font=LBL_FONT, anchor='e', cursor='question_arrow')
         self.lbl_wife_fortune_title.grid(row=3, column=3, padx=(10, 4), pady=2, sticky='e')
-        self.lbl_wife_compat = tk.Label(f_w_right, text=UI_EMPTY_VALUE, font=('Malgun Gothic', 9), anchor='w')
+        self.lbl_wife_compat = tk.Label(f_w_right, text=UI_EMPTY_VALUE, font=(APP_FONT_FAMILY, 9), anchor='w')
         self.lbl_wife_compat.grid(row=3, column=4, pady=2, sticky='w')
         self._wife_fortune_tooltip = None
         for widget in (self.lbl_wife_fortune_title, self.lbl_wife_compat):
@@ -5661,7 +5904,7 @@ class CDS3SaveEditorApp:
         wife_languages_frame = tk.Frame(self.profile_page_spouse, padx=6, pady=6)
         wife_languages_frame.grid(row=1, column=0, sticky='nsew', padx=3, pady=(0, 4))
         self.tree_wife_languages = ttk.Treeview(wife_languages_frame, columns=('index', 'field', 'value'), show='headings', height=12, selectmode='none')
-        self.tree_wife_languages.heading('index', text='No')
+        self.tree_wife_languages.heading('index', text=ui('ui_0346'))
         self.tree_wife_languages.heading('field', text=ui('ui_0348'))
         self.tree_wife_languages.heading('value', text=ui('ui_0378'))
         self.tree_wife_languages.column('index', width=40, anchor='center', stretch=False)
@@ -5673,17 +5916,16 @@ class CDS3SaveEditorApp:
         grp_stats.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_stats_top = tk.Frame(grp_stats)
         f_stats_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_stats_top, text=ui('ui_0390', 255), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_stats = ttk.Spinbox(f_stats_top, from_=0, to=255, width=5, justify='center', font=('Malgun Gothic', 9))
+        tk.Label(f_stats_top, text=ui('ui_0390', 255), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+        self.spn_batch_stats = SPINBOX_WIDGET(f_stats_top, from_=0, to=255, width=5, justify='center', font=(APP_FONT_FAMILY, 9))
         self.spn_batch_stats.set('255')
         self.spn_batch_stats.pack(side=tk.LEFT, padx=4)
-        EditorButton(f_stats_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=('Malgun Gothic', 9), command=self.apply_batch_stats).pack(side=tk.LEFT, padx=4)
+        EditorButton(f_stats_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_stats).pack(side=tk.LEFT, padx=4)
         cols_stat = ('index', 'field', 'value', 'maximum')
         f_tree_s = tk.Frame(grp_stats)
         f_tree_s.pack(fill=tk.BOTH, expand=True, pady=2)
         self.tree_stats = ttk.Treeview(f_tree_s, columns=cols_stat, show='headings', height=7)
-        col_defs_stat = [('index', 35, 'center', False), ('field', 115, 'center', False),
-                         ('value', 90, 'center', False), ('maximum', 115, 'center', True)]
+        col_defs_stat = [('index', 35, 'center', False), ('field', 115, 'center', False), ('value', 90, 'center', False), ('maximum', 115, 'center', True)]
         for c, w, a, s in col_defs_stat:
             self.tree_stats.heading(c, text=TREE_COLUMN_TITLES['stats'][c])
             self.tree_stats.column(c, width=w, anchor=a, stretch=s)
@@ -5700,11 +5942,11 @@ class CDS3SaveEditorApp:
         grp_money.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_money_top = tk.Frame(grp_money)
         f_money_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_money_top, text=ui('ui_0390', '99,999,999'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_money = ttk.Spinbox(f_money_top, from_=0, to=99999999, width=11, justify='center', font=('Malgun Gothic', 9))
+        tk.Label(f_money_top, text=ui('ui_0390', '99,999,999'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+        self.spn_batch_money = SPINBOX_WIDGET(f_money_top, from_=0, to=99999999, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
         self.spn_batch_money.set('99999999')
         self.spn_batch_money.pack(side=tk.LEFT, padx=4)
-        EditorButton(f_money_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=('Malgun Gothic', 9), command=self.apply_batch_money).pack(side=tk.LEFT, padx=4)
+        EditorButton(f_money_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_money).pack(side=tk.LEFT, padx=4)
         cols_money = ('index', 'field', 'value', 'maximum')
         f_tree_m = tk.Frame(grp_money)
         f_tree_m.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -5726,11 +5968,11 @@ class CDS3SaveEditorApp:
         grp_reputation.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_reputation_top = tk.Frame(grp_reputation)
         f_reputation_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_reputation_top, text=ui('ui_0390', f'{PLAYER_REPUTATION_MAX:,}'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_reputation = ttk.Spinbox(f_reputation_top, from_=0, to=PLAYER_REPUTATION_MAX, width=11, justify='center', font=('Malgun Gothic', 9))
+        tk.Label(f_reputation_top, text=ui('ui_0390', '{0:,}'.format(PLAYER_REPUTATION_MAX)), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+        self.spn_batch_reputation = SPINBOX_WIDGET(f_reputation_top, from_=0, to=PLAYER_REPUTATION_MAX, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
         self.spn_batch_reputation.set(str(PLAYER_REPUTATION_MAX))
         self.spn_batch_reputation.pack(side=tk.LEFT, padx=4)
-        EditorButton(f_reputation_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=('Malgun Gothic', 9), command=self.apply_batch_reputation).pack(side=tk.LEFT, padx=4)
+        EditorButton(f_reputation_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_reputation).pack(side=tk.LEFT, padx=4)
         f_tree_r = tk.Frame(grp_reputation)
         f_tree_r.pack(fill=tk.BOTH, expand=True, pady=2)
         self.tree_reputation = ttk.Treeview(f_tree_r, columns=cols_money, show='headings', height=5)
@@ -5752,23 +5994,15 @@ class CDS3SaveEditorApp:
         browser = tk.Frame(parent)
         browser.pack(fill=tk.BOTH, expand=True)
         self._person_type_keys = ('spouse', 'officer', 'navigator', 'surveyor', 'interpreter', 'unhireable', 'sponsor')
-        self._person_type_names = {
-            'spouse': ui('ui_0393'), 'officer': ui('ui_0394'), 'navigator': ui('ui_0395'),
-            'surveyor': ui('ui_0396'), 'interpreter': ui('ui_0397'),
-            'unhireable': ui('ui_0453'),
-            'sponsor': ui('ui_0429'),
-        }
+        self._person_type_names = {'spouse': ui('ui_0393'), 'officer': ui('ui_0394'), 'navigator': ui('ui_0395'), 'surveyor': ui('ui_0396'), 'interpreter': ui('ui_0397'), 'unhireable': ui('ui_0453'), 'sponsor': ui('ui_0429')}
         self._person_active_type = 'spouse'
         self._person_selected_sponsor_id = None
         self._person_selected_unhireable_id = None
         self._person_browser_syncing = False
-
-        # 상단 선택 영역: 왼쪽은 초상화와 배정 제어, 오른쪽은 유형·검색·인물 목록이다.
-        upper = tk.Frame(browser, height=164)
+        upper = tk.Frame(browser, height=190)
         self.person_browser_upper = upper
         upper.pack(fill=tk.X, padx=4, pady=(3, 4))
         upper.pack_propagate(False)
-        # 주인공 정보의 얼굴·변경 버튼 폭(84px)과 동일하게 맞춘다.
         left_panel = tk.Frame(upper, width=84)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6), pady=2)
         left_panel.pack_propagate(False)
@@ -5778,66 +6012,37 @@ class CDS3SaveEditorApp:
         self._person_face_label = tk.Label(face_box, bg='#222222')
         self._person_face_label.pack(fill=tk.BOTH, expand=True)
         self._person_face_photo = None
-        self.btn_person_release = EditorButton(
-            left_panel, text=ui('ui_0437'), font=('Malgun Gothic', 9),
-            command=self._release_person_assignment,
-            bg='#FCE8E6', fg='#D93025',
-        )
+        self.btn_person_release = EditorButton(left_panel, text=ui('ui_0437'), font=(APP_FONT_FAMILY, 9), command=self._release_person_assignment, bg='#FCE8E6', fg='#D93025')
         self.btn_person_release.pack(fill=tk.X, pady=(4, 3))
-        self.btn_person_restore = EditorButton(
-            left_panel, text=ui('ui_0222'), font=('Malgun Gothic', 9),
-            command=self._restore_person_assignment,
-            bg='#E8F0FE', fg='#1A73E8',
-        )
+        self.btn_person_restore = EditorButton(left_panel, text=ui('ui_0222'), font=(APP_FONT_FAMILY, 9), command=self._restore_person_assignment, bg='#E8F0FE', fg='#1A73E8')
         self.btn_person_restore.pack(fill=tk.X)
 
         def fit_person_browser_header_height():
-            button_height = sum(
-                button.winfo_reqheight()
-                for button in (self.btn_person_release, self.btn_person_restore)
-                if button.winfo_manager()
-            )
-            # 초상화 아래 여백 4px, 제거 버튼 아래 3px, 바깥 상하 여백을 포함한다.
+            button_height = sum((button.winfo_reqheight() for button in (self.btn_person_release, self.btn_person_restore) if button.winfo_manager()))
             required_height = face_box.winfo_reqheight() + button_height + _dpi_px(15)
-            upper.configure(height=max(_dpi_px(164), required_height))
+            upper.configure(height=max(_dpi_px(190), required_height))
         self._fit_person_browser_header_height = fit_person_browser_header_height
         self.root.after_idle(fit_person_browser_header_height)
-
         right_panel = tk.Frame(upper)
         right_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=2)
         header = tk.Frame(right_panel)
         header.pack(fill=tk.X, pady=(0, 3))
-        tk.Label(header, text=ui('ui_0430'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self.cbo_person_type = ttk.Combobox(
-            header, values=[self._person_type_names[key] for key in self._person_type_keys],
-            state='readonly', width=10, font=('Malgun Gothic', 9))
+        tk.Label(header, text=ui('ui_0430'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.cbo_person_type = ttk.Combobox(header, values=[self._person_type_names[key] for key in self._person_type_keys], state='readonly', width=10, font=(APP_FONT_FAMILY, 9))
         self.cbo_person_type.current(0)
         self.cbo_person_type.pack(side=tk.LEFT, padx=(0, 8))
         self.cbo_person_type.bind('<<ComboboxSelected>>', self._on_person_type_changed)
-        tk.Label(header, text=ui('ui_0251'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(header, text=ui('ui_0251'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=(0, 4))
         search_host = tk.Frame(header, width=120, height=23)
         search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor=tk.S)
         search_host.pack_propagate(False)
         self.person_search_host = search_host
-        self.cbo_person_search = NativeWinEdit(
-            search_host, lambda: self._schedule_search_refresh('person-browser', self._refresh_person_browser),
-            width=120, height=23)
+        self.cbo_person_search = NativeWinEdit(search_host, lambda: self._schedule_search_refresh('person-browser', self._refresh_person_browser), width=120, height=23)
         self.cbo_person_search.set('')
-        # 인물 유형이 부인일 때만 검색창 바로 오른쪽에서 도감을 연다.
-        # 성격 버튼과 같은 두 글자 버튼 폭을 사용한다.
-        self.person_barmaid_guide_host = tk.Frame(header, width=48, height=23)
-        self.person_barmaid_guide_host.pack_propagate(False)
-        self.btn_person_barmaid_guide = EditorButton(
-            self.person_barmaid_guide_host, text=ui('ui_0158'), font=('Malgun Gothic', 9),
-            command=self.open_barmaid_guide_html, bg='#FFF8E1', fg='#B06000',
-        )
-        self.btn_person_barmaid_guide.pack(fill=tk.BOTH, expand=True)
-        self._update_person_barmaid_guide_visibility()
-
         list_frame = tk.Frame(right_panel)
         list_frame.pack(fill=tk.BOTH, expand=True)
         self.tree_person_list = ttk.Treeview(list_frame, columns=('id', 'name'), show='headings', height=5, selectmode='browse')
-        self.tree_person_list.heading('id', text='No')
+        self.tree_person_list.heading('id', text=ui('ui_0346'))
         self.tree_person_list.heading('name', text=ui('ui_0062'))
         self.tree_person_list.column('id', width=42, anchor='center', stretch=False)
         self.tree_person_list.column('name', anchor='w', stretch=True)
@@ -5846,18 +6051,11 @@ class CDS3SaveEditorApp:
         self.tree_person_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         person_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_person_list.bind('<<TreeviewSelect>>', self._on_person_list_selected)
-        # 인물 목록은 역할을 즉시 지정하므로, 방향키 이동도 반드시 이 목록의
-        # 선택 변경 이벤트를 거치게 명시적으로 연결한다.
         self.tree_person_list.bind('<Up>', lambda event: self._move_treeview_selection(event, -1))
         self.tree_person_list.bind('<Down>', lambda event: self._move_treeview_selection(event, 1))
-
-        # 역할을 선택했을 때는 이전 화면의 상세 탭(기본 정보·능력치·명성·기술·언어)을
-        # 그대로 보여 준다. 부인·스폰서는 기본 정보 탭 하나만 사용한다.
         self.person_detail_tabs = ttk.Notebook(browser, style='Editor.TNotebook')
         self.person_detail_tabs.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
         self._person_detail_pages = [ttk.Frame(browser) for _ in range(5)]
-        # 주인공 하단 탭과 같은 바깥 여백을 사용한다. 인물 탭의 일괄 적용 줄과
-        # 목록이 서로 다른 부모 프레임에 있어 생기던 위치 차이를 없앤다.
         self._person_detail_bodies = []
         for page in self._person_detail_pages:
             body = tk.Frame(page, padx=8, pady=6)
@@ -5865,48 +6063,42 @@ class CDS3SaveEditorApp:
             self._person_detail_bodies.append(body)
         self._person_detail_titles = PERSON_TAB_TITLES
         self._person_batch_spinners = {}
-        for detail_index, maximum, width, label_text in (
-                (1, 255, 5, ui('ui_0390', 255)),
-                (2, PERSON_REPUTATION_MAX, 8, ui('ui_0390', f'{PERSON_REPUTATION_MAX:,}')),
-                (3, 3, 4, ui('ui_0247')),
-                (4, 3, 4, ui('ui_0247'))):
+        for detail_index, maximum, width, label_text in ((1, 255, 5, ui('ui_0390', 255)), (2, PERSON_REPUTATION_MAX, 8, ui('ui_0390', '{0:,}'.format(PERSON_REPUTATION_MAX))), (3, 3, 4, ui('ui_0247')), (4, 3, 4, ui('ui_0247'))):
             batch_bar = tk.Frame(self._person_detail_bodies[detail_index])
             batch_bar.pack(side=tk.TOP, fill=tk.X, pady=2)
-            tk.Label(batch_bar, text=label_text, font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-            spinner = ttk.Spinbox(
-                batch_bar, from_=0, to=maximum, width=width, justify='center', font=('Malgun Gothic', 9))
+            tk.Label(batch_bar, text=label_text, font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+            spinner = SPINBOX_WIDGET(batch_bar, from_=0, to=maximum, width=width, justify='center', font=(APP_FONT_FAMILY, 9))
             spinner.set(str(maximum))
             spinner.pack(side=tk.LEFT, padx=4)
-            EditorButton(
-                batch_bar, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333',
-                command=lambda index=detail_index: self._apply_person_batch_detail(index),
-            ).pack(side=tk.LEFT, padx=4)
+            EditorButton(batch_bar, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', command=lambda index=detail_index: self._apply_person_batch_detail(index)).pack(side=tk.LEFT, padx=4)
             self._person_batch_spinners[detail_index] = spinner
-        basic_tree = self._make_officer_tree(
-            self._person_detail_bodies[0], ('index', 'field', 'value'),
-            ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8,
-            frame_padx=0, frame_pady=0, pack_pady=2)
-        stats_tree = self._make_officer_tree(
-            self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'),
-            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False),
-             (TREE_COLUMN_TITLES['stats']['maximum'], 115, 'center', True)), 7,
-            frame_padx=0, frame_pady=0, pack_pady=2)
-        fame_tree = self._make_officer_tree(
-            self._person_detail_bodies[2], ('index', 'field', 'value', 'maximum'),
-            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 145, 'center', False), (ui('ui_0350'), 135, 'e', False),
-             (TREE_COLUMN_TITLES['money']['maximum'], 115, 'center', True)), 5,
-            frame_padx=0, frame_pady=0, pack_pady=2)
-        skill_tree = self._make_officer_tree(
-            self._person_detail_bodies[3], ('index', 'field', 'value'),
-            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 190, 'w', True), (ui('ui_0490'), 150, 'center', False)), 13,
-            frame_padx=0, frame_pady=0, pack_pady=2)
-        language_tree = self._make_officer_tree(
-            self._person_detail_bodies[4], ('index', 'field', 'value'),
-            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 195, 'w', True), (ui('ui_0490'), 155, 'center', False)), 14,
-            frame_padx=0, frame_pady=0, pack_pady=2)
+        basic_tree = self._make_officer_tree(self._person_detail_bodies[0], ('index', 'field', 'value'), ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8, frame_padx=0, frame_pady=0, pack_pady=2)
+        stats_tree = self._make_officer_tree(self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False), (TREE_COLUMN_TITLES['stats']['maximum'], 115, 'center', True)), 7, frame_padx=0, frame_pady=0, pack_pady=2)
+        fame_tree = self._make_officer_tree(self._person_detail_bodies[2], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 145, 'center', False), (ui('ui_0350'), 135, 'e', False), (TREE_COLUMN_TITLES['money']['maximum'], 115, 'center', True)), 5, frame_padx=0, frame_pady=0, pack_pady=2)
+        skill_tree = self._make_officer_tree(self._person_detail_bodies[3], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 190, 'w', True), (ui('ui_0490'), 150, 'center', False)), 13, frame_padx=0, frame_pady=0, pack_pady=2)
+        language_tree = self._make_officer_tree(self._person_detail_bodies[4], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 195, 'w', True), (ui('ui_0490'), 155, 'center', False)), 14, frame_padx=0, frame_pady=0, pack_pady=2)
         self._person_detail_trees = (basic_tree, stats_tree, fame_tree, skill_tree, language_tree)
         self.tree_person_details = self._person_detail_trees[0]
         self.tree_person_stats = self._person_detail_trees[1]
+        self._disable_tree_keyboard_navigation(basic_tree)
+        self._person_current_city_row = None
+        self._person_current_city_id = None
+        self._person_city_ids = list(CITY_NAME_BY_ID)
+        self.cbo_person_current_city = UpwardCombobox(basic_tree, values=[CITY_NAME_BY_ID[city_id] for city_id in self._person_city_ids], state='disabled', height=8, font=(APP_FONT_FAMILY, 9))
+        self.cbo_person_current_city.bind('<<ComboboxSelected>>', self._on_person_current_city_changed)
+        city_scroll = ttk.Scrollbar(basic_tree.master, orient=tk.VERTICAL, command=basic_tree.yview)
+
+        def sync_city_cell(first, last):
+            city_scroll.set(first, last)
+            if float(first) > 0 or float(last) < 1:
+                if not city_scroll.winfo_manager():
+                    city_scroll.pack(side=tk.RIGHT, fill=tk.Y, before=basic_tree)
+            else:
+                city_scroll.pack_forget()
+            self._position_person_city_cell()
+        basic_tree.configure(yscrollcommand=sync_city_cell)
+        for sequence in ('<Configure>', '<Map>', '<B1-Motion>', '<ButtonRelease-1>'):
+            basic_tree.bind(sequence, lambda _event: self.root.after_idle(self._position_person_city_cell), add='+')
         self._sponsor_fame_tooltip = None
         self._sponsor_fame_tooltip_row = None
         self.tree_person_details.bind('<Motion>', self._on_sponsor_fame_motion, add='+')
@@ -5918,14 +6110,9 @@ class CDS3SaveEditorApp:
         self.tree_person_stats.bind('<Leave>', self._hide_person_hire_cost_tooltip, add='+')
         self.tree_person_stats.bind('<ButtonPress>', self._hide_person_hire_cost_tooltip, add='+')
         for detail_index, detail_tree in enumerate(self._person_detail_trees[1:], start=1):
-            # 기본 _make_officer_tree는 읽기 전용 화면용으로 selectmode='none'을
-            # 사용한다. 이 네 탭은 행 선택 후 수정해야 하므로 별도로 활성화한다.
             detail_tree.configure(selectmode='browse')
-            detail_tree.bind(
-                '<Return>', lambda _event, index=detail_index: self._edit_person_detail_value(index), add='+')
-            detail_tree.bind(
-                '<Double-1>',
-                lambda event, index=detail_index: self._edit_person_detail_value(index, event), add='+')
+            detail_tree.bind('<Return>', lambda _event, index=detail_index: self._edit_person_detail_value(index), add='+')
+            detail_tree.bind('<Double-1>', lambda event, index=detail_index: self._edit_person_detail_value(index, event), add='+')
         self._set_person_detail_mode(False)
         self._refresh_person_browser()
 
@@ -5941,7 +6128,6 @@ class CDS3SaveEditorApp:
         else:
             tabs.add(pages[0], text=ui('ui_0489'))
             for page in pages[1:]:
-                # 최초 구성에서는 아직 Notebook에 추가되지 않은 페이지가 있다.
                 if str(page) in tabs.tabs():
                     tabs.hide(page)
 
@@ -5950,32 +6136,7 @@ class CDS3SaveEditorApp:
         if 0 <= index < len(self._person_type_keys):
             self._person_active_type = self._person_type_keys[index]
         self.cbo_person_search.set('')
-        self._update_person_barmaid_guide_visibility()
         self._refresh_person_browser()
-
-    def _update_person_barmaid_guide_visibility(self):
-        """인물 유형이 부인일 때만 검색창 오른쪽의 웹 도감 버튼을 표시한다."""
-        button = getattr(self, 'btn_person_barmaid_guide', None)
-        host = getattr(self, 'person_barmaid_guide_host', None)
-        if button is None or host is None:
-            return
-        if self._person_active_type == 'spouse':
-            # Pack은 배치 순서에 따라 남은 폭을 계산한다. 검색창이 먼저 확장된
-            # 상태에서 오른쪽 버튼을 뒤늦게 넣으면 버튼이 수 px로 눌린다.
-            # 고정 폭 버튼을 먼저 배치하고 검색창이 나머지를 쓰게 한다.
-            if self.person_search_host.winfo_manager():
-                self.person_search_host.pack_forget()
-            if host.winfo_manager():
-                host.pack_forget()
-            host.pack(side=tk.RIGHT, padx=(5, 0), anchor=tk.S)
-            self.person_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor=tk.S)
-        else:
-            if host.winfo_manager():
-                host.pack_forget()
-            if not self.person_search_host.winfo_manager():
-                self.person_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, anchor=tk.S)
-            else:
-                self.person_search_host.pack_configure(fill=tk.X, expand=True, anchor=tk.S)
 
     def _set_person_assignment_buttons_visible(self):
         """배정 가능한 유형의 제거와 전체 인물 정보 되돌리기를 갱신한다."""
@@ -5991,12 +6152,10 @@ class CDS3SaveEditorApp:
         if not restore_supported:
             return
         if editable and kind == 'spouse':
-            # 인물 브라우저가 기존 부인 화면보다 먼저 만들어질 수 있다.
             assigned = getattr(self, '_wife_selected_id', None) is not None
         elif editable:
             assigned = self._person_role_id(kind) is not None
         if editable:
-            # 이미 비어 있는 배정은 다시 해제할 수 없다.
             self.btn_person_release.config(state=tk.NORMAL if assigned else tk.DISABLED)
         if self._person_data_has_changes():
             self.btn_person_restore.pack(fill=tk.X)
@@ -6028,7 +6187,6 @@ class CDS3SaveEditorApp:
         for offset in ROLE_SLOT_OFFSETS:
             self.file_buffer[offset:offset + 2] = original[offset:offset + 2]
         CHARACTER_LAYOUT.reset(self.file_buffer, original)
-        # 상세 목록도 원본 인물 스냅샷을 다시 기준으로 삼는다.
         self.person_display_buffer = bytes(original)
         self._wife_selected_id = read_spouse_barmaid_id(original)
         self.update_wife_display()
@@ -6040,11 +6198,11 @@ class CDS3SaveEditorApp:
     def _person_data_has_changes(self):
         """부인·역할 슬롯·일반 인물 표 전체의 원본 대비 변경 여부를 반환한다."""
         original = getattr(self, 'person_original_buffer', None)
-        if not self.file_buffer or not original or not CHARACTER_LAYOUT.can_reset(self.file_buffer, original):
+        if not self.file_buffer or not original or (not CHARACTER_LAYOUT.can_reset(self.file_buffer, original)):
             return False
         if self.file_buffer[SPOUSE_SLOT_OFFSET:SPOUSE_SLOT_OFFSET + 2] != original[SPOUSE_SLOT_OFFSET:SPOUSE_SLOT_OFFSET + 2]:
             return True
-        if any(self.file_buffer[offset:offset + 2] != original[offset:offset + 2] for offset in ROLE_SLOT_OFFSETS):
+        if any((self.file_buffer[offset:offset + 2] != original[offset:offset + 2] for offset in ROLE_SLOT_OFFSETS)):
             return True
         return CHARACTER_LAYOUT.is_changed(self.file_buffer, original)
 
@@ -6061,7 +6219,6 @@ class CDS3SaveEditorApp:
         kind = self._person_active_type
         query = self.cbo_person_search.get().strip().casefold()
         tree = self.tree_person_list
-        # 운명의 반려자는 얼룩무늬보다 뒤 태그로 넣어 핑크색이 우선되게 한다.
         tree.tag_configure('fortune_spouse', background='#FCE4EC')
         self._person_browser_syncing = True
         tree.delete(*tree.get_children())
@@ -6074,32 +6231,23 @@ class CDS3SaveEditorApp:
             rows = [(int(item['id']), item['name']) for item in SPONSOR_DATA['records']]
             selected_id = self._person_selected_sponsor_id
         elif kind == 'unhireable':
-            # 경쟁자(0)와 대화만 가능한 인물(1)은 모두 등용할 수 없다.
             hire_states = self._character_hire_states()
-            rows = [(int(item['id']), item['name']) for item in CHARACTER_DATA['records']
-                    if hire_states.get(int(item['id']), 0) in (0, 1)]
+            rows = [(int(item['id']), item['name']) for item in CHARACTER_DATA['records'] if hire_states.get(int(item['id']), 0) in (0, 1)]
             selected_id = self._person_selected_unhireable_id
         else:
             selected_id = self._person_role_id(kind)
-            # 역할 배정 화면에는 고용 가능(2) 인물만 보인다. 현재 역할에 이미
-            # 배정되어 고용 중(3)인 인물은 선택 표시를 유지할 수 있도록 예외로 둔다.
             hire_states = self._character_hire_states()
-            rows = [
-                (int(item['id']), item['name']) for item in CHARACTER_DATA['records']
-                if hire_states.get(int(item['id']), 0) == 2 or int(item['id']) == selected_id
-            ]
+            rows = [(int(item['id']), item['name']) for item in CHARACTER_DATA['records'] if hire_states.get(int(item['id']), 0) == 2 or int(item['id']) == selected_id]
         if kind != 'spouse':
             fortune_face_code = None
         display_index = 0
         for item_id, name in rows:
             if query and query not in name.casefold():
                 continue
-            # 내부 iid는 실제 인물 ID를 유지하되, 목록 순번은 항상 0부터 연속 표기한다.
             tags = ()
-            if (fortune_face_code is not None and
-                    is_fortune_spouse(BARMAID_BY_ID.get(item_id, {}), fortune_face_code)):
+            if fortune_face_code is not None and is_fortune_spouse(BARMAID_BY_ID.get(item_id, {}), fortune_face_code):
                 tags = ('fortune_spouse',)
-            tree.insert('', tk.END, iid=str(item_id), values=(f'{display_index:03d}', name), tags=tags)
+            tree.insert('', tk.END, iid=str(item_id), values=('{0:03d}'.format(display_index), name), tags=tags)
             display_index += 1
         target = str(selected_id) if selected_id is not None else ''
         if target and tree.exists(target):
@@ -6110,8 +6258,6 @@ class CDS3SaveEditorApp:
             target = tree.get_children()[0]
             tree.selection_set(target)
             tree.focus(target)
-        # Treeview의 선택 변경 가상 이벤트는 다음 idle에 전달될 수 있다.
-        # 그때까지 잠금을 유지해 프로그램 선택이 사용자 선택으로 되돌아오는 순환을 막는다.
         self.root.after_idle(lambda: setattr(self, '_person_browser_syncing', False))
         self._set_person_assignment_buttons_visible()
         self._refresh_person_details(target)
@@ -6122,7 +6268,7 @@ class CDS3SaveEditorApp:
         selection = self.tree_person_list.selection()
         if not selection:
             return
-        item_id, kind = selection[0], self._person_active_type
+        item_id, kind = (selection[0], self._person_active_type)
         if kind == 'sponsor':
             self._person_selected_sponsor_id = int(item_id)
         elif kind == 'unhireable':
@@ -6131,9 +6277,8 @@ class CDS3SaveEditorApp:
             previous_id = self._wife_selected_id
             self._wife_selected_id = int(item_id)
             self.update_wife_display()
-            if previous_id != self._wife_selected_id and not getattr(self, '_is_loading_save', False):
-                self.lbl_status.config(text=ui('ui_0415') if self._wife_selected_id is None
-                                           else ui('ui_0416', BARMAID_BY_ID[self._wife_selected_id]['name']))
+            if previous_id != self._wife_selected_id and (not getattr(self, '_is_loading_save', False)):
+                self.lbl_status.config(text=ui('ui_0415') if self._wife_selected_id is None else ui('ui_0416', BARMAID_BY_ID[self._wife_selected_id]['name']))
         elif kind in self._crew_profiles:
             self.assign_role(kind, int(item_id))
         self._refresh_person_browser()
@@ -6141,37 +6286,32 @@ class CDS3SaveEditorApp:
     def _sponsor_preference_names(self, sponsor):
         """현재 게임 EXE의 취향 마스크를 원본 비트 순서로 풀어 쓴다."""
         sponsor_id = int(sponsor['id'])
-        mask = self._sponsor_exe_preference_flags.get(
-            sponsor_id, int(sponsor.get(
-                'preference_flags_exe',
-                normalized_sponsor_preference_to_exe(sponsor.get('preference_flags', 0)))))
-        return ', '.join(name for bit, name in enumerate(DISCOVERY_CATEGORY_NAMES)
-                         if mask & (1 << bit)) or '-'
+        mask = self._sponsor_exe_preference_flags.get(sponsor_id, int(sponsor.get('preference_flags_exe', normalized_sponsor_preference_to_exe(sponsor.get('preference_flags', 0)))))
+        return UI_LIST_SEPARATOR.join((name for bit, name in enumerate(DISCOVERY_CATEGORY_NAMES) if mask & 1 << bit)) or UI_EMPTY_VALUE
 
     def _refresh_person_details(self, item_id):
+        self.cbo_person_current_city.close_list()
+        self.cbo_person_current_city.place_forget()
+        self._person_current_city_row = None
+        self._person_current_city_id = None
         kind = self._person_active_type
         role_mode = kind in self._crew_profiles or kind == 'unhireable'
         self._set_person_detail_mode(role_mode)
         clear_rows(*self._person_detail_trees)
         tree = self.tree_person_details
         tree.tag_configure('fortune_spouse', background='#FCE4EC')
-        # 상세 목록과 툴팁은 목록 선택 이벤트의 지연 여부와 무관하게 같은 후원자를 가리켜야 한다.
         self._person_detail_sponsor_id = None
         self._person_face_photo = None
         self._person_face_label.config(image='', bg='#222222')
-        rows, image_path = [], None
+        rows, image_path = ([], None)
         if kind == 'spouse' and item_id not in ('', None, '__none__'):
             barmaid = BARMAID_BY_ID.get(int(item_id))
             if barmaid:
                 flags = int(barmaid.get('language_flags', 0))
-                languages = ', '.join(name for bit, name in enumerate(LANGUAGE_NAMES) if flags & (1 << bit)) or '-'
+                languages = UI_LIST_SEPARATOR.join((name for bit, name in enumerate(LANGUAGE_NAMES) if flags & 1 << bit)) or UI_EMPTY_VALUE
                 fortune_face_code = self._get_wife_fortune_face_code()
-                fortune_text = (ui('ui_0272') if fortune_face_code is not None and
-                                is_fortune_spouse(barmaid, fortune_face_code) else ui('ui_0277'))
-                rows = ((ui('ui_0062'), barmaid['name']), (ui('ui_0354'), get_barmaid_city_name(barmaid)),
-                        (ui('ui_0432'), f"{barmaid['year']}{ui('ui_0233')}"), (ui('ui_0399').rstrip(':'), get_barmaid_zodiac_name(barmaid)),
-                        (ui('ui_0230').rstrip(':'), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)),
-                        (ui('ui_0061'), fortune_text), (ui('ui_0068'), languages))
+                fortune_text = ui('ui_0272') if fortune_face_code is not None and is_fortune_spouse(barmaid, fortune_face_code) else ui('ui_0277')
+                rows = ((ui('ui_0062'), barmaid['name']), (ui('ui_0354'), get_barmaid_city_name(barmaid)), (ui('ui_0432'), '{0}{1}'.format(barmaid['year'], ui('ui_0233'))), (ui('ui_0399').rstrip(UI_LABEL_SUFFIX), get_barmaid_zodiac_name(barmaid)), (ui('ui_0230').rstrip(UI_LABEL_SUFFIX), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)), (ui('ui_0061'), fortune_text), (ui('ui_0068'), languages))
                 image_path = get_barmaid_image_path(barmaid['id'])
         elif kind == 'sponsor' and item_id:
             sponsor = SPONSOR_BY_ID.get(int(item_id))
@@ -6179,19 +6319,11 @@ class CDS3SaveEditorApp:
                 self._person_detail_sponsor_id = int(sponsor['id'])
                 preferences = self._sponsor_preference_names(sponsor)
                 retire = int(sponsor['retirement_year'])
-                rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']),
-                        (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), f"{sponsor['appearance_year']}{ui('ui_0233')}"),
-                        (ui('ui_0433'), f"{retire}{ui('ui_0233')}" if retire else '-'), (ui('ui_0434'), str(int(sponsor['wealth_factor']))),
-                        (ui('ui_0464'), str(int(sponsor['power']))),
-                        (ui('ui_0431'), preferences))
+                rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']), (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), '{0}{1}'.format(sponsor['appearance_year'], ui('ui_0233'))), (ui('ui_0433'), '{0}{1}'.format(retire, ui('ui_0233')) if retire else UI_EMPTY_VALUE), (ui('ui_0434'), str(int(sponsor['wealth_factor']))), (ui('ui_0464'), str(int(sponsor['power']))), (ui('ui_0647'), str(int(sponsor['appraisal']))), (ui('ui_0431'), preferences))
                 image_path = get_sponsor_image_path(sponsor['id'])
         elif role_mode and item_id not in ('', None, '__none__'):
-            # 통합 인물 화면은 편집 버퍼가 아닌 마지막 저장/로드 시점의 별도
-            # 스냅샷만 읽는다. 따라서 역할 지정은 file_buffer에 즉시 반영되어도
-            # 여기의 기본 정보·능력치 등은 저장하기 전까지 바뀌지 않는다.
             self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
-            image_path = (get_unemployable_image_path(int(item_id)) if kind == 'unhireable'
-                          else get_sailer_image_path(int(item_id)))
+            image_path = get_unemployable_image_path(int(item_id)) if kind == 'unhireable' else get_sailer_image_path(int(item_id))
         if not role_mode:
             for index, (field, value) in enumerate(rows):
                 tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
@@ -6205,40 +6337,41 @@ class CDS3SaveEditorApp:
             self._schedule_treeview_autofit(tree)
 
     def _on_sponsor_fame_motion(self, event):
-        """후원자 명성 계수 행에 알현 요구 명성 계산식을 표시한다."""
+        """후원자 계산 필드 위에 해당 값의 산정 근거를 표시한다."""
         tree = self.tree_person_details
         row = tree.identify_row(event.y)
         is_field_column = tree.identify_column(event.x) == '#2'
         values = tree.item(row, 'values') if row else ()
-        is_sponsor_field = (
-            is_field_column and self._person_active_type == 'sponsor' and len(values) >= 3 and
-            values[1] in (ui('ui_0464'), ui('ui_0434')))
+        is_sponsor_field = is_field_column and self._person_active_type == 'sponsor' and (len(values) >= 3) and (values[1] in (ui('ui_0464'), ui('ui_0434'), ui('ui_0647'), ui('ui_0431')))
         if getattr(self, '_sponsor_fame_tooltip_row', None) != row or not is_sponsor_field:
             self._hide_sponsor_fame_tooltip()
         if not is_sponsor_field or self._sponsor_fame_tooltip is not None:
             return
-        try:
-            coefficient = int(values[2])
-        except (IndexError, TypeError, ValueError):
-            coefficient = 0
+        field_name, field_value = (values[1], values[2])
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
         sponsor_id = getattr(self, '_person_detail_sponsor_id', None)
         sponsor = SPONSOR_BY_ID.get(int(sponsor_id)) if sponsor_id is not None else None
-        if values[1] == ui('ui_0434'):
-            tooltip_text = ui('ui_0468', coefficient, coefficient * 10000)
+        if field_name == ui('ui_0431'):
+            tooltip_text = ui('ui_0648')
         else:
+            try:
+                coefficient = int(field_value)
+            except (TypeError, ValueError):
+                coefficient = 0
+        if field_name == ui('ui_0434'):
+            tooltip_text = ui('ui_0468', coefficient, coefficient * 10000)
+        elif field_name == ui('ui_0464'):
             building_id = int(sponsor.get('building_id', -1)) if sponsor else -1
             multiplier = SPONSOR_FAME_MULTIPLIER_BY_BUILDING.get(building_id, 0)
-            building_name = SPONSOR_BUILDING_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
+            building_name = FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
             required_fame = coefficient * multiplier
             tooltip_text = ui('ui_0465', building_name, coefficient, multiplier, required_fame)
-        tk.Label(tooltip, text=tooltip_text,
-                 justify='left', anchor='w',
-                 bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
-                 padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        elif field_name == ui('ui_0647'):
+            tooltip_text = ui('ui_0649', coefficient, 50 + coefficient // 2)
+        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._sponsor_fame_tooltip = tooltip
         self._sponsor_fame_tooltip_row = row
 
@@ -6268,71 +6401,56 @@ class CDS3SaveEditorApp:
         snapshot = getattr(self, 'person_display_buffer', None)
         character = CHARACTER_BY_ID.get(character_id, {})
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if (not snapshot or character_id < 0 or
-                record_offset + 0x90 > len(snapshot)):
+        if not snapshot or character_id < 0 or record_offset + 144 > len(snapshot):
             return
-
         record = snapshot
         name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
-        # 세이브 레코드의 나이는 저장 당시의 값이다. EXE는 해가 바뀔 때마다
-        # 모든 인물의 나이를 1씩 올리므로, 편집 중인 현재 연도와의 차이만큼
-        # 보정해 화면에 표시한다.
-        saved_age = struct.unpack_from('<i', record, record_offset + 0x5C)[0]
+        saved_age = struct.unpack_from('<i', record, record_offset + 92)[0]
         saved_year = struct.unpack_from('<H', record, 21)[0]
         try:
             current_year = int(self.spn_game_y.get())
         except (ValueError, tk.TclError):
             current_year = saved_year
         age = saved_age + (current_year - saved_year) if saved_year > 0 else saved_age
-        blood_id = record[record_offset + 0x64]
-        city_id = record[record_offset + 0x2E]
-        building_id = record[record_offset + 0x30]
-        raw_hire_state = record[record_offset + 0x62]
-        # 고용 중 여부는 레코드의 원시 상태값이 아니라 세이브의 역할 슬롯으로 판정한다.
+        blood_id = record[record_offset + 100]
+        city_id = record[record_offset + 46]
+        building_id = record[record_offset + 48]
+        raw_hire_state = record[record_offset + 98]
         hire_state = 3 if character_id in self._active_role_character_ids(snapshot) else raw_hire_state
-        city_name = ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
-        building_name = {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, UI_EMPTY_VALUE)
+        city_name = ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
+        building_name = FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
         blood_name = BLOOD_NAMES[blood_id] if 0 <= blood_id < len(BLOOD_NAMES) else UI_EMPTY_VALUE
-
-        basic_rows = [
-            (ui('ui_0062'), name),
-            (ui('ui_0493'), ui('ui_0502', age)),
-            (ui('ui_0463'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0411')),
-            (ui('ui_0066'), blood_name),
-            (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
-            (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
-            (ui('ui_0494'), city_name),
-            (ui('ui_0409'), building_name),
-        ]
+        basic_rows = [(ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0463'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0411')), (ui('ui_0066'), blood_name), (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0494'), city_name), (ui('ui_0409'), building_name)]
         if include_hire_state:
             if hire_state == 2:
-                # 게임은 인물의 고용비 계수(vitality)를 원금 계수로 사용한다.
-                # 웅변술 할인이 적용되기 전 가격은 vitality * 10 // 3 이다.
                 base_hire_cost = int(character.get('vitality', 0)) * 10 // 3
-                basic_rows.append((ui('ui_0442'), f'{base_hire_cost:,} G'))
-            hire_text = {
-                0: ui('ui_0436'),
-                1: ui('ui_0403'),
-                2: ui('ui_0404'),
-                3: ui('ui_0405'),
-            }.get(hire_state, str(hire_state))
+                basic_rows.append((ui('ui_0442'), ui('ui_0591', base_hire_cost)))
+            hire_text = {0: ui('ui_0436'), 1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, str(hire_state))
             basic_rows.append((ui('ui_0495'), hire_text))
+        show_current_city = self._person_active_type != 'unhireable'
+        if show_current_city:
+            current_city, city_editable = self._person_current_city_state(character_id)
+            basic_rows.insert(7, (ui('ui_0542').rstrip(UI_LABEL_SUFFIX), current_city))
         for index, row in enumerate(basic_rows):
-            self._person_detail_trees[0].insert('', tk.END, values=(index, *row))
-
+            item = self._person_detail_trees[0].insert('', tk.END, values=(index,) + tuple(row))
+            if show_current_city and index == 7:
+                self._person_current_city_row = item
+        if show_current_city:
+            self._person_current_city_id = character_id
+            self.cbo_person_current_city.set(current_city)
+            self.cbo_person_current_city.configure(state='readonly' if city_editable else 'disabled')
+            self.root.after_idle(self._position_person_city_cell)
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
             maximum = CHARACTER_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else 255
-            self._person_detail_trees[1].insert('', tk.END, values=(index, *row, maximum))
-        self._person_detail_trees[2].insert('', tk.END, values=(
-            0, ui('ui_0387'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
-        self._person_detail_trees[2].insert('', tk.END, values=(
-            1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
+            self._person_detail_trees[1].insert('', tk.END, values=(index,) + tuple(row) + (maximum,))
+        self._person_detail_trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
+        self._person_detail_trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (self._person_detail_trees[3], index) if index < 13 else (self._person_detail_trees[4], index - 13)
-            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
+            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 11 + index]))
         self._schedule_treeview_autofit(*self._person_detail_trees)
 
     def _on_person_detail_motion(self, event):
@@ -6341,7 +6459,7 @@ class CDS3SaveEditorApp:
         row = tree.identify_row(event.y)
         is_field_column = tree.identify_column(event.x) == '#2'
         values = tree.item(row, 'values') if row else ()
-        is_hire_cost = is_field_column and len(values) >= 2 and values[1] == ui('ui_0496')
+        is_hire_cost = is_field_column and len(values) >= 2 and (values[1] == ui('ui_0496'))
         if getattr(self, '_person_hire_cost_tooltip_row', None) != row or not is_hire_cost:
             self._hide_person_hire_cost_tooltip()
         if not is_hire_cost or self._person_hire_cost_tooltip is not None:
@@ -6349,10 +6467,8 @@ class CDS3SaveEditorApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tk.Label(tooltip, text=ui('ui_0443'), justify='left', anchor='w',
-                 bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
-                 padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        tk.Label(tooltip, text=ui('ui_0443'), justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._person_hire_cost_tooltip = tooltip
         self._person_hire_cost_tooltip_row = row
 
@@ -6369,7 +6485,7 @@ class CDS3SaveEditorApp:
     def _edit_person_detail_value(self, detail_index, event=None):
         """인물 능력치·명성·기술·언어를 편집 버퍼에 직접 기록한다."""
         kind = self._person_active_type
-        if kind not in (*self._crew_profiles.keys(), 'unhireable') or not self.file_buffer:
+        if kind not in tuple(self._crew_profiles.keys()) + ('unhireable',) or not self.file_buffer:
             return 'break' if event is not None else None
         tree = self._person_detail_trees[detail_index]
         if event is not None:
@@ -6378,31 +6494,26 @@ class CDS3SaveEditorApp:
                 tree.selection_set(item)
         selection = tree.selection()
         character_selection = self.tree_person_list.selection()
-        if not selection or not character_selection or not character_selection[0].isdigit():
+        if not selection or not character_selection or (not character_selection[0].isdigit()):
             return 'break' if event is not None else None
         character_id = int(character_selection[0])
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if record_offset + 0x90 > len(self.file_buffer):
+        if record_offset + 144 > len(self.file_buffer):
             return 'break' if event is not None else None
         values = tree.item(selection[0], 'values')
         try:
-            # 이 트리는 Treeview IID를 지정하지 않아 Tk가 I001 같은 문자열을
-            # 만든다. 실제 행 순번은 첫 번째 열의 표시값을 사용해야 한다.
             row_index = int(values[0])
         except (IndexError, TypeError, ValueError):
             return 'break' if event is not None else None
         field_name = values[1] if len(values) > 1 else ''
-
         if detail_index == 1:
-            stat_offsets = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x66, CHARACTER_SPECIAL_STAT_OFFSET)
+            stat_offsets = (0, 1, 2, 3, 4, 5, 102, CHARACTER_SPECIAL_STAT_OFFSET)
             if not 0 <= row_index < len(stat_offsets):
                 return 'break' if event is not None else None
             is_special_stat = row_index == len(stat_offsets) - 1
             maximum = CHARACTER_SPECIAL_STAT_MAX if is_special_stat else 255
-            current = (struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0]
-                       if is_special_stat else self.file_buffer[record_offset + stat_offsets[row_index]])
-            value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0033', field_name),
-                                             current, 0, maximum)
+            current = struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0] if is_special_stat else self.file_buffer[record_offset + stat_offsets[row_index]]
+            value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0033', field_name), current, 0, maximum)
             if value is not None:
                 if is_special_stat:
                     struct.pack_into('<I', self.file_buffer, record_offset + stat_offsets[row_index], value)
@@ -6410,20 +6521,19 @@ class CDS3SaveEditorApp:
                     self.file_buffer[record_offset + stat_offsets[row_index]] = value
                 tree.item(selection[0], values=(row_index, field_name, value, maximum))
         elif detail_index == 2:
-            fame_offsets = (0x26, 0x2A)
+            fame_offsets = (38, 42)
             if not 0 <= row_index < len(fame_offsets):
                 return 'break' if event is not None else None
             current = struct.unpack_from('<H', self.file_buffer, record_offset + fame_offsets[row_index])[0]
-            value = self.ask_bounded_integer(ui('ui_0454'), ui('ui_0034', field_name, 0xFFFF),
-                                             current, 0, 0xFFFF)
+            value = self.ask_bounded_integer(ui('ui_0454'), ui('ui_0034', field_name, 65535), current, 0, 65535)
             if value is not None:
                 struct.pack_into('<H', self.file_buffer, record_offset + fame_offsets[row_index], value)
-                tree.item(selection[0], values=(row_index, field_name, f'{value:,}', f'{PERSON_REPUTATION_MAX:,}'))
+                tree.item(selection[0], values=(row_index, field_name, '{0:,}'.format(value), '{0:,}'.format(PERSON_REPUTATION_MAX)))
         elif detail_index in (3, 4):
             skill_index = row_index if detail_index == 3 else row_index + 13
             if not 0 <= skill_index < len(SKILLS_DATA):
                 return 'break' if event is not None else None
-            offset = record_offset + 0x0B + skill_index
+            offset = record_offset + 11 + skill_index
             title = ui('ui_0203') if detail_index == 3 else ui('ui_0204')
             value = self.ask_bounded_integer(title, ui('ui_0035', field_name), self.file_buffer[offset], 0, 3)
             if value is not None:
@@ -6435,7 +6545,7 @@ class CDS3SaveEditorApp:
     def _apply_person_batch_detail(self, detail_index):
         """선택한 인물의 능력치·명성·기술·언어 값을 한 번에 적용한다."""
         kind = self._person_active_type
-        if kind not in (*self._crew_profiles.keys(), 'unhireable') or not self.file_buffer:
+        if kind not in tuple(self._crew_profiles.keys()) + ('unhireable',) or not self.file_buffer:
             return
         selection = self.tree_person_list.selection()
         if not selection or not selection[0].isdigit():
@@ -6456,7 +6566,7 @@ class CDS3SaveEditorApp:
         spinner.set(str(value))
         tree = self._person_detail_trees[detail_index]
         if detail_index == 1:
-            offsets = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x66, CHARACTER_SPECIAL_STAT_OFFSET)
+            offsets = (0, 1, 2, 3, 4, 5, 102, CHARACTER_SPECIAL_STAT_OFFSET)
             for row_index, offset in enumerate(offsets):
                 is_special_stat = row_index == len(offsets) - 1
                 if is_special_stat:
@@ -6469,16 +6579,16 @@ class CDS3SaveEditorApp:
                     maximum = CHARACTER_SPECIAL_STAT_MAX if is_special_stat else 255
                     tree.item(item, values=(row_index, field_name, value, maximum))
         elif detail_index == 2:
-            for row_index, offset in enumerate((0x26, 0x2A)):
+            for row_index, offset in enumerate((38, 42)):
                 struct.pack_into('<H', self.file_buffer, record_offset + offset, value)
                 item = tree.get_children()[row_index] if row_index < len(tree.get_children()) else None
                 if item:
                     field_name = tree.item(item, 'values')[1]
-                    tree.item(item, values=(row_index, field_name, f'{value:,}', f'{PERSON_REPUTATION_MAX:,}'))
+                    tree.item(item, values=(row_index, field_name, '{0:,}'.format(value), '{0:,}'.format(PERSON_REPUTATION_MAX)))
         else:
             start, end = (0, 13) if detail_index == 3 else (13, len(SKILLS_DATA))
             for row_index, skill_index in enumerate(range(start, end)):
-                self.file_buffer[record_offset + 0x0B + skill_index] = value
+                self.file_buffer[record_offset + 11 + skill_index] = value
                 item = tree.get_children()[row_index] if row_index < len(tree.get_children()) else None
                 if item:
                     field_name = tree.item(item, 'values')[1]
@@ -6487,13 +6597,12 @@ class CDS3SaveEditorApp:
 
     def build_crew_profile(self, key, page, role_offset, role_name):
         """항해사·측량사·통역에 공통으로 쓰는 승무원 선택 화면을 만든다."""
-        label_font, value_font = ('Malgun Gothic', 9), ('Malgun Gothic', 9)
+        label_font, value_font = ((APP_FONT_FAMILY, 9), (APP_FONT_FAMILY, 9))
         page.columnconfigure(0, weight=1)
         page.rowconfigure(0, weight=2)
         page.rowconfigure(1, weight=3)
         profile = tk.Frame(page)
         profile.grid(row=0, column=0, sticky='nsew', padx=3, pady=4)
-        # 부관 탭과 같은 80×96 초상화 영역을 유지한다.
         photo_box = tk.Frame(profile, width=84, height=100, bg='#222222', relief='ridge', bd=2)
         photo_box.pack_propagate(False)
         photo_box.grid(row=0, column=0, rowspan=2, padx=(0, 4), pady=4, sticky='nw')
@@ -6505,43 +6614,34 @@ class CDS3SaveEditorApp:
         search_bar = tk.Frame(profile)
         search_bar.grid(row=0, column=1, padx=(0, 4), pady=(4, 2), sticky='w')
         tk.Label(search_bar, text=ui('ui_0400'), font=label_font).pack(side=tk.LEFT, padx=(0, 4))
-        category = ttk.Combobox(search_bar, values=[ui('ui_0156'), ui('ui_0403'), ui('ui_0404'), ui('ui_0405')],
-                                state='readonly', width=8, font=value_font)
+        category = ttk.Combobox(search_bar, values=[ui('ui_0156'), ui('ui_0403'), ui('ui_0404'), ui('ui_0405')], state='readonly', width=8, font=value_font)
         category.current(0)
         category.pack(side=tk.LEFT, padx=(0, 8))
         tk.Label(search_bar, text=ui('ui_0251'), font=label_font).pack(side=tk.LEFT, padx=(0, 4))
         host = tk.Frame(search_bar, width=110, height=23)
         host.pack(side=tk.LEFT)
-        query = NativeWinEdit(host, lambda: self._schedule_search_refresh(f'crew:{key}', lambda: self._refresh_crew_search_results(key)), width=110, height=23)
+        query = NativeWinEdit(host, lambda: self._schedule_search_refresh('crew:{0}'.format(key), lambda: self._refresh_crew_search_results(key)), width=110, height=23)
         host.pack_propagate(False)
         category.bind('<<ComboboxSelected>>', lambda _event: self._refresh_crew_search_results(key))
-
         list_frame = tk.Frame(profile)
         list_frame.grid(row=1, column=1, padx=(0, 4), pady=(0, 4), sticky='nsew')
         list_frame.columnconfigure(0, weight=1)
         tree = ttk.Treeview(list_frame, columns=('id', 'name'), show='headings', height=5, selectmode='browse')
-        tree.heading('id', text=ui('ui_0346')); tree.heading('name', text=ui('ui_0062'))
-        tree.column('id', width=38, anchor='center', stretch=False); tree.column('name', width=250, anchor='w', stretch=True)
+        tree.heading('id', text=ui('ui_0346'))
+        tree.heading('name', text=ui('ui_0062'))
+        tree.column('id', width=38, anchor='center', stretch=False)
+        tree.column('name', width=250, anchor='w', stretch=True)
         scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=lambda first, last: self._update_inventory_scrollbar(scroll, first, last))
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree.bind('<<TreeviewSelect>>', lambda _event: self.on_crew_search_selected(key))
-
         details = ttk.Notebook(page, style='Editor.TNotebook')
         details.grid(row=1, column=0, sticky='nsew', padx=3, pady=(0, 4))
         pages = [ttk.Frame(page) for _ in range(5)]
         for tab, title in zip(pages, PERSON_TAB_TITLES):
             details.add(tab, text=title)
-        trees = (
-            self._make_officer_tree(pages[0], ('index', 'field', 'value'), PERSON_BASIC_COLUMNS, 7),
-            self._make_officer_tree(pages[1], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 8),
-            self._make_officer_tree(pages[2], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 2),
-            self._make_officer_tree(pages[3], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 13),
-            self._make_officer_tree(pages[4], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 12),
-        )
-        self._crew_profiles[key] = {'offset': role_offset, 'name': role_name, 'category': category,
-                                    'query': query, 'tree': tree, 'trees': trees,
-                                    'face_label': face_label, 'face_photo': None}
+        trees = (self._make_officer_tree(pages[0], ('index', 'field', 'value'), PERSON_BASIC_COLUMNS, 7), self._make_officer_tree(pages[1], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 8), self._make_officer_tree(pages[2], ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 2), self._make_officer_tree(pages[3], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 13), self._make_officer_tree(pages[4], ('index', 'field', 'value'), PERSON_LEVEL_COLUMNS, 12))
+        self._crew_profiles[key] = {'offset': role_offset, 'name': role_name, 'category': category, 'query': query, 'tree': tree, 'trees': trees, 'face_label': face_label, 'face_photo': None}
         self._refresh_crew_search_results(key)
 
     def _schedule_search_refresh(self, key, callback, delay=120):
@@ -6557,6 +6657,7 @@ class CDS3SaveEditorApp:
                 self.root.after_cancel(previous_job)
             except tk.TclError:
                 pass
+
         def run():
             jobs.pop(key, None)
             callback()
@@ -6573,12 +6674,12 @@ class CDS3SaveEditorApp:
         wanted_hire = filter_codes[category_index] if 0 <= category_index < len(filter_codes) else None
         hire_states = self._character_hire_states()
         tree.delete(*tree.get_children())
-        tree.insert('', tk.END, iid='__none__', values=('-', ui('ui_0319')))
+        tree.insert('', tk.END, iid='__none__', values=(UI_EMPTY_VALUE, ui('ui_0319')))
         for character_id, name, name_key in self._character_search_index:
             hire_state = hire_states.get(character_id, 0)
-            if (wanted_hire is not None and hire_state != wanted_hire) or (query and query not in name_key):
+            if wanted_hire is not None and hire_state != wanted_hire or (query and query not in name_key):
                 continue
-            tree.insert('', tk.END, iid=str(character_id), values=(f'{character_id:03d}', name))
+            tree.insert('', tk.END, iid=str(character_id), values=('{0:03d}'.format(character_id), name))
 
     def on_crew_search_selected(self, key):
         profile = self._crew_profiles.get(key)
@@ -6604,8 +6705,6 @@ class CDS3SaveEditorApp:
             return
         role_offset = profile['offset']
         previous = struct.unpack_from('<H', self.file_buffer, role_offset)[0]
-        # 목록을 다시 그리며 프로그램이 '없음' 행을 선택할 수 있다.
-        # 이미 비어 있으면 세이브·상태 문구를 모두 그대로 유지한다.
         if previous == EMPTY_ROLE_SLOT:
             return
         previous_id = role_character_id(previous)
@@ -6627,11 +6726,10 @@ class CDS3SaveEditorApp:
         profile = self._crew_profiles.get(key)
         if profile is None or not self.file_buffer or character_id not in CHARACTER_BY_ID:
             return
-        role_offset, role_name = profile['offset'], profile['name']
+        role_offset, role_name = (profile['offset'], profile['name'])
         previous = struct.unpack_from('<H', self.file_buffer, role_offset)[0]
         previous_id = role_character_id(previous)
         target_code = role_slot_code(character_id)
-        # 선택 인물이 맡고 있던 기존 역할을 찾아 비운다. 같은 역할은 제외한다.
         moved_from = []
         for other_key, other_profile in self._crew_profiles.items():
             if other_key == key:
@@ -6640,15 +6738,12 @@ class CDS3SaveEditorApp:
             if struct.unpack_from('<H', self.file_buffer, other_offset)[0] == target_code:
                 write_role_character_id(self.file_buffer, other_offset, None)
                 moved_from.append(other_key)
-
-        # 로드/목록 갱신으로 같은 역할의 같은 인물이 다시 선택된 경우에는
-        # 중복 역할 정리만 하고 새 변경으로 취급하지 않는다.
-        if previous == target_code and not moved_from:
+        if previous == target_code and (not moved_from):
             return
         write_role_character_id(self.file_buffer, role_offset, character_id)
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if record_offset + 0x63 <= len(self.file_buffer):
-            self.file_buffer[record_offset + 0x30] = 0xFF
+        if record_offset + 99 <= len(self.file_buffer):
+            self.file_buffer[record_offset + 48] = 255
         if previous_id is not None and previous_id != character_id:
             self._restore_role_building(previous_id)
         if key == 'officer':
@@ -6660,7 +6755,7 @@ class CDS3SaveEditorApp:
         self._refresh_all_crew_profiles()
         name = CHARACTER_BY_ID[character_id].get('name', character_id)
         if moved_from:
-            previous_role_names = ', '.join(self._crew_profiles[moved_key]['name'] for moved_key in moved_from)
+            previous_role_names = UI_LIST_SEPARATOR.join((self._crew_profiles[moved_key]['name'] for moved_key in moved_from))
             self.lbl_status.config(text=ui('ui_0506', name, previous_role_names, role_name))
         else:
             self.lbl_status.config(text=ui('ui_0507', role_name, name))
@@ -6684,12 +6779,11 @@ class CDS3SaveEditorApp:
             return
         record_offset = CHARACTER_LAYOUT.offset(character_id)
         character = CHARACTER_BY_ID.get(character_id)
-        if character is None or record_offset + 0x90 > len(self.file_buffer):
+        if character is None or record_offset + 144 > len(self.file_buffer):
             return
         item_id = str(character_id)
         if profile['tree'].exists(item_id):
             if profile['tree'].selection() != (item_id,):
-                # 로드/새로고침이 만드는 선택은 사용자의 목록 클릭이 아니다.
                 profile['syncing_selection'] = True
                 profile['tree'].selection_set(item_id)
                 self.root.after_idle(lambda p=profile: p.__setitem__('syncing_selection', False))
@@ -6702,25 +6796,22 @@ class CDS3SaveEditorApp:
             if photo:
                 profile['face_photo'] = photo
                 profile['face_label'].config(image=photo)
-        age = struct.unpack_from('<b', record, record_offset + 0x5C)[0]
-        city_id = record[record_offset + 0x2E]
-        building_id = record[record_offset + 0x30]
+        age = struct.unpack_from('<b', record, record_offset + 92)[0]
+        city_id = record[record_offset + 46]
+        building_id = record[record_offset + 48]
         hire_state = self._character_hire_state(character_id, character, record_offset)
         name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
-        basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)),
-                      (ui('ui_0491'), NATION_NAMES[int(character.get('nation_id', -1))] if 0 <= int(character.get('nation_id', -1)) < len(NATION_NAMES) else UI_EMPTY_VALUE),
-                      (ui('ui_0492'), JOB_NAMES[int(character.get('job_id', -1))] if 0 <= int(character.get('job_id', -1)) < len(JOB_NAMES) else UI_EMPTY_VALUE),
-                      (ui('ui_0354'), ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)),
-                      (ui('ui_0409'), {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, '-')),
-                      (ui('ui_0410'), {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)))
-        for index, row in enumerate(basic_rows): trees[0].insert('', tk.END, values=(index, *row))
+        basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0491'), NATION_NAMES[int(character.get('nation_id', -1))] if 0 <= int(character.get('nation_id', -1)) < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[int(character.get('job_id', -1))] if 0 <= int(character.get('job_id', -1)) < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0354'), ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)), (ui('ui_0409'), FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)), (ui('ui_0410'), {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)))
+        for index, row in enumerate(basic_rows):
+            trees[0].insert('', tk.END, values=(index,) + tuple(row))
         stats = self._character_stat_rows(record, record_offset)
-        for index, row in enumerate(stats): trees[1].insert('', tk.END, values=(index, *row))
-        trees[2].insert('', tk.END, values=(0, ui('ui_0387'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}"))
-        trees[2].insert('', tk.END, values=(1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}"))
+        for index, row in enumerate(stats):
+            trees[1].insert('', tk.END, values=(index,) + tuple(row))
+        trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0])))
+        trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0])))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (trees[3], index) if index < 13 else (trees[4], index - 13)
-            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
+            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 11 + index]))
         self._schedule_treeview_autofit(*trees)
 
     def _active_role_character_ids(self, buffer=None):
@@ -6747,13 +6838,11 @@ class CDS3SaveEditorApp:
         cache = getattr(self, '_character_hire_state_cache', None)
         if cache is not None and cache[0] == assigned_ids:
             return cache[1]
-        states = {
-            int(character['id']): (
-                3 if int(character['id']) in assigned_ids
-                else (state if (state := int(character.get('hire_state', 0))) != 3 else 0)
-            )
-            for character in CHARACTER_DATA['records']
-        }
+        states = {}
+        for character in CHARACTER_DATA['records']:
+            character_id = int(character['id'])
+            state = int(character.get('hire_state', 0))
+            states[character_id] = 3 if character_id in assigned_ids else state if state != 3 else 0
         self._character_hire_state_cache = (assigned_ids, states)
         return states
 
@@ -6770,23 +6859,19 @@ class CDS3SaveEditorApp:
     def build_officer_profile(self):
         """부관 슬롯(세이브 0xA5)의 인물 정보를 표시·변경하는 패널."""
         page = self.profile_page_officer
-        label_font = ('Malgun Gothic', 9)
-        value_font = ('Malgun Gothic', 9)
-
-        # 상단 검색·인물 목록과 하단 상세 탭의 높이 비율은 부인 탭과 같다.
+        label_font = (APP_FONT_FAMILY, 9)
+        value_font = (APP_FONT_FAMILY, 9)
         page.columnconfigure(0, weight=1)
         page.rowconfigure(0, weight=2)
         page.rowconfigure(1, weight=3)
         profile = tk.Frame(page)
         profile.grid(row=0, column=0, sticky='nsew', padx=3, pady=4)
-        # 주인공·부인 초상화와 같은 외곽 크기(내부 80×96)를 사용한다.
         photo_box = tk.Frame(profile, width=84, height=100, bg='#222222', relief='ridge', bd=2)
         photo_box.pack_propagate(False)
         photo_box.place(x=0, y=4)
         self.lbl_officer_face = tk.Label(photo_box, bg='#222222')
         self.lbl_officer_face.pack(fill=tk.BOTH, expand=True)
         self.officer_face_photo = None
-
         profile.grid_columnconfigure(0, minsize=92)
         profile.grid_columnconfigure(1, weight=1, minsize=0)
         profile.grid_rowconfigure(3, weight=1)
@@ -6797,8 +6882,7 @@ class CDS3SaveEditorApp:
         search_bar.grid(row=0, column=1, columnspan=3, padx=(0, 4), pady=(4, 2), sticky='w')
         tk.Label(search_bar, text=ui('ui_0400'), font=label_font, anchor='w').pack(side=tk.LEFT, padx=(0, 4))
         self._officer_hire_filter_codes = (None, 1, 2, 3)
-        self.cbo_officer_category = ttk.Combobox(search_bar, values=[ui('ui_0156'), ui('ui_0403'), ui('ui_0404'), ui('ui_0405')],
-                                                 state='readonly', width=8, font=value_font)
+        self.cbo_officer_category = ttk.Combobox(search_bar, values=[ui('ui_0156'), ui('ui_0403'), ui('ui_0404'), ui('ui_0405')], state='readonly', width=8, font=value_font)
         self.cbo_officer_category.current(0)
         self.cbo_officer_category.pack(side=tk.LEFT, padx=(0, 8))
         self.cbo_officer_category.bind('<<ComboboxSelected>>', lambda _event: self._refresh_officer_search_results())
@@ -6810,7 +6894,7 @@ class CDS3SaveEditorApp:
         officer_search_frame = tk.Frame(profile)
         officer_search_frame.grid(row=1, column=1, columnspan=3, rowspan=3, padx=(0, 4), pady=(0, 4), sticky='nsew')
         self.tree_officer_search = ttk.Treeview(officer_search_frame, columns=('id', 'name'), show='headings', height=5, selectmode='browse')
-        self.tree_officer_search.heading('id', text='No')
+        self.tree_officer_search.heading('id', text=ui('ui_0346'))
         self.tree_officer_search.heading('name', text=ui('ui_0062'))
         self.tree_officer_search.column('id', width=38, anchor='center', stretch=False)
         self.tree_officer_search.column('name', width=110, anchor='w', stretch=True)
@@ -6819,37 +6903,23 @@ class CDS3SaveEditorApp:
         self.tree_officer_search.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.tree_officer_search.bind('<<TreeviewSelect>>', self.on_officer_search_selected)
         self._refresh_officer_search_results()
-
         self.officer_details = ttk.Notebook(page, style='Editor.TNotebook')
         self.officer_page_basic = ttk.Frame(page)
         self.officer_page_stats = ttk.Frame(page)
         self.officer_page_fame = ttk.Frame(page)
         self.officer_page_tech = ttk.Frame(page)
         self.officer_page_lang = ttk.Frame(page)
-        for tab, title in zip((self.officer_page_basic, self.officer_page_stats, self.officer_page_fame,
-                               self.officer_page_tech, self.officer_page_lang), PERSON_TAB_TITLES):
+        for tab, title in zip((self.officer_page_basic, self.officer_page_stats, self.officer_page_fame, self.officer_page_tech, self.officer_page_lang), PERSON_TAB_TITLES):
             self.officer_details.add(tab, text=title)
         self.officer_details.grid(row=1, column=0, sticky='nsew', padx=3, pady=(0, 4))
-
-        self.tree_officer_basic = self._make_officer_tree(
-            self.officer_page_basic, ('index', 'field', 'value'),
-            PERSON_BASIC_COLUMNS, 7)
-        self.tree_officer_stats = self._make_officer_tree(
-            self.officer_page_stats, ('index', 'field', 'value'),
-            PERSON_STAT_COLUMNS, 8)
-        self.tree_officer_fame = self._make_officer_tree(
-            self.officer_page_fame, ('index', 'field', 'value'),
-            PERSON_FAME_COLUMNS, 2)
-        self.tree_officer_tech = self._make_officer_tree(
-            self.officer_page_tech, ('index', 'field', 'level'),
-            PERSON_LEVEL_COLUMNS, 8)
-        self.tree_officer_lang = self._make_officer_tree(
-            self.officer_page_lang, ('index', 'field', 'level'),
-            PERSON_LEVEL_COLUMNS, 8)
+        self.tree_officer_basic = self._make_officer_tree(self.officer_page_basic, ('index', 'field', 'value'), PERSON_BASIC_COLUMNS, 7)
+        self.tree_officer_stats = self._make_officer_tree(self.officer_page_stats, ('index', 'field', 'value'), PERSON_STAT_COLUMNS, 8)
+        self.tree_officer_fame = self._make_officer_tree(self.officer_page_fame, ('index', 'field', 'value'), PERSON_FAME_COLUMNS, 2)
+        self.tree_officer_tech = self._make_officer_tree(self.officer_page_tech, ('index', 'field', 'level'), PERSON_LEVEL_COLUMNS, 8)
+        self.tree_officer_lang = self._make_officer_tree(self.officer_page_lang, ('index', 'field', 'level'), PERSON_LEVEL_COLUMNS, 8)
 
     @staticmethod
-    def _make_officer_tree(parent, columns, definitions, height, *, frame_padx=8, frame_pady=6,
-                           pack_padx=0, pack_pady=0):
+    def _make_officer_tree(parent, columns, definitions, height, *, frame_padx=8, frame_pady=6, pack_padx=0, pack_pady=0):
         frame = tk.Frame(parent, padx=frame_padx, pady=frame_pady)
         frame.pack(fill=tk.BOTH, expand=True, padx=pack_padx, pady=pack_pady)
         tree = ttk.Treeview(frame, columns=columns, show='headings', height=height, selectmode='none')
@@ -6858,9 +6928,6 @@ class CDS3SaveEditorApp:
             tree.column(column, width=width, anchor=anchor, stretch=stretch)
         tree.pack(fill=tk.BOTH, expand=True)
         return tree
-
-
-
 
     def _refresh_officer_search_results(self):
         """전체 인물 목록을 유지하고 검색어와 일치하는 인물로 포커스를 옮긴다."""
@@ -6874,7 +6941,7 @@ class CDS3SaveEditorApp:
             if 0 <= category_index < len(self._officer_hire_filter_codes):
                 selected_hire = self._officer_hire_filter_codes[category_index]
         tree.delete(*tree.get_children())
-        tree.insert('', tk.END, iid='__none__', values=('-', ui('ui_0319')))
+        tree.insert('', tk.END, iid='__none__', values=(UI_EMPTY_VALUE, ui('ui_0319')))
         if query == ui('ui_0319').casefold():
             query = ''
         hire_states = self._character_hire_states()
@@ -6884,8 +6951,7 @@ class CDS3SaveEditorApp:
                 continue
             if query and query not in name_key:
                 continue
-            tree.insert('', tk.END, iid=str(character_id),
-                        values=(f'{character_id:03d}', name))
+            tree.insert('', tk.END, iid=str(character_id), values=('{0:03d}'.format(character_id), name))
 
     def on_officer_search_selected(self, _event=None):
         tree = getattr(self, 'tree_officer_search', None)
@@ -6900,24 +6966,20 @@ class CDS3SaveEditorApp:
             return
         self.assign_role('officer', int(character['id']))
 
-
     def _restore_role_building(self, character_id):
         """모든 역할에서 해제된 인물의 건물값을 로드 당시 값으로 되돌린다."""
         character = CHARACTER_BY_ID.get(character_id)
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if not character or record_offset + 0x63 > len(self.file_buffer):
+        if not character or record_offset + 99 > len(self.file_buffer):
             return
-        # 다른 승무원 역할에 남아 있으면 건물값을 계속 함대 소속으로 유지한다.
         for role_offset in ROLE_SLOT_OFFSETS:
             if read_role_character_id(self.file_buffer, role_offset) == character_id:
                 return
         original = getattr(self, 'person_original_buffer', None)
-        if original is not None and record_offset + 0x31 <= len(original):
-            self.file_buffer[record_offset + 0x30] = original[record_offset + 0x30]
+        if original is not None and record_offset + 49 <= len(original):
+            self.file_buffer[record_offset + 48] = original[record_offset + 48]
         else:
-            # 세이브 원본이 아직 없는 초기화 경로에서만 정적 기본값을 사용한다.
-            self.file_buffer[record_offset + 0x30] = int(character.get('building_id', 0xFF)) & 0xFF
-
+            self.file_buffer[record_offset + 48] = int(character.get('building_id', 255)) & 255
 
     def update_player_face_display(self):
         """주인공 얼굴 초상화 라벨 갱신"""
@@ -6928,20 +6990,17 @@ class CDS3SaveEditorApp:
         else:
             img_p = get_face_image_path('male', self.player_face_id)
             if img_p and os.path.exists(img_p):
-                    photo = get_cached_photo(img_p)
-                    if photo:
-                        self.player_face_photo = photo
-                        self.lbl_player_face.config(image=self.player_face_photo)
+                photo = get_cached_photo(img_p)
+                if photo:
+                    self.player_face_photo = photo
+                    self.lbl_player_face.config(image=self.player_face_photo)
         self._update_player_restore_state()
 
     def refresh_officer_display(self, preview_character_id=None):
         """세이브의 부관 참조(0xA5)를 읽어 읽기 전용 인물 탭을 갱신한다."""
-        trees = tuple(getattr(self, name, None) for name in (
-            'tree_officer_basic', 'tree_officer_stats', 'tree_officer_fame', 'tree_officer_tech', 'tree_officer_lang'))
+        trees = tuple((getattr(self, name, None) for name in ('tree_officer_basic', 'tree_officer_stats', 'tree_officer_fame', 'tree_officer_tech', 'tree_officer_lang')))
         clear_rows(*trees)
-        empty_labels = ('lbl_officer_nation', 'lbl_officer_job',
-                        'lbl_officer_age', 'lbl_officer_city', 'lbl_officer_hire',
-                        'lbl_officer_appearance')
+        empty_labels = ('lbl_officer_nation', 'lbl_officer_job', 'lbl_officer_age', 'lbl_officer_city', 'lbl_officer_hire', 'lbl_officer_appearance')
         for name in empty_labels:
             label = getattr(self, name, None)
             if label is not None:
@@ -6949,11 +7008,9 @@ class CDS3SaveEditorApp:
         self.officer_face_photo = None
         if hasattr(self, 'lbl_officer_face'):
             self.lbl_officer_face.config(image='', bg='#222222')
-
         if hasattr(self, 'cbo_officer_name'):
             self.cbo_officer_name.set_enabled(False)
-
-        if not self.file_buffer or len(self.file_buffer) < 0xA7:
+        if not self.file_buffer or len(self.file_buffer) < 167:
             return
         assigned_officer_id = read_role_character_id(self.file_buffer, ROLE_SLOT_BY_KEY['officer'])
         self.cbo_officer_name.set_enabled(True)
@@ -6973,66 +7030,50 @@ class CDS3SaveEditorApp:
         else:
             character_id = int(preview_character_id)
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if character_id < 0 or record_offset + 0x90 > len(self.file_buffer):
+        if character_id < 0 or record_offset + 144 > len(self.file_buffer):
             return
         self._officer_preview_id = character_id
         search_tree = getattr(self, 'tree_officer_search', None)
-        # 경쟁자 상세를 보기 위한 미리보기는 부관 목록의 선택을 바꾸지 않는다.
-        # 해당 목록의 선택 이벤트는 곧바로 부관 배정을 수행하므로, 여기서 건드리면
-        # 경쟁자를 눌렀을 뿐인데 부관이 변경되는 부작용이 생긴다.
         if not is_preview and search_tree is not None and search_tree.exists(str(character_id)):
             if search_tree.selection() != (str(character_id),):
                 search_tree.selection_set(str(character_id))
             search_tree.focus(str(character_id))
             search_tree.see(str(character_id))
-
         record = self.file_buffer
         character = CHARACTER_BY_ID.get(character_id, {})
         name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
-        age = struct.unpack_from('<b', record, record_offset + 0x5C)[0]
-        # 국적·직업만 정적 표의 ID 매핑을 쓰며, 그 밖의 기본 정보는 세이브 레코드와
-        # 역할 슬롯에서 읽는다.
+        age = struct.unpack_from('<b', record, record_offset + 92)[0]
         is_current_officer = not is_preview and assigned_officer_id == character_id
-        city_id = record[record_offset + 0x2E]
-        building_id = record[record_offset + 0x30]
-        hire_state = 3 if is_current_officer else record[record_offset + 0x62]
-        city_name = ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
-        building_name = {4: ui('ui_0412'), 5: ui('ui_0413')}.get(building_id, '')
+        city_id = record[record_offset + 46]
+        building_id = record[record_offset + 48]
+        hire_state = 3 if is_current_officer else record[record_offset + 98]
+        city_name = ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
+        building_name = FACILITY_NAME_BY_ID.get(building_id, '')
         hire_text = {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)
         if not is_preview:
             self._officer_selected_id = character_id
-        basic_rows = (
-            (ui('ui_0062'), name),
-            (ui('ui_0493'), ui('ui_0502', age)),
-            (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE),
-            (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE),
-            (ui('ui_0354'), city_name),
-            (ui('ui_0409'), building_name or '-'),
-            (ui('ui_0410'), hire_text),
-        )
+        basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0354'), city_name), (ui('ui_0409'), building_name or UI_EMPTY_VALUE), (ui('ui_0410'), hire_text))
         for index, (field, value) in enumerate(basic_rows):
             self.tree_officer_basic.insert('', tk.END, values=(index, field, value))
-
         image_path = get_sailer_image_path(character_id)
         if image_path:
             photo = get_cached_photo(image_path)
             if photo:
                 self.officer_face_photo = photo
                 self.lbl_officer_face.config(image=photo)
-
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, (stat_name, value) in enumerate(stat_rows):
             self.tree_officer_stats.insert('', tk.END, values=(index, stat_name, value))
-        fame = struct.unpack_from('<H', record, record_offset + 0x26)[0]
-        infamy = struct.unpack_from('<H', record, record_offset + 0x2A)[0]
-        self.tree_officer_fame.insert('', tk.END, values=(0, ui('ui_0387'), f'{fame:,}'))
-        self.tree_officer_fame.insert('', tk.END, values=(1, ui('ui_0497'), f'{infamy:,}'))
+        fame = struct.unpack_from('<H', record, record_offset + 38)[0]
+        infamy = struct.unpack_from('<H', record, record_offset + 42)[0]
+        self.tree_officer_fame.insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(fame)))
+        self.tree_officer_fame.insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(infamy)))
         for skill_index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target_tree = self.tree_officer_tech if skill_index < 13 else self.tree_officer_lang
             row_number = skill_index if skill_index < 13 else skill_index - 13
-            level = record[record_offset + 0x0B + skill_index]
+            level = record[record_offset + 11 + skill_index]
             target_tree.insert('', tk.END, values=(row_number, skill_name, level))
         self._schedule_treeview_autofit(*trees)
 
@@ -7073,11 +7114,8 @@ class CDS3SaveEditorApp:
         for key in getattr(self, '_crew_profiles', {}):
             self._refresh_role_age_rows(key)
         self._refresh_wife_fortune_state()
-        # 통합 인물 화면도 저장 당시 나이에 현재 연도 차이를 적용하므로,
-        # 선택된 인물의 기본 정보를 날짜 변경 직후 다시 채운다.
         tree = getattr(self, 'tree_person_list', None)
-        if (tree is not None and
-                getattr(self, '_person_active_type', None) in self._crew_profiles):
+        if tree is not None and getattr(self, '_person_active_type', None) in self._crew_profiles:
             selection = tree.selection()
             if selection:
                 self._refresh_person_details(selection[0])
@@ -7105,7 +7143,6 @@ class CDS3SaveEditorApp:
             return
         rows = tree.get_children()
         if len(rows) < 8:
-            # 아직 상세 표가 구성되지 않은 경우에만 전체 표시를 갱신한다.
             self._refresh_role_display(key)
             return
         tree.item(rows[1], values=(1, ui('ui_0493'), ui('ui_0502', age) if age >= 0 else ui('ui_0466')))
@@ -7135,10 +7172,7 @@ class CDS3SaveEditorApp:
         try:
             if self.player_face_id is None:
                 return None
-            age = get_player_age(
-                int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()),
-                int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()),
-            )
+            age = get_player_age(int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()), int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()))
             return get_fortune_face_code(self.player_face_id, age)
         except (TypeError, ValueError, tk.TclError):
             return None
@@ -7148,17 +7182,15 @@ class CDS3SaveEditorApp:
         fortune_face_code = self._get_wife_fortune_face_code()
         barmaid = self._wife_from_combo_text()
         if barmaid is None:
-            fortune_text, fortune_color = '-', 'gray'
+            fortune_text, fortune_color = (UI_EMPTY_VALUE, 'gray')
         elif fortune_face_code is None:
-            fortune_text, fortune_color = UI_EMPTY_VALUE, 'gray'
+            fortune_text, fortune_color = (UI_EMPTY_VALUE, 'gray')
         elif is_fortune_spouse(barmaid, fortune_face_code):
-            fortune_text, fortune_color = ui('ui_0272'), '#D81B60'
+            fortune_text, fortune_color = (ui('ui_0272'), '#D81B60')
         else:
-            fortune_text, fortune_color = ui('ui_0277'), '#666666'
+            fortune_text, fortune_color = (ui('ui_0277'), '#666666')
         if hasattr(self, 'lbl_wife_compat'):
             self.lbl_wife_compat.config(text=fortune_text, fg=fortune_color)
-
-        # 검색 결과를 다시 삽입하지 않고, 이미 보이는 여급 행의 강조만 갱신한다.
         tree = getattr(self, 'tree_wife_search', None)
         if tree is not None:
             for item_id in tree.get_children():
@@ -7167,23 +7199,17 @@ class CDS3SaveEditorApp:
                 candidate = BARMAID_BY_ID.get(int(item_id))
                 tags = ('fortune_spouse',) if candidate is not None and fortune_face_code is not None and is_fortune_spouse(candidate, fortune_face_code) else ()
                 tree.item(item_id, tags=tags)
-
-        # 하단 신상 목록 중 운명의 반려자 행만 바꾼다.
         language_tree = getattr(self, 'tree_wife_languages', None)
         if language_tree is not None:
             rows = language_tree.get_children()
             if len(rows) >= 6:
-                language_tree.item(rows[5], values=(5, ui('ui_0061'), fortune_text),
-                                   tags=('fortune_spouse',) if fortune_text == ui('ui_0272') else ())
-
-        # 통합 인물 화면도 현재 보이는 여급 목록과 상세 행만 갱신한다. 전체 목록을
-        # 다시 만들면 날짜 스핀을 돌릴 때 선택·스크롤이 흔들리므로 태그만 바꾼다.
+                language_tree.item(rows[5], values=(5, ui('ui_0061'), fortune_text), tags=('fortune_spouse',) if fortune_text == ui('ui_0272') else ())
         if getattr(self, '_person_active_type', None) == 'spouse':
             person_tree = getattr(self, 'tree_person_list', None)
             if person_tree is not None:
                 for item_id in person_tree.get_children():
                     candidate = BARMAID_BY_ID.get(int(item_id))
-                    tags = tuple(tag for tag in person_tree.item(item_id, 'tags') if tag != 'fortune_spouse')
+                    tags = tuple((tag for tag in person_tree.item(item_id, 'tags') if tag != 'fortune_spouse'))
                     if candidate is not None and fortune_face_code is not None and is_fortune_spouse(candidate, fortune_face_code):
                         tags += ('fortune_spouse',)
                     person_tree.item(item_id, tags=tags)
@@ -7192,7 +7218,7 @@ class CDS3SaveEditorApp:
                 for item_id in detail_tree.get_children():
                     values = detail_tree.item(item_id, 'values')
                     if len(values) >= 3 and values[1] == ui('ui_0061'):
-                        tags = tuple(tag for tag in detail_tree.item(item_id, 'tags') if tag != 'fortune_spouse')
+                        tags = tuple((tag for tag in detail_tree.item(item_id, 'tags') if tag != 'fortune_spouse'))
                         if fortune_text == ui('ui_0272'):
                             tags += ('fortune_spouse',)
                         detail_tree.item(item_id, values=(values[0], values[1], fortune_text), tags=tags)
@@ -7205,36 +7231,20 @@ class CDS3SaveEditorApp:
             return
         tree.delete(*tree.get_children())
         if barmaid is None:
-            for index, field in enumerate((ui('ui_0354'), ui('ui_0411'), ui('ui_0065'), ui('ui_0066'),
-                                           ui('ui_0501'), ui('ui_0061'), ui('ui_0068'))):
-                tree.insert('', tk.END, values=(index, field, '-'))
+            for index, field in enumerate((ui('ui_0354'), ui('ui_0411'), ui('ui_0065'), ui('ui_0066'), ui('ui_0501'), ui('ui_0061'), ui('ui_0068'))):
+                tree.insert('', tk.END, values=(index, field, UI_EMPTY_VALUE))
             return
         flags = int(barmaid.get('language_flags', 0))
-        languages = [name for bit, name in enumerate(LANGUAGE_NAMES) if flags & (1 << bit)]
-        fortune = self.lbl_wife_compat.cget('text') if hasattr(self, 'lbl_wife_compat') else '-'
-        rows = (
-            (ui('ui_0354'), get_barmaid_city_name(barmaid)),
-            (ui('ui_0411'), f"{barmaid['year']}{ui('ui_0233')}"),
-            (ui('ui_0065'), get_barmaid_zodiac_name(barmaid)),
-            (ui('ui_0066'), get_barmaid_blood_name(barmaid)),
-            (ui('ui_0501'), get_barmaid_personality(barmaid)),
-            (ui('ui_0061'), fortune or '-'),
-            (ui('ui_0068'), ', '.join(languages) if languages else '-'),
-        )
+        languages = [name for bit, name in enumerate(LANGUAGE_NAMES) if flags & 1 << bit]
+        fortune = self.lbl_wife_compat.cget('text') if hasattr(self, 'lbl_wife_compat') else UI_EMPTY_VALUE
+        rows = ((ui('ui_0354'), get_barmaid_city_name(barmaid)), (ui('ui_0411'), '{0}{1}'.format(barmaid['year'], ui('ui_0233'))), (ui('ui_0065'), get_barmaid_zodiac_name(barmaid)), (ui('ui_0066'), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)), (ui('ui_0061'), fortune or UI_EMPTY_VALUE), (ui('ui_0068'), UI_LIST_SEPARATOR.join(languages) if languages else UI_EMPTY_VALUE))
         for index, (field, value) in enumerate(rows):
             tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
             tree.insert('', tk.END, values=(index, field, value), tags=tags)
 
     def _set_wife_detail_fields_visible(self, visible):
         """신상정보는 하단 목록으로 옮겼으므로 상단의 기존 라벨은 숨긴다."""
-        widgets = (
-            self.lbl_wife_city_title, self.lbl_wife_city,
-            self.lbl_wife_year_title, self.lbl_wife_year,
-            self.lbl_wife_zodiac_title, self.lbl_wife_zodiac,
-            self.lbl_wife_blood_title, self.lbl_wife_blood,
-            self.lbl_wife_personality_title, self.lbl_wife_personality,
-            self.lbl_wife_fortune_title, self.lbl_wife_compat,
-        )
+        widgets = (self.lbl_wife_city_title, self.lbl_wife_city, self.lbl_wife_year_title, self.lbl_wife_year, self.lbl_wife_zodiac_title, self.lbl_wife_zodiac, self.lbl_wife_blood_title, self.lbl_wife_blood, self.lbl_wife_personality_title, self.lbl_wife_personality, self.lbl_wife_fortune_title, self.lbl_wife_compat)
         for widget in widgets:
             widget.grid_remove()
 
@@ -7290,7 +7300,7 @@ class CDS3SaveEditorApp:
                 self._set_wife_detail_fields_visible(True)
                 self.wife_face_box.place(x=0, y=4)
                 self.lbl_wife_city.config(text=get_barmaid_city_name(b))
-                self.lbl_wife_year.config(text=f"{b['year']}{ui('ui_0233')}")
+                self.lbl_wife_year.config(text='{0}{1}'.format(b['year'], ui('ui_0233')))
                 self.lbl_wife_zodiac.config(text=get_barmaid_zodiac_name(b))
                 self.lbl_wife_blood.config(text=get_barmaid_blood_name(b))
                 self.lbl_wife_personality.config(text=get_barmaid_personality(b))
@@ -7305,12 +7315,11 @@ class CDS3SaveEditorApp:
                 self._refresh_wife_languages(b)
                 img_p = get_barmaid_image_path(b['id'])
                 if img_p and os.path.exists(img_p):
-                        photo = get_cached_photo(img_p)
-                        if photo:
-                            self.wife_face_photo = photo
-                            self.lbl_wife_face.config(image=self.wife_face_photo)
-                            return
-                # 전용 여급 이미지가 없으면 이전 초상화 대신 검은 화면을 표시한다.
+                    photo = get_cached_photo(img_p)
+                    if photo:
+                        self.wife_face_photo = photo
+                        self.lbl_wife_face.config(image=self.wife_face_photo)
+                        return
                 self.wife_face_photo = None
                 self.wife_face_box.config(bg='#000000')
                 self.lbl_wife_face.config(image='', text='', bg='#000000')
@@ -7321,12 +7330,8 @@ class CDS3SaveEditorApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tk.Label(
-            tooltip, text=ui('ui_0381'), justify='left', anchor='w',
-            bg='#FFF8D6', fg='#333333', relief='solid', borderwidth=1,
-            font=('Malgun Gothic', 9), padx=8, pady=6,
-        ).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        tk.Label(tooltip, text=ui('ui_0381'), justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', borderwidth=1, font=(APP_FONT_FAMILY, 9), padx=8, pady=6).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._wife_fortune_tooltip = tooltip
 
     def _hide_wife_fortune_tooltip(self, _event=None):
@@ -7361,7 +7366,7 @@ class CDS3SaveEditorApp:
                     tree.focus('__none__')
                     tree.see('__none__')
                 else:
-                    tree.selection_remove(*tree.selection())
+                    tree.selection_remove(tree.selection())
             else:
                 item_id = str(barmaid['id'])
                 tree.selection_set(item_id)
@@ -7388,8 +7393,6 @@ class CDS3SaveEditorApp:
             tree.focus(item_id)
             tree.see(item_id)
 
-
-
     def _refresh_wife_search_results(self):
         """여급 전체 목록을 유지하고, 검색어와 일치하는 행으로 포커스를 옮긴다."""
         tree = getattr(self, 'tree_wife_search', None)
@@ -7399,22 +7402,19 @@ class CDS3SaveEditorApp:
         fortune_face_code = None
         try:
             if self.player_face_id is not None:
-                age = get_player_age(
-                    int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()),
-                    int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()),
-                )
+                age = get_player_age(int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()), int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()))
                 fortune_face_code = get_fortune_face_code(self.player_face_id, age)
         except (TypeError, ValueError, tk.TclError):
             pass
         tree.delete(*tree.get_children())
-        tree.insert('', tk.END, iid='__none__', values=('-', ui('ui_0319')))
+        tree.insert('', tk.END, iid='__none__', values=(UI_EMPTY_VALUE, ui('ui_0319')))
         if query == ui('ui_0319').casefold():
             query = ''
         for barmaid in BARMAID_DATABASE:
             if query and query not in barmaid['name'].casefold():
                 continue
             tags = ('fortune_spouse',) if fortune_face_code is not None and is_fortune_spouse(barmaid, fortune_face_code) else ()
-            tree.insert('', tk.END, iid=str(barmaid['id']), values=(f"{barmaid['id']:03d}", barmaid['name']), tags=tags)
+            tree.insert('', tk.END, iid=str(barmaid['id']), values=('{0:03d}'.format(barmaid['id']), barmaid['name']), tags=tags)
 
     def on_wife_search_selected(self, _event=None):
         tree = getattr(self, 'tree_wife_search', None)
@@ -7425,9 +7425,7 @@ class CDS3SaveEditorApp:
         if selection[0] == '__none__':
             self._wife_selected_id = None
             self.update_wife_display()
-            # 파일 로드·목록 재구성도 같은 선택 이벤트를 발생시킨다.
-            # 실제 배우자가 있던 상태에서 사용자가 없음 행으로 바꾼 경우만 알린다.
-            if previous_id is not None and not getattr(self, '_is_loading_save', False):
+            if previous_id is not None and (not getattr(self, '_is_loading_save', False)):
                 self.lbl_status.config(text=ui('ui_0415'))
             return
         barmaid = BARMAID_BY_ID.get(int(selection[0]))
@@ -7435,97 +7433,33 @@ class CDS3SaveEditorApp:
             return
         self._wife_selected_id = barmaid['id']
         self.update_wife_display()
-        if previous_id != barmaid['id'] and not getattr(self, '_is_loading_save', False):
+        if previous_id != barmaid['id'] and (not getattr(self, '_is_loading_save', False)):
             self.lbl_status.config(text=ui('ui_0416', barmaid['name']))
 
-
-    def open_player_personality_html(self):
-        """현재 주인공 값을 넘겨 웹 성격 진단서를 연다."""
-        if not self.file_buffer:
-            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'))
-            return
-        try:
-            from functools import partial
-            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-            from urllib.parse import quote, urlencode
-            import webbrowser
-
-            birth_month, birth_day = int(self.spn_birth_m.get()), int(self.spn_birth_d.get())
-            game_year, game_month, game_day = (
-                int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()))
-            birth_year = int(self.spn_birth_y.get())
-            zodiac_id = get_birth_zodiac_id(birth_month, birth_day)
-            job_id = int(self.cbo_job.current())
-            face_id = int(self.player_face_id)
-            age = get_player_age(game_year, game_month, game_day, birth_year, birth_month, birth_day)
-            if zodiac_id < 0 or job_id < 0:
-                raise ValueError('주인공의 생일 또는 직업을 확인할 수 없습니다.')
-
-            candidates = [
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Resources', 'personality_diagnosis.html'),
-                os.path.join(getattr(sys, '_MEIPASS', ''), 'Resources', 'personality_diagnosis.html'),
-                os.path.join(os.path.dirname(sys.executable), 'Resources', 'personality_diagnosis.html'),
-            ]
-            target_path = next((path for path in candidates if path and os.path.exists(path)), None)
-            if target_path is None:
-                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'))
-                return
-            resource_root = os.path.dirname(target_path)
-            server = getattr(self, '_barmaid_web_server', None)
-            if server is None or getattr(self, '_barmaid_web_root', None) != resource_root:
-                class QuietResourceHandler(SimpleHTTPRequestHandler):
-                    def log_message(self, _format, *_args):
-                        pass
-
-                handler = partial(QuietResourceHandler, directory=resource_root)
-                server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
-                self._barmaid_web_server = server
-                self._barmaid_web_root = resource_root
-                import threading
-                threading.Thread(target=server.serve_forever, daemon=True).start()
-
-            query = urlencode({'zodiac': zodiac_id, 'job': job_id, 'face': face_id, 'age': age})
-            filename = quote(os.path.basename(target_path))
-            webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?{query}')
-        except Exception as exc:
-            messagebox.showerror(ui('ui_0211'), ui('ui_0043', exc))
-
     def open_player_face_picker(self):
-        # ***<module>.CDS3SaveEditorApp.open_player_face_picker: Failure: Different bytecode
         if not self.file_buffer:
             messagebox.showinfo(ui('ui_0103'), ui('ui_0117'))
             return
         else:
+
             def on_pick(fid):
                 self.player_face_id = fid
                 struct.pack_into('<H', self.file_buffer, 133, fid)
                 self.update_player_face_display()
                 self.update_wife_display()
-            FacePickerModal(
-                self.root, ui('ui_0371'), gender='male',
-                current_face_id=self.player_face_id if self.player_face_id is not None else 0,
-                on_select_callback=on_pick, max_faces=16,
-            )
+            FacePickerModal(self.root, ui('ui_0371'), gender='male', current_face_id=self.player_face_id if self.player_face_id is not None else 0, on_select_callback=on_pick, max_faces=16)
 
     def _active_sponsor_contract(self):
         """현재 세이브의 계약 중 스폰서와 연결된 발견물 후보를 읽는다."""
         if not self.file_buffer:
             return None
-        sponsor_id = active_sponsor_id(
-            self.file_buffer, SPONSOR_LAYOUT, SPONSOR_BY_ID, SPONSOR_CONTRACT_ACTIVE_STATE
-        )
+        sponsor_id = active_sponsor_id(self.file_buffer, SPONSOR_LAYOUT, SPONSOR_BY_ID, SPONSOR_CONTRACT_ACTIVE_STATE)
         if sponsor_id is None:
             return None
         sponsor = SPONSOR_BY_ID[sponsor_id]
-        # 계약 중 힌트는 획득(bit0)과 계약 연결(bit2)이 함께 설정된다.
-        # 게임은 동시에 하나의 스폰서 계약만 허용하므로 첫 발견물 후보를 표시한다.
-        contract_hint_ids = {
-            hint_id for hint_id, offset in enumerate(HINT_STATE_OFFSETS)
-            if 0 <= offset < len(self.file_buffer) and hint_is_acquired_and_contract_linked(self.file_buffer[offset])
-        }
-        discovery = next((item for item in self.discovery_db
-                          if int(item.get('hint_id', -1)) in contract_hint_ids), None)
-        return sponsor_id, sponsor, discovery
+        contract_hint_ids = {hint_id for hint_id, offset in enumerate(HINT_STATE_OFFSETS) if 0 <= offset < len(self.file_buffer) and hint_is_acquired_and_contract_linked(self.file_buffer[offset])}
+        discovery = next((item for item in self.discovery_db if int(item.get('hint_id', -1)) in contract_hint_ids), None)
+        return (sponsor_id, sponsor, discovery)
 
     def _refresh_sponsor_contract_display(self):
         """계약 정보 행은 항상 표시하고, 계약 여부에 따라 입력만 전환한다."""
@@ -7542,7 +7476,7 @@ class CDS3SaveEditorApp:
             return
         sponsor_id, sponsor, discovery = contract
         discovery_name = discovery['name'] if discovery is not None else UI_EMPTY_VALUE
-        self.lbl_sponsor_contract.config(text=f"{sponsor['name']} ({discovery_name})")
+        self.lbl_sponsor_contract.config(text=ui('ui_0593', sponsor['name'], discovery_name))
         self.sponsor_remaining_days_var.set(str(sponsor_remaining_days(self.file_buffer, SPONSOR_LAYOUT, sponsor_id)))
         self.spn_sponsor_remaining_days.configure(state='normal')
         if line is not None:
@@ -7557,7 +7491,7 @@ class CDS3SaveEditorApp:
         if contract is None:
             return
         try:
-            days = max(0, min(0xFFFF, int(self.sponsor_remaining_days_var.get())))
+            days = max(0, min(65535, int(self.sponsor_remaining_days_var.get())))
         except (TypeError, ValueError, tk.TclError):
             self._refresh_sponsor_contract_display()
             return
@@ -7575,18 +7509,16 @@ class CDS3SaveEditorApp:
         returned = set()
         for ship_index in loaned_slots:
             base = self._fleet_slot_offset(ship_index)
-            if base + 0x5D > len(self.file_buffer):
+            if base + 93 > len(self.file_buffer):
                 continue
-            ship_code = struct.unpack_from('<I', self.file_buffer, base + 0x2D)[0]
-            # 대여 표식이 붙은 배만 회수한다. 같은 슬롯에 사용자가 직접 만든 배는 보존한다.
-            if (ship_code >> 16) != 0x3000:
+            ship_code = struct.unpack_from('<I', self.file_buffer, base + 45)[0]
+            if ship_code >> 16 != 12288:
                 continue
-            self.file_buffer[base:base + 0x5D] = b'\x00' * 0x5D
-            struct.pack_into('<I', self.file_buffer, base + 0x2D, 0xFFFFFFFF)
+            self.file_buffer[base:base + 93] = b'\x00' * 93
+            struct.pack_into('<I', self.file_buffer, base + 45, 4294967295)
             returned.add(ship_index)
         if not returned:
             return False
-
         active_indices = self._fleet_active_ship_indices()
         old_flagship = self._fleet_flagship_position()
         kept_indices = [index for index in active_indices if index not in returned]
@@ -7605,15 +7537,9 @@ class CDS3SaveEditorApp:
         if contract is None:
             return False
         sponsor_id, _sponsor, _discovery = contract
-        # 계약 상태를 비우고, 아래에서 선지급 원조금과 대여선까지 함께 회수한다.
         cancel_aux = SPONSOR_CONTRACT_CANCEL_AUX_VALUES.get(sponsor_id)
-        clear_contract_fields(
-            self.file_buffer, SPONSOR_LAYOUT, sponsor_id,
-            SPONSOR_CONTRACT_CANCELLED_STATE, cancel_aux,
-        )
+        clear_contract_fields(self.file_buffer, SPONSOR_LAYOUT, sponsor_id, SPONSOR_CONTRACT_CANCELLED_STATE, cancel_aux)
         sponsor_offset = SPONSOR_LAYOUT.offset(sponsor_id)
-        # 계약금은 빚으로 기록되어 있으며, 실제 지급된 선금은 빚의 절반이다.
-        # 에디터의 계약 해제는 주인공·스폰서 양쪽 자금을 계약 전 상태로 되돌린다.
         debt = struct.unpack_from('<I', self.file_buffer, 161)[0]
         if debt:
             advance = debt // 2
@@ -7621,9 +7547,8 @@ class CDS3SaveEditorApp:
             cash = max(0, cash - advance)
             struct.pack_into('<I', self.file_buffer, 153, cash)
             struct.pack_into('<I', self.file_buffer, 161, 0)
-            sponsor_money = struct.unpack_from('<I', self.file_buffer, sponsor_offset + 0x04)[0]
-            struct.pack_into('<I', self.file_buffer, sponsor_offset + 0x04,
-                             min(0xFFFFFFFF, sponsor_money + advance))
+            sponsor_money = struct.unpack_from('<I', self.file_buffer, sponsor_offset + 4)[0]
+            struct.pack_into('<I', self.file_buffer, sponsor_offset + 4, min(4294967295, sponsor_money + advance))
             if hasattr(self, 'money_values') and len(self.money_values) >= 3:
                 self.money_values[0] = cash
                 self.money_values[2] = 0
@@ -7636,8 +7561,6 @@ class CDS3SaveEditorApp:
         for offset, value in side_effects.get('u8', ()):
             if offset < len(self.file_buffer):
                 self.file_buffer[offset] = value
-        # 0x0D는 계약 표시가 아니라 게임이 사용하는 정상적인 "힌트 획득" 값이다.
-        # 계약 여부는 스폰서 레코드로만 판단하므로 계약 해제 시 힌트 바이트는 보존한다.
         if _discovery is not None:
             hint_id = int(_discovery.get('hint_id', -1))
             if 0 <= hint_id < len(HINT_STATE_OFFSETS):
@@ -7665,22 +7588,17 @@ class CDS3SaveEditorApp:
         sponsor_id, _sponsor, discovery = contract
         if discovery is None or int(discovery['index']) != int(discovery_index):
             return False
-
         sponsor_offset = SPONSOR_LAYOUT.offset(sponsor_id)
         debt = struct.unpack_from('<I', self.file_buffer, 161)[0]
-        # 계약 때 선금은 debt // 2였으므로, 홀수 값도 보존되도록 잔금은 나머지로 계산한다.
-        balance = debt - (debt // 2)
+        balance = debt - debt // 2
         cash = struct.unpack_from('<I', self.file_buffer, 153)[0]
-        sponsor_money = struct.unpack_from('<I', self.file_buffer, sponsor_offset + 0x04)[0]
-        struct.pack_into('<I', self.file_buffer, 153, min(0xFFFFFFFF, cash + balance))
+        sponsor_money = struct.unpack_from('<I', self.file_buffer, sponsor_offset + 4)[0]
+        struct.pack_into('<I', self.file_buffer, 153, min(4294967295, cash + balance))
         struct.pack_into('<I', self.file_buffer, 161, 0)
-        struct.pack_into('<I', self.file_buffer, sponsor_offset + 0x04,
-                         max(0, sponsor_money - balance))
-        clear_contract_fields(
-            self.file_buffer, SPONSOR_LAYOUT, sponsor_id, SPONSOR_CONTRACT_CANCELLED_STATE
-        )
+        struct.pack_into('<I', self.file_buffer, sponsor_offset + 4, max(0, sponsor_money - balance))
+        clear_contract_fields(self.file_buffer, SPONSOR_LAYOUT, sponsor_id, SPONSOR_CONTRACT_CANCELLED_STATE)
         if hasattr(self, 'money_values') and len(self.money_values) >= 3:
-            self.money_values[0] = min(0xFFFFFFFF, cash + balance)
+            self.money_values[0] = min(4294967295, cash + balance)
             self.money_values[2] = 0
             self.refresh_money_table()
         self._refresh_sponsor_contract_display()
@@ -7707,11 +7625,9 @@ class CDS3SaveEditorApp:
             return True
         if not proposed.isdigit():
             return False
-        if int(proposed) <= 0xFFFF:
+        if int(proposed) <= 65535:
             return True
-        # validatecommand 안에서 변수를 바로 바꾸면 재귀 검증이 일어날 수 있어
-        # 현재 키 입력은 막고 다음 이벤트 루프에서 상한값을 반영한다.
-        self.root.after_idle(lambda: self.sponsor_remaining_days_var.set(str(0xFFFF)))
+        self.root.after_idle(lambda: self.sponsor_remaining_days_var.set(str(65535)))
         return False
 
     def _update_player_restore_state(self):
@@ -7726,31 +7642,12 @@ class CDS3SaveEditorApp:
 
         def read_text(offset, length):
             return original[offset:offset + length].split(b'\x00')[0].decode('cp949', errors='ignore').strip()
-
         try:
-            changed = (
-                self.txt_first_name.get().strip() != read_text(95, 18)
-                or self.txt_last_name.get().strip() != read_text(114, 18)
-                or (int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()))
-                   != (struct.unpack_from('<H', original, 21)[0], original[25], original[26])
-                or (int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()))
-                   != (struct.unpack_from('<H', original, 149)[0], original[151], original[152])
-                or self.cbo_job.current() != struct.unpack_from('<H', original, 137)[0]
-                or self.cbo_blood.current() != struct.unpack_from('<H', original, 141)[0]
-                or self.cbo_nation.current() != struct.unpack_from('<H', original, 139)[0]
-                or self.player_face_id != struct.unpack_from('<H', original, 133)[0]
-                or self.stat_values != list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]
-                or self.money_values != [
-                    *[min(99999999, struct.unpack_from('<I', original, offset)[0]) for offset in (153, 157, 161)],
-                    *[struct.unpack_from('<I', original, offset)[0] for offset in (83, 87)],
-                ]
-                or self.skill_levels != [min(3, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))]
-            )
+            changed = self.txt_first_name.get().strip() != read_text(95, 18) or self.txt_last_name.get().strip() != read_text(114, 18) or (int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get())) != (struct.unpack_from('<H', original, 21)[0], original[25], original[26]) or ((int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get())) != (struct.unpack_from('<H', original, 149)[0], original[151], original[152])) or (self.cbo_job.current() != struct.unpack_from('<H', original, 137)[0]) or (self.cbo_blood.current() != struct.unpack_from('<H', original, 141)[0]) or (self.cbo_nation.current() != struct.unpack_from('<H', original, 139)[0]) or (self._selected_player_city_id() != struct.unpack_from('<H', original, 91)[0]) or (self._selected_player_building_id() != struct.unpack_from('<H', original, 93)[0]) or (self.player_face_id != struct.unpack_from('<H', original, 133)[0]) or (self.stat_values != list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]) or (self.money_values != list([min(99999999, struct.unpack_from('<I', original, offset)[0]) for offset in (153, 157, 161)]) + list([struct.unpack_from('<I', original, offset)[0] for offset in (83, 87)])) or (self.skill_levels != [min(3, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))])
             if not changed:
                 for sponsor_id in SPONSOR_BY_ID:
                     offset = SPONSOR_LAYOUT.offset(sponsor_id)
-                    if (offset + 0x18 <= len(self.file_buffer) and offset + 0x18 <= len(original)
-                            and self.file_buffer[offset + 0x04:offset + 0x18] != original[offset + 0x04:offset + 0x18]):
+                    if offset + 24 <= len(self.file_buffer) and offset + 24 <= len(original) and (self.file_buffer[offset + 4:offset + 24] != original[offset + 4:offset + 24]):
                         changed = True
                         break
             if not changed:
@@ -7772,24 +7669,12 @@ class CDS3SaveEditorApp:
         original = getattr(self, 'person_original_buffer', None)
         if not self.file_buffer or not original:
             return
-
-        # 이 범위들은 저장 시 주인공 신상·능력치·자금/명성·기술/언어에 쓰는
-        # 필드만 포함한다. 배우자, 역할 배정, 소지품 등 다른 편집은 보존한다.
-        for start, end in (
-            (21, 27),    # 현재일
-            (45, 55),    # 능력치 및 생명력
-            (56, 83),    # 기술·언어
-            (83, 91),    # 명성·악명
-            (95, 143),   # 이름·얼굴·직업·국적·혈액형
-            (149, 165),  # 출생일·소지금·저금·빚
-        ):
+        for start, end in ((21, 27), (45, 55), (56, 83), (83, 91), (91, 95), (95, 143), (149, 165)):
             self.file_buffer[start:end] = original[start:end]
-
-        # 주인공 정보에서 편집하는 스폰서 계약 재력·상태·보조값·남은 일수를 마지막 로드 상태로 되돌린다.
         for sponsor_id in SPONSOR_BY_ID:
             offset = SPONSOR_LAYOUT.offset(sponsor_id)
-            if offset + 0x18 <= len(self.file_buffer) and offset + 0x18 <= len(original):
-                self.file_buffer[offset + 0x04:offset + 0x18] = original[offset + 0x04:offset + 0x18]
+            if offset + 24 <= len(self.file_buffer) and offset + 24 <= len(original):
+                self.file_buffer[offset + 4:offset + 24] = original[offset + 4:offset + 24]
         for hint_offset, original_state in self._sponsor_contract_hint_resets.items():
             if 0 <= hint_offset < len(self.file_buffer):
                 self.file_buffer[hint_offset] = original_state
@@ -7797,10 +7682,8 @@ class CDS3SaveEditorApp:
 
         def read_cp949(buf, offset, max_len):
             return buf[offset:offset + max_len].split(b'\x00')[0].decode('cp949', errors='ignore').strip()
-
         self.set_entry_text(self.txt_first_name, read_cp949(original, 95, 18))
         self.set_entry_text(self.txt_last_name, read_cp949(original, 114, 18))
-
         game_year = struct.unpack_from('<H', original, 21)[0]
         self.set_spin_val(self.spn_game_y, game_year if game_year > 0 else 1480)
         self.set_spin_val(self.spn_game_m, original[25] if original[25] > 0 else 1)
@@ -7809,7 +7692,6 @@ class CDS3SaveEditorApp:
         self.set_spin_val(self.spn_birth_y, birth_year if birth_year > 0 else 1450)
         self.set_spin_val(self.spn_birth_m, original[151] if original[151] > 0 else 1)
         self.set_spin_val(self.spn_birth_d, original[152] if original[152] > 0 else 1)
-
         self.cbo_job.current(min(max(struct.unpack_from('<H', original, 137)[0], 0), len(JOB_NAMES) - 1))
         self.cbo_blood.current(min(max(struct.unpack_from('<H', original, 141)[0], 0), len(BLOOD_NAMES) - 1))
         self.update_wife_combo_options()
@@ -7817,18 +7699,12 @@ class CDS3SaveEditorApp:
         self.chk_all_nations.set(nation > 1)
         self.toggle_all_nations()
         self.cbo_nation.current(nation if 0 <= nation < len(self.cbo_nation['values']) else 0)
+        self._set_player_location_from_buffer(original)
         face_id = struct.unpack_from('<H', original, 133)[0]
         self.player_face_id = face_id if 0 <= face_id < 410 else 13
         self.update_player_face_display()
-
         self.stat_values = list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]
-        self.money_values = [
-            min(99999999, struct.unpack_from('<I', original, offset)[0])
-            for offset in (153, 157, 161)
-        ] + [
-            struct.unpack_from('<I', original, offset)[0]
-            for offset in (83, 87)
-        ]
+        self.money_values = [min(99999999, struct.unpack_from('<I', original, offset)[0]) for offset in (153, 157, 161)] + [struct.unpack_from('<I', original, offset)[0] for offset in (83, 87)]
         self.skill_levels = [min(3, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))]
         self.refresh_stats_table()
         self.refresh_money_table()
@@ -7839,13 +7715,14 @@ class CDS3SaveEditorApp:
         self._refresh_wife_fortune_state()
         self._schedule_city_shipyard_refresh(completion_message=ui('ui_0450'))
         self._update_player_restore_state()
+
     def refresh_stats_table(self):
         self.tree_stats.delete(*self.tree_stats.get_children())
         stat_defs = EDITOR_MAPPINGS['profile_stat_definitions']
         for i, (name, desc) in enumerate(stat_defs):
             val = self.stat_values[i] if self.file_buffer else UI_EMPTY_VALUE
             maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else 255
-            self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, f'{maximum:,}'))
+            self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, '{0:,}'.format(maximum)))
         self._schedule_treeview_autofit(self.tree_stats)
         self._update_player_restore_state()
 
@@ -7855,7 +7732,7 @@ class CDS3SaveEditorApp:
         is_field_column = self.tree_stats.identify_column(event.x) == '#2'
         if getattr(self, '_stats_tooltip_row', None) != row or not is_field_column:
             self._hide_stats_tooltip()
-        if not is_field_column or not row or not row.isdigit():
+        if not is_field_column or not row or (not row.isdigit()):
             return
         stat_defs = EDITOR_MAPPINGS['profile_stat_definitions']
         index = int(row)
@@ -7864,12 +7741,9 @@ class CDS3SaveEditorApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tooltip_text = (ui('ui_0469', self.stat_values[0], self.stat_values[6])
-                        if index == 6 else stat_defs[index][1])
-        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w',
-                 bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
-                 padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        tooltip_text = ui('ui_0469', self.stat_values[0], self.stat_values[6]) if index == 6 else stat_defs[index][1]
+        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._stats_tooltip = tooltip
         self._stats_tooltip_row = row
 
@@ -7898,10 +7772,8 @@ class CDS3SaveEditorApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
-        tk.Label(tooltip, text=ui('ui_0462', total, advance, balance), justify='left', anchor='w',
-                 bg='#FFF8D6', fg='#333333', relief='solid', bd=1,
-                 padx=8, pady=6, font=('Malgun Gothic', 9)).pack()
-        tooltip.geometry(f'+{event.x_root + 16}+{event.y_root + 18}')
+        tk.Label(tooltip, text=ui('ui_0462', total, advance, balance), justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._money_tooltip = tooltip
         self._money_tooltip_row = row
 
@@ -7919,18 +7791,19 @@ class CDS3SaveEditorApp:
         self.tree_money.delete(*self.tree_money.get_children())
         money_defs = EDITOR_MAPPINGS['money_definitions']
         for i, (name, max_v) in enumerate(money_defs[:3]):
-            val_str = f'{self.money_values[i]:,}' if self.file_buffer else UI_EMPTY_VALUE
-            self.tree_money.insert('', tk.END, iid=str(i), values=(i, name, val_str, f'{max_v:,}'))
+            val_str = '{0:,}'.format(self.money_values[i]) if self.file_buffer else UI_EMPTY_VALUE
+            self.tree_money.insert('', tk.END, iid=str(i), values=(i, name, val_str, '{0:,}'.format(max_v)))
         if hasattr(self, 'tree_reputation'):
             self.tree_reputation.delete(*self.tree_reputation.get_children())
             for row, i in enumerate(range(3, len(money_defs))):
                 name, max_v = money_defs[i]
-                val_str = f'{self.money_values[i]:,}' if self.file_buffer else UI_EMPTY_VALUE
-                self.tree_reputation.insert('', tk.END, iid=str(i), values=(row, name, val_str, f'{max_v:,}'))
+                val_str = '{0:,}'.format(self.money_values[i]) if self.file_buffer else UI_EMPTY_VALUE
+                self.tree_reputation.insert('', tk.END, iid=str(i), values=(row, name, val_str, '{0:,}'.format(max_v)))
             self._schedule_treeview_autofit(self.tree_money, self.tree_reputation)
         else:
             self._schedule_treeview_autofit(self.tree_money)
         self._update_player_restore_state()
+
     def on_stat_edit_request(self, event=None):
         if not self.file_buffer:
             return
@@ -7944,16 +7817,15 @@ class CDS3SaveEditorApp:
                 idx = int(sel[0])
                 stat_names = [definition[0] for definition in EDITOR_MAPPINGS['profile_stat_definitions']]
                 max_value = CHARACTER_SPECIAL_STAT_MAX if idx == 6 else 255
-                prompt = (ui('ui_0034', stat_names[idx], max_value)
-                          if idx == 6 else ui('ui_0033', stat_names[idx]))
+                prompt = ui('ui_0034', stat_names[idx], max_value) if idx == 6 else ui('ui_0033', stat_names[idx])
                 new_v = self.ask_bounded_integer(ui('ui_0201'), prompt, self.stat_values[idx], 0, max_value)
                 if new_v is not None:
                     self.stat_values[idx] = new_v
                     if idx == 0:
-                        # 주인공 생명력은 체력 변경에 맞춰 게임의 기본 비율(체력 × 20)로 갱신한다.
                         self.stat_values[6] = min(CHARACTER_SPECIAL_STAT_MAX, new_v * 20)
                     self.refresh_stats_table()
                     self.tree_stats.selection_set(str(idx))
+
     def on_money_edit_request(self, event=None, tree=None):
         if not self.file_buffer:
             return
@@ -7973,8 +7845,8 @@ class CDS3SaveEditorApp:
                     self.money_values[idx] = new_v
                     self.refresh_money_table()
                     tree.selection_set(str(idx))
+
     def apply_batch_stats(self):
-        # ***<module>.CDS3SaveEditorApp.apply_batch_stats: Failure: Different control flow
         if not self.file_buffer:
             return
         try:
@@ -7985,6 +7857,7 @@ class CDS3SaveEditorApp:
             self.stat_values[i] = target_v
         self.stat_values[6] = min(CHARACTER_SPECIAL_STAT_MAX, self.stat_values[0] * 20)
         self.refresh_stats_table()
+
     def apply_batch_money(self):
         if not self.file_buffer:
             return
@@ -7995,6 +7868,7 @@ class CDS3SaveEditorApp:
         for i in range(3):
             self.money_values[i] = target_v
         self.refresh_money_table()
+
     def apply_batch_reputation(self):
         if not self.file_buffer:
             return
@@ -8005,6 +7879,7 @@ class CDS3SaveEditorApp:
         for i in range(3, 5):
             self.money_values[i] = target_v
         self.refresh_money_table()
+
     def toggle_all_nations(self):
         if self.chk_all_nations.get():
             self.cbo_nation['values'] = NATION_NAMES
@@ -8013,17 +7888,17 @@ class CDS3SaveEditorApp:
             if self.cbo_nation.current() > 1:
                 self.cbo_nation.current(0)
         self._update_player_restore_state()
+
     def build_skills_tab(self):
-        # ***<module>.CDS3SaveEditorApp.build_skills_tab: Failure: Different bytecode
         f_tech = tk.Frame(self.profile_page_tech, padx=8, pady=6)
         f_tech.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_tech_top = tk.Frame(f_tech)
         f_tech_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_tech_top, text=ui('ui_0247'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_tech = ttk.Spinbox(f_tech_top, from_=0, to=3, width=4, justify='center', font=('Malgun Gothic', 9))
+        tk.Label(f_tech_top, text=ui('ui_0247'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+        self.spn_batch_tech = SPINBOX_WIDGET(f_tech_top, from_=0, to=3, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
         self.spn_batch_tech.set('3')
         self.spn_batch_tech.pack(side=tk.LEFT, padx=4)
-        EditorButton(f_tech_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=('Malgun Gothic', 9), command=self.apply_batch_tech).pack(side=tk.LEFT, padx=4)
+        EditorButton(f_tech_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_tech).pack(side=tk.LEFT, padx=4)
         cols = ('index', 'field', 'level')
         f_tree_t = tk.Frame(f_tech)
         f_tree_t.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -8041,11 +7916,11 @@ class CDS3SaveEditorApp:
         f_lang.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_lang_top = tk.Frame(f_lang)
         f_lang_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_lang_top, text=ui('ui_0247'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_lang = ttk.Spinbox(f_lang_top, from_=0, to=3, width=4, justify='center', font=('Malgun Gothic', 9))
+        tk.Label(f_lang_top, text=ui('ui_0247'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+        self.spn_batch_lang = SPINBOX_WIDGET(f_lang_top, from_=0, to=3, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
         self.spn_batch_lang.set('3')
         self.spn_batch_lang.pack(side=tk.LEFT, padx=4)
-        EditorButton(f_lang_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=('Malgun Gothic', 9), command=self.apply_batch_lang).pack(side=tk.LEFT, padx=4)
+        EditorButton(f_lang_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_lang).pack(side=tk.LEFT, padx=4)
         cols_lang = ('index', 'field', 'level')
         f_tree_l = tk.Frame(f_lang)
         f_tree_l.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -8066,9 +7941,8 @@ class CDS3SaveEditorApp:
         self.tree_lang.bind('<Return>', lambda e: self.on_lang_edit_request())
         self.tree_lang.bind('<Double-1>', lambda _event: self.on_lang_edit_request())
         self.tree_lang.bind('<Button-3>', self.show_lang_context_menu)
+
     def refresh_skills_table(self):
-        # irreducible cflow, using cdg fallback
-        # ***<module>.CDS3SaveEditorApp.refresh_skills_table: Failure: Different control flow
         self.tree_tech.delete(*self.tree_tech.get_children())
         for i in range(13):
             name, off, desc = SKILLS_DATA[i]
@@ -8089,6 +7963,7 @@ class CDS3SaveEditorApp:
             self.tree_lang.insert('', tk.END, iid=str(i), values=(i - 13, name, lvl_str))
         self._schedule_treeview_autofit(self.tree_tech, self.tree_lang)
         self._update_player_restore_state()
+
     def set_tech_level(self, idx, level):
         if not self.file_buffer:
             return
@@ -8096,6 +7971,7 @@ class CDS3SaveEditorApp:
             self.skill_levels[idx] = level
             self.refresh_skills_table()
             self.tree_tech.selection_set(str(idx))
+
     def set_lang_level(self, idx, level):
         if not self.file_buffer:
             return
@@ -8103,6 +7979,7 @@ class CDS3SaveEditorApp:
             self.skill_levels[idx] = level
             self.refresh_skills_table()
             self.tree_lang.selection_set(str(idx))
+
     def on_tech_edit_request(self):
         if not self.file_buffer:
             return
@@ -8116,6 +7993,7 @@ class CDS3SaveEditorApp:
                     self.skill_levels[idx] = new_v
                     self.refresh_skills_table()
                     self.tree_tech.selection_set(str(idx))
+
     def on_lang_edit_request(self):
         if not self.file_buffer:
             return
@@ -8129,6 +8007,7 @@ class CDS3SaveEditorApp:
                     self.skill_levels[idx] = new_v
                     self.refresh_skills_table()
                     self.tree_lang.selection_set(str(idx))
+
     def show_tech_context_menu(self, event):
         if not self.file_buffer:
             return
@@ -8137,8 +8016,8 @@ class CDS3SaveEditorApp:
             if item:
                 self.tree_tech.selection_set(item)
                 self._popup_tech_menu(int(item), event.x_root, event.y_root)
+
     def _popup_tech_menu(self, idx, x, y):
-        # ***<module>.CDS3SaveEditorApp._popup_tech_menu: Failure: Different bytecode
         name = SKILLS_DATA[idx][0]
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0018', name), state='disabled')
@@ -8146,6 +8025,7 @@ class CDS3SaveEditorApp:
         for level in range(4):
             menu.add_command(label=ui('ui_0377', level), command=lambda value=level: self.set_tech_level(idx, value))
         menu.tk_popup(x, y)
+
     def show_lang_context_menu(self, event):
         if not self.file_buffer:
             return
@@ -8154,8 +8034,8 @@ class CDS3SaveEditorApp:
             if item:
                 self.tree_lang.selection_set(item)
                 self._popup_lang_menu(int(item), event.x_root, event.y_root)
+
     def _popup_lang_menu(self, idx, x, y):
-        # ***<module>.CDS3SaveEditorApp._popup_lang_menu: Failure: Different bytecode
         name = SKILLS_DATA[idx][0]
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0018', name), state='disabled')
@@ -8163,8 +8043,8 @@ class CDS3SaveEditorApp:
         for level in range(4):
             menu.add_command(label=ui('ui_0377', level), command=lambda value=level: self.set_lang_level(idx, value))
         menu.tk_popup(x, y)
+
     def apply_batch_tech(self):
-        # ***<module>.CDS3SaveEditorApp.apply_batch_tech: Failure: Compilation Error
         if not self.file_buffer:
             return
         else:
@@ -8175,8 +8055,8 @@ class CDS3SaveEditorApp:
             for i in range(13):
                 self.skill_levels[i] = target_lv
             self.refresh_skills_table()
+
     def apply_batch_lang(self):
-        # ***<module>.CDS3SaveEditorApp.apply_batch_lang: Failure: Different control flow
         if not self.file_buffer:
             return
         else:
@@ -8187,12 +8067,12 @@ class CDS3SaveEditorApp:
             for i in range(13, 27):
                 self.skill_levels[i] = target_lv
             self.refresh_skills_table()
+
     def build_items_tab(self):
-        # ***<module>.CDS3SaveEditorApp.build_items_tab: Failure: Different bytecode
         parent = self.tab_items
         f_pocket_hdr = tk.Frame(parent)
-        tk.Label(f_pocket_hdr, text=GROUP_TITLES['items_pocket'], font=('Malgun Gothic', 9, 'bold')).pack(side=tk.LEFT)
-        self.lbl_pocket_count = tk.Label(f_pocket_hdr, text=inventory_text('ui_0283', 'ui_0281', 0, 16), font=('Malgun Gothic', 9), fg='#1A73E8')
+        tk.Label(f_pocket_hdr, text=GROUP_TITLES['items_pocket'], font=(APP_FONT_FAMILY, 9, 'bold')).pack(side=tk.LEFT)
+        self.lbl_pocket_count = tk.Label(f_pocket_hdr, text=inventory_text('ui_0283', 'ui_0281', 0, 16), font=(APP_FONT_FAMILY, 9), fg='#1A73E8')
         self.lbl_pocket_count.pack(side=tk.LEFT)
         EditorButton(f_pocket_hdr, text=ui('ui_0376'), bg='#FCE8E6', fg='#D93025', command=self.clear_pocket).pack(side=tk.RIGHT, padx=(8, 0))
         self.f_pocket = tk.LabelFrame(parent, labelwidget=f_pocket_hdr, padx=6, pady=4)
@@ -8213,8 +8093,8 @@ class CDS3SaveEditorApp:
         self.tree_pocket.bind('<BackSpace>', lambda e: self.delete_selected_pocket_item())
         self.tree_pocket.bind('<Button-3>', self.show_pocket_context_menu)
         f_storage_hdr = tk.Frame(parent)
-        tk.Label(f_storage_hdr, text=GROUP_TITLES['items_storage'], font=('Malgun Gothic', 9, 'bold')).pack(side=tk.LEFT)
-        self.lbl_storage_count = tk.Label(f_storage_hdr, text=inventory_text('ui_0283', 'ui_0282', 0, 99), font=('Malgun Gothic', 9), fg='#1A73E8')
+        tk.Label(f_storage_hdr, text=GROUP_TITLES['items_storage'], font=(APP_FONT_FAMILY, 9, 'bold')).pack(side=tk.LEFT)
+        self.lbl_storage_count = tk.Label(f_storage_hdr, text=inventory_text('ui_0283', 'ui_0282', 0, 99), font=(APP_FONT_FAMILY, 9), fg='#1A73E8')
         self.lbl_storage_count.pack(side=tk.LEFT)
         EditorButton(f_storage_hdr, text=ui('ui_0376'), bg='#FCE8E6', fg='#D93025', command=self.clear_storage).pack(side=tk.RIGHT, padx=(8, 0))
         self.f_storage = tk.LabelFrame(parent, labelwidget=f_storage_hdr, padx=6, pady=4)
@@ -8233,7 +8113,7 @@ class CDS3SaveEditorApp:
         self.tree_storage.bind('<Delete>', lambda e: self.delete_selected_storage_item())
         self.tree_storage.bind('<BackSpace>', lambda e: self.delete_selected_storage_item())
         self.tree_storage.bind('<Button-3>', self.show_storage_context_menu)
-        f_db = tk.LabelFrame(parent, text=GROUP_TITLES['items_catalog'], font=('Malgun Gothic', 9, 'bold'), padx=6, pady=4)
+        f_db = tk.LabelFrame(parent, text=GROUP_TITLES['items_catalog'], font=(APP_FONT_FAMILY, 9, 'bold'), padx=6, pady=4)
         self.f_item_catalog = f_db
         f_db.place(x=8, y=6, width=456, height=546)
         f_filter = tk.Frame(f_db)
@@ -8244,8 +8124,7 @@ class CDS3SaveEditorApp:
         category_filter.grid(row=0, column=0, sticky='ew', padx=(3, 4))
         tk.Label(category_filter, text=ui('ui_0250')).pack(side=tk.LEFT, padx=(0, 3))
         category_ids = EDITOR_MAPPINGS['item_catalog_category_ids']
-        category_values = [ui('ui_0156') if category_id == -1 else ui('ui_0105') if category_id == -2 else ITEM_CATEGORY_NAMES[category_id]
-                           for category_id in category_ids]
+        category_values = [ui('ui_0156') if category_id == -1 else ui('ui_0105') if category_id == -2 else ITEM_CATEGORY_NAMES[category_id] for category_id in category_ids]
         self.cbo_item_cat = ttk.Combobox(category_filter, values=category_values, state='readonly', width=13)
         self.cbo_item_cat.current(0)
         self.cbo_item_cat.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -8255,11 +8134,7 @@ class CDS3SaveEditorApp:
         tk.Label(search_filter, text=ui('ui_0251')).pack(side=tk.LEFT, padx=(0, 3))
         item_search_host = tk.Frame(search_filter, width=108, height=23)
         item_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.txt_item_search = NativeWinEdit(
-            item_search_host,
-            lambda: self._schedule_search_refresh('items', self.refresh_item_catalog),
-            width=108, height=23,
-        )
+        self.txt_item_search = NativeWinEdit(item_search_host, lambda: self._schedule_search_refresh('items', self.refresh_item_catalog), width=108, height=23)
         cols_cat = ('game_id', 'name', 'category', 'sell_price')
         f_tree_c = tk.Frame(f_db)
         f_tree_c.pack(fill=tk.BOTH, expand=True)
@@ -8291,26 +8166,22 @@ class CDS3SaveEditorApp:
             height = self.tab_items.winfo_height()
         if width <= 1 or height <= 1:
             return
-        # width/height above are already physical pixels received from Tk.
-        # Scale only the logical margins, then place the calculated physical
-        # rectangles without passing through the global DPI place wrapper.
-        margin_x, margin_y = _dpi_px(8), _dpi_px(6)
-        gap_x, gap_y = _dpi_px(8), _dpi_px(6)
+        margin_x, margin_y = (_dpi_px(8), _dpi_px(6))
+        gap_x, gap_y = (_dpi_px(8), _dpi_px(6))
         column_width = max(1, (width - margin_x * 2 - gap_x) // 2)
         content_height = max(1, height - margin_y * 2)
         list_height = max(1, (content_height - gap_y) // 2)
         right_x = margin_x + column_width + gap_x
         bottom_y = margin_y + list_height + gap_y
-        _place_physical(self.f_item_catalog, x=margin_x, y=margin_y,
-                        width=column_width, height=content_height)
-        _place_physical(self.f_pocket, x=right_x, y=margin_y,
-                        width=column_width, height=list_height)
-        _place_physical(self.f_storage, x=right_x, y=bottom_y,
-                        width=column_width, height=list_height)
+        _place_physical(self.f_item_catalog, x=margin_x, y=margin_y, width=column_width, height=content_height)
+        _place_physical(self.f_pocket, x=right_x, y=margin_y, width=column_width, height=list_height)
+        _place_physical(self.f_storage, x=right_x, y=bottom_y, width=column_width, height=list_height)
+
     def get_item_info(self, item_id):
         if 0 <= item_id < len(self.item_db):
-                return self.item_db[item_id]
+            return self.item_db[item_id]
         return {'id': item_id, 'name': ui('ui_0362', item_id), 'category': ui('ui_0363'), 'sell_price': 0, 'buy_price': 0}
+
     @staticmethod
     def _update_inventory_scrollbar(scrollbar, first, last):
         """Show an inventory scrollbar only when its list can actually scroll."""
@@ -8322,7 +8193,7 @@ class CDS3SaveEditorApp:
         is_visible = getattr(scrollbar, '_auto_visible', None)
         if is_visible is None:
             is_visible = bool(scrollbar.winfo_manager())
-        if should_show and not is_visible:
+        if should_show and (not is_visible):
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             scrollbar._auto_visible = True
         elif not should_show and is_visible:
@@ -8337,6 +8208,7 @@ class CDS3SaveEditorApp:
         cnt = len(self.pocket_ids)
         self.lbl_pocket_count.config(text=inventory_text('ui_0283', 'ui_0281', cnt, 16), fg='#D93025' if cnt >= 16 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_pocket)
+
     def refresh_storage_list(self):
         self.tree_storage.delete(*self.tree_storage.get_children())
         for i, item_id in enumerate(self.storage_ids):
@@ -8345,24 +8217,24 @@ class CDS3SaveEditorApp:
         cnt = len(self.storage_ids)
         self.lbl_storage_count.config(text=inventory_text('ui_0283', 'ui_0282', cnt, 99), fg='#D93025' if cnt >= 99 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_storage)
+
     def refresh_item_catalog(self):
         search = self.txt_item_search.get().strip().casefold()
         cat = self.cbo_item_cat.get()
         filter_key = (search, cat)
-        if (getattr(self, '_item_catalog_filter_cache', object()) == filter_key
-                and self.tree_catalog.get_children()):
+        if getattr(self, '_item_catalog_filter_cache', object()) == filter_key and self.tree_catalog.get_children():
             return
         self.tree_catalog.delete(*self.tree_catalog.get_children())
         for item, item_name_key in self._item_search_index:
             if search and search not in item_name_key:
-                    continue
+                continue
             if cat != ui('ui_0156') and item['category'] != cat:
-                    continue
-            self.tree_catalog.insert('', tk.END, iid=str(item['id']), values=(item['id'], item['name'], item['category'], f'{item['sell_price']:,} G'))
+                continue
+            self.tree_catalog.insert('', tk.END, iid=str(item['id']), values=(item['id'], item['name'], item['category'], ui('ui_0591', item['sell_price'])))
         self._item_catalog_filter_cache = filter_key
         self._schedule_treeview_autofit(self.tree_catalog)
+
     def open_item_info_modal(self, item_id, source_view='catalog', slot_index=None, click_pos=None):
-        # ***<module>.CDS3SaveEditorApp.open_item_info_modal: Failure: Different bytecode
         items_list = []
         current_idx = 0
         if source_view == 'catalog':
@@ -8374,31 +8246,29 @@ class CDS3SaveEditorApp:
                         current_idx = len(items_list) - 1
                 except Exception:
                     continue
-        else:
-            if source_view == 'pocket':
-                for s_idx, it_id in enumerate(self.pocket_ids):
-                    items_list.append((it_id, s_idx))
-                    if slot_index is not None and s_idx == slot_index:
-                        current_idx = len(items_list) - 1
-                    else:
-                        if slot_index is None and it_id == item_id and (current_idx == 0):
-                                    current_idx = len(items_list) - 1
-            else:
-                if source_view == 'storage':
-                    for s_idx, it_id in enumerate(self.storage_ids):
-                        items_list.append((it_id, s_idx))
-                        if slot_index is not None and s_idx == slot_index:
-                            current_idx = len(items_list) - 1
-                        else:
-                            if slot_index is None and it_id == item_id and (current_idx == 0):
-                                        current_idx = len(items_list) - 1
+        elif source_view == 'pocket':
+            for s_idx, it_id in enumerate(self.pocket_ids):
+                items_list.append((it_id, s_idx))
+                if slot_index is not None and s_idx == slot_index:
+                    current_idx = len(items_list) - 1
+                elif slot_index is None and it_id == item_id and (current_idx == 0):
+                    current_idx = len(items_list) - 1
+        elif source_view == 'storage':
+            for s_idx, it_id in enumerate(self.storage_ids):
+                items_list.append((it_id, s_idx))
+                if slot_index is not None and s_idx == slot_index:
+                    current_idx = len(items_list) - 1
+                elif slot_index is None and it_id == item_id and (current_idx == 0):
+                    current_idx = len(items_list) - 1
         if not items_list:
             items_list = [(item_id, slot_index)]
             current_idx = 0
         info = self.get_item_info(item_id)
         desc = ITEM_DESCRIPTIONS.get(item_id, '')
+
         def get_item_info_fn(it_id):
             return (self.get_item_info(it_id), ITEM_DESCRIPTIONS.get(it_id, ''))
+
         def on_navigate_fn(it_id, s_idx):
             try:
                 if source_view == 'catalog' and self.tree_catalog.exists(str(it_id)):
@@ -8416,8 +8286,8 @@ class CDS3SaveEditorApp:
                         self.tree_storage.see(children[s_idx])
             except Exception:
                 return None
+
         def on_item_action(it_id, action_type, slot_idx, parent_window=None):
-            # ***<module>.CDS3SaveEditorApp.open_item_info_modal.on_item_action: Failure: Different bytecode
             p_win = parent_window or self.root
             info = self.get_item_info(it_id)
             if action_type == 'add_pocket':
@@ -8473,6 +8343,7 @@ class CDS3SaveEditorApp:
                     return True
             return False
         ItemInfoModal(self.root, info, desc, source_view=source_view, slot_index=slot_index, on_action_callback=on_item_action, click_pos=click_pos, items_list=items_list, current_list_index=current_idx, get_item_info_fn=get_item_info_fn, on_navigate_callback=on_navigate_fn)
+
     def on_catalog_double_click(self, event):
         if not self.file_buffer:
             return
@@ -8481,6 +8352,7 @@ class CDS3SaveEditorApp:
             if item:
                 item_id = int(item)
                 self.open_item_info_modal(item_id, source_view='catalog', click_pos=(event.x_root, event.y_root))
+
     def on_pocket_double_click(self, event):
         if not self.file_buffer:
             return
@@ -8491,6 +8363,7 @@ class CDS3SaveEditorApp:
                 if 0 <= idx < len(self.pocket_ids):
                     item_id = self.pocket_ids[idx]
                     self.open_item_info_modal(item_id, source_view='pocket', slot_index=idx, click_pos=(event.x_root, event.y_root))
+
     def on_storage_double_click(self, event):
         if not self.file_buffer:
             return
@@ -8501,8 +8374,8 @@ class CDS3SaveEditorApp:
                 if 0 <= idx < len(self.storage_ids):
                     item_id = self.storage_ids[idx]
                     self.open_item_info_modal(item_id, source_view='storage', slot_index=idx, click_pos=(event.x_root, event.y_root))
+
     def move_pocket_to_storage(self):
-        # ***<module>.CDS3SaveEditorApp.move_pocket_to_storage: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8522,12 +8395,12 @@ class CDS3SaveEditorApp:
                         self.refresh_storage_list()
                         children = self.tree_storage.get_children()
                         if children:
-                            last_item = children[(-1)]
+                            last_item = children[-1]
                             self.tree_storage.selection_set(last_item)
                             self.tree_storage.focus(last_item)
                             self.tree_storage.see(last_item)
+
     def move_storage_to_pocket(self):
-        # ***<module>.CDS3SaveEditorApp.move_storage_to_pocket: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8547,12 +8420,12 @@ class CDS3SaveEditorApp:
                         self.refresh_storage_list()
                         children = self.tree_pocket.get_children()
                         if children:
-                            last_item = children[(-1)]
+                            last_item = children[-1]
                             self.tree_pocket.selection_set(last_item)
                             self.tree_pocket.focus(last_item)
                             self.tree_pocket.see(last_item)
+
     def add_selected_item_to_pocket(self):
-        # ***<module>.CDS3SaveEditorApp.add_selected_item_to_pocket: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8569,12 +8442,12 @@ class CDS3SaveEditorApp:
                     self.refresh_pocket_list()
                     children = self.tree_pocket.get_children()
                     if children:
-                        last_item = children[(-1)]
+                        last_item = children[-1]
                         self.tree_pocket.selection_set(last_item)
                         self.tree_pocket.focus(last_item)
                         self.tree_pocket.see(last_item)
+
     def add_selected_item_to_storage(self):
-        # ***<module>.CDS3SaveEditorApp.add_selected_item_to_storage: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8591,12 +8464,12 @@ class CDS3SaveEditorApp:
                     self.refresh_storage_list()
                     children = self.tree_storage.get_children()
                     if children:
-                        last_item = children[(-1)]
+                        last_item = children[-1]
                         self.tree_storage.selection_set(last_item)
                         self.tree_storage.focus(last_item)
                         self.tree_storage.see(last_item)
+
     def delete_selected_pocket_item(self):
-        # ***<module>.CDS3SaveEditorApp.delete_selected_pocket_item: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8618,8 +8491,8 @@ class CDS3SaveEditorApp:
                             children = self.tree_pocket.get_children()
                             if 0 <= next_idx < len(children):
                                 self.tree_pocket.selection_set(children[next_idx])
+
     def delete_selected_storage_item(self):
-        # ***<module>.CDS3SaveEditorApp.delete_selected_storage_item: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8641,8 +8514,8 @@ class CDS3SaveEditorApp:
                             children = self.tree_storage.get_children()
                             if 0 <= next_idx < len(children):
                                 self.tree_storage.selection_set(children[next_idx])
+
     def show_pocket_context_menu(self, event):
-        # ***<module>.CDS3SaveEditorApp.show_pocket_context_menu: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8654,8 +8527,8 @@ class CDS3SaveEditorApp:
                 menu.add_separator()
                 menu.add_command(label=inventory_text('ui_0292', 'ui_0281'), command=self.delete_selected_pocket_item)
                 menu.tk_popup(event.x_root, event.y_root)
+
     def show_storage_context_menu(self, event):
-        # ***<module>.CDS3SaveEditorApp.show_storage_context_menu: Failure: Different bytecode
         if not self.file_buffer:
             return
         else:
@@ -8667,6 +8540,7 @@ class CDS3SaveEditorApp:
                 menu.add_separator()
                 menu.add_command(label=inventory_text('ui_0292', 'ui_0282'), command=self.delete_selected_storage_item)
                 menu.tk_popup(event.x_root, event.y_root)
+
     def show_catalog_menu_for_selected(self):
         if not self.file_buffer:
             return
@@ -8680,6 +8554,7 @@ class CDS3SaveEditorApp:
                 x = self.tree_catalog.winfo_rootx() + (bbox[0] if bbox else 50) + 150
                 y = self.tree_catalog.winfo_rooty() + (bbox[1] if bbox else 20) + 20
                 self._popup_catalog_menu(item_id, x, y)
+
     def show_catalog_context_menu(self, event):
         if not self.file_buffer:
             return
@@ -8688,8 +8563,8 @@ class CDS3SaveEditorApp:
             if item:
                 self.tree_catalog.selection_set(item)
                 self._popup_catalog_menu(int(item), event.x_root, event.y_root)
+
     def _popup_catalog_menu(self, item_id, x, y):
-        # ***<module>.CDS3SaveEditorApp._popup_catalog_menu: Failure: Different bytecode
         info = self.get_item_info(item_id)
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0293', info['name']), state='disabled')
@@ -8697,29 +8572,27 @@ class CDS3SaveEditorApp:
         menu.add_command(label=inventory_text('ui_0285', 'ui_0281'), command=self.add_selected_item_to_pocket)
         menu.add_command(label=inventory_text('ui_0285', 'ui_0282'), command=self.add_selected_item_to_storage)
         menu.tk_popup(x, y)
+
     def clear_pocket(self):
-        # ***<module>.CDS3SaveEditorApp.clear_pocket: Failure: Different bytecode
         if not self.file_buffer:
             return
-        else:
-            if messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0281')):
-                self.pocket_ids.clear()
-                self.refresh_pocket_list()
+        elif messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0281')):
+            self.pocket_ids.clear()
+            self.refresh_pocket_list()
+
     def clear_storage(self):
-        # ***<module>.CDS3SaveEditorApp.clear_storage: Failure: Different bytecode
         if not self.file_buffer:
             return
-        else:
-            if messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0282')):
-                self.storage_ids.clear()
-                self.refresh_storage_list()
+        elif messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0282')):
+            self.storage_ids.clear()
+            self.refresh_storage_list()
+
     def build_discoveries_tab(self):
-        # ***<module>.CDS3SaveEditorApp.build_discoveries_tab: Failure: Different bytecode
         parent = self.tab_discoveries
         top_f = tk.Frame(parent, pady=4)
         top_f.pack(side=tk.TOP, fill=tk.X, padx=10)
         tk.Label(top_f, text=ui('ui_0250')).pack(side=tk.LEFT, padx=2)
-        category_values = [ui('ui_0156'), *DISCOVERY_CATEGORY_NAMES]
+        category_values = [ui('ui_0156')] + list(DISCOVERY_CATEGORY_NAMES)
         self.cbo_disc_cat = ttk.Combobox(top_f, values=category_values, state='readonly', width=9)
         self.cbo_disc_cat.current(0)
         self.cbo_disc_cat.pack(side=tk.LEFT, padx=2)
@@ -8732,11 +8605,7 @@ class CDS3SaveEditorApp:
         tk.Label(top_f, text=ui('ui_0251')).pack(side=tk.LEFT, padx=2)
         disc_search_host = tk.Frame(top_f, width=78, height=23)
         disc_search_host.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
-        self.txt_disc_search = NativeWinEdit(
-            disc_search_host,
-            lambda: self._schedule_search_refresh('discoveries', self.refresh_discoveries_table),
-            width=78, height=23,
-        )
+        self.txt_disc_search = NativeWinEdit(disc_search_host, lambda: self._schedule_search_refresh('discoveries', self.refresh_discoveries_table), width=78, height=23)
         self.lbl_disc_count = None
         batch_f = tk.Frame(top_f)
         batch_f.pack(side=tk.RIGHT, padx=2)
@@ -8744,49 +8613,86 @@ class CDS3SaveEditorApp:
         self.cbo_batch_status = ttk.Combobox(batch_f, values=discovery_status_options(), state='readonly', width=13)
         self.cbo_batch_status.current(0)
         self.cbo_batch_status.pack(side=tk.LEFT, padx=(0, 2))
-        EditorButton(batch_f, text=ui('ui_0243'), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_discovery_state).pack(side=tk.LEFT, padx=(0, 8))
+        EditorButton(batch_f, text=ui('ui_0243'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_discovery_state).pack(side=tk.LEFT, padx=(0, 8))
         tk.Label(batch_f, text=ui('ui_0444')).pack(side=tk.LEFT, padx=(0, 2))
         self.cbo_batch_hint_status = ttk.Combobox(batch_f, values=(ui('ui_0445'), ui('ui_0446')), state='readonly', width=8)
         self.cbo_batch_hint_status.current(0)
         self.cbo_batch_hint_status.pack(side=tk.LEFT, padx=(0, 2))
-        EditorButton(batch_f, text=ui('ui_0243'), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_discovery_hint_state).pack(side=tk.LEFT)
+        EditorButton(batch_f, text=ui('ui_0243'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_discovery_hint_state).pack(side=tk.LEFT)
         tree_f = tk.Frame(parent)
         tree_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
-        cols = ('index', 'game_id', 'category', 'name', 'hint_state', 'status', 'found_date', 'reported_date', 'reporter')
+        cols = ('index', 'game_id', 'category', 'difficulty', 'name', 'hint_state', 'status', 'found_date', 'reported_date', 'reporter')
         self.tree_disc = ttk.Treeview(tree_f, columns=cols, show='headings', height=18)
         self.tree_disc.heading('index', text=TREE_COLUMN_TITLES['discovery']['index'])
         self.tree_disc.heading('game_id', text=TREE_COLUMN_TITLES['discovery']['game_id'])
         self.tree_disc.heading('category', text=TREE_COLUMN_TITLES['discovery']['category'])
+        self.tree_disc.heading('difficulty', text=TREE_COLUMN_TITLES['discovery']['difficulty'])
         self.tree_disc.heading('name', text=TREE_COLUMN_TITLES['discovery']['name'])
         self.tree_disc.heading('hint_state', text=TREE_COLUMN_TITLES['discovery']['hint_state'])
         self.tree_disc.heading('status', text=TREE_COLUMN_TITLES['discovery']['status'])
         self.tree_disc.heading('found_date', text=TREE_COLUMN_TITLES['discovery']['found_date'])
         self.tree_disc.heading('reported_date', text=TREE_COLUMN_TITLES['discovery']['reported_date'])
         self.tree_disc.heading('reporter', text=TREE_COLUMN_TITLES['discovery']['reporter'])
-        col_defs_disc = [('index', 55, 'center', False), ('game_id', 55, 'center', False), ('category', 120, 'center', False), ('name', 170, 'w', True), ('hint_state', 115, 'center', False), ('status', 135, 'center', False), ('found_date', 115, 'center', False), ('reported_date', 115, 'center', False), ('reporter', 125, 'center', False)]
+        col_defs_disc = [('index', 55, 'center', False), ('game_id', 55, 'center', False), ('category', 100, 'center', False), ('difficulty', 65, 'center', False), ('name', 170, 'w', True), ('hint_state', 115, 'center', False), ('status', 135, 'center', False), ('found_date', 115, 'center', False), ('reported_date', 115, 'center', False), ('reporter', 125, 'center', False)]
         for c, w, a, s in col_defs_disc:
             self.tree_disc.column(c, width=w, anchor=a, stretch=s)
         sb_dy = ttk.Scrollbar(tree_f, orient=tk.VERTICAL, command=self.tree_disc.yview)
         self.tree_disc.configure(yscrollcommand=sb_dy.set)
         sb_dy.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_disc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        # 숨겨진 탭에서 목록을 갱신하면 당시 폭은 1px일 수 있다. 탭이 표시되어
-        # 실제 폭이 정해진 뒤 한 번 더 열 폭을 맞춘다.
-        self.tree_disc.bind(
-            '<Configure>',
-            lambda _event: self._schedule_treeview_autofit(self.tree_disc),
-            add='+',
-        )
         self.tree_disc.bind('<Return>', self.cycle_selected_discovery_state)
         self.tree_disc.bind('<Double-1>', self.on_discovery_double_click)
         self.tree_disc.bind('<Button-3>', self.show_discovery_context_menu)
+        self._discovery_difficulty_tooltip = None
+        self._discovery_difficulty_tooltip_row = None
+        self.tree_disc.bind('<Motion>', self._on_discovery_difficulty_motion, add='+')
+        self.tree_disc.bind('<Leave>', self._hide_discovery_difficulty_tooltip, add='+')
+        self.tree_disc.bind('<ButtonPress>', self._hide_discovery_difficulty_tooltip, add='+')
+
+    def _on_discovery_difficulty_motion(self, event):
+        """발견물 난이도 셀에 계약 제안 조건을 툴팁으로 표시한다."""
+        row = self.tree_disc.identify_row(event.y)
+        is_difficulty_column = self.tree_disc.identify_column(event.x) == '#4'
+        difficulty = None
+        if row and is_difficulty_column:
+            try:
+                difficulty = self.discovery_db[int(row)].get('difficulty')
+            except (IndexError, TypeError, ValueError):
+                difficulty = None
+        if getattr(self, '_discovery_difficulty_tooltip_row', None) != row or not is_difficulty_column or difficulty is None:
+            self._hide_discovery_difficulty_tooltip()
+        if difficulty is None or self._discovery_difficulty_tooltip is not None:
+            return
+        difficulty = int(difficulty)
+        required_fame = max(0, difficulty - 1) * 2000
+        minimum_power = 80 if difficulty == 5 else max(0, difficulty - 2) * 20
+        power_text = ui('ui_0652') if minimum_power == 0 else ui('ui_0653', minimum_power)
+        tooltip = tk.Toplevel(self.root)
+        tooltip.wm_overrideredirect(True)
+        tooltip.attributes('-topmost', True)
+        tk.Label(tooltip, text=ui('ui_0651', difficulty, required_fame, power_text), justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
+        self._discovery_difficulty_tooltip = tooltip
+        self._discovery_difficulty_tooltip_row = row
+
+    def _hide_discovery_difficulty_tooltip(self, _event=None):
+        tooltip = getattr(self, '_discovery_difficulty_tooltip', None)
+        self._discovery_difficulty_tooltip = None
+        self._discovery_difficulty_tooltip_row = None
+        if tooltip is not None:
+            try:
+                tooltip.destroy()
+            except tk.TclError:
+                pass
+
     def get_player_full_name(self):
         f = self.txt_first_name.get().strip()
         l = self.txt_last_name.get().strip()
         if f and l:
-            return f'{f}·{l}'
+            return ui('ui_0592', f, l)
         else:
             return f if f else ui('ui_0374')
+
     def get_current_game_date_str(self):
         try:
             y = self.spn_game_y.get() if hasattr(self, 'spn_game_y') and self.spn_game_y.get() else '1480'
@@ -8795,17 +8701,14 @@ class CDS3SaveEditorApp:
             return format_game_date(int(y), int(m), int(d))
         except Exception:
             return ui('ui_0375')
+
     def refresh_discoveries_table(self):
-        # irreducible cflow, using cdg fallback
-        # ***<module>.CDS3SaveEditorApp.refresh_discoveries_table: Failure: Different control flow
         cat_sel = self.cbo_disc_cat.get()
         stat_sel = self.cbo_disc_status.get()
         search = self.txt_disc_search.get().strip().casefold()
         p_name = self.get_player_full_name() if self.file_buffer else UI_EMPTY_VALUE
-        view_key = (bool(self.file_buffer), cat_sel, stat_sel, search,
-                    self._discovery_view_revision, p_name)
-        if (getattr(self, '_discovery_view_cache', object()) == view_key
-                and self.tree_disc.get_children()):
+        view_key = (bool(self.file_buffer), cat_sel, stat_sel, search, self._discovery_view_revision, p_name)
+        if getattr(self, '_discovery_view_cache', object()) == view_key and self.tree_disc.get_children():
             return
         self.tree_disc.delete(*self.tree_disc.get_children())
         aliases = ()
@@ -8814,7 +8717,6 @@ class CDS3SaveEditorApp:
             for source_name, target_name in DISCOVERY_SEARCH_ALIASES.items():
                 if source_name in search:
                     aliases.append(search.replace(source_name, target_name))
-        # 아래 반복문에서 모든 행에 동일하게 적용되는 필터는 한 번만 해석한다.
         category_filter = None if cat_sel.startswith(ui('ui_0156')) else cat_sel.split(' ', 1)[0]
         selected_state = discovery_state_from_text(stat_sel) if self.file_buffer else None
         discovery_states = self.discovery_state
@@ -8822,9 +8724,7 @@ class CDS3SaveEditorApp:
         discovery_dates = self.discovery_disc_date
         report_dates = self.discovery_rep_date
         active_contract = self._active_sponsor_contract() if self.file_buffer else None
-        active_contract_disc_index = (
-            int(active_contract[2]['index'])
-            if active_contract is not None and active_contract[2] is not None else None)
+        active_contract_disc_index = int(active_contract[2]['index']) if active_contract is not None and active_contract[2] is not None else None
         rep_cnt = 0
         disc_cnt = 0
         for i, d, search_key in self._discovery_search_index:
@@ -8832,16 +8732,15 @@ class CDS3SaveEditorApp:
             if self.file_buffer:
                 if st == 3:
                     rep_cnt += 1
-                else:
-                    if st == 2:
-                        disc_cnt += 1
+                elif st == 2:
+                    disc_cnt += 1
             if category_filter is not None and d['category'] != category_filter:
                 continue
             if self.file_buffer:
                 if selected_state is not None and st != selected_state:
                     continue
             if search:
-                if not any(alias in search_key for alias in aliases):
+                if not any((alias in search_key for alias in aliases)):
                     continue
             if self.file_buffer:
                 st_text = discovery_state_text(st)
@@ -8857,17 +8756,18 @@ class CDS3SaveEditorApp:
                 d_name = UI_EMPTY_VALUE
                 disc_d = UI_EMPTY_VALUE
                 rep_d = UI_EMPTY_VALUE
-            self.tree_disc.insert('', tk.END, iid=str(i), values=(d['index'], d['disc_id'], d['category'], d['name'], hint_text, st_text, disc_d, rep_d, d_name))
+            difficulty_text = d['difficulty'] if d['difficulty'] is not None else UI_EMPTY_VALUE
+            self.tree_disc.insert('', tk.END, iid=str(i), values=(d['index'], d['disc_id'], d['category'], difficulty_text, d['name'], hint_text, st_text, disc_d, rep_d, d_name))
         total = len(self.discovery_db)
         if self.file_buffer:
             pct = (rep_cnt + disc_cnt) / total * 100.0 if total > 0 else 0
             if self.lbl_disc_count is not None:
                 self.lbl_disc_count.config(text=ui('ui_0036', rep_cnt, disc_cnt, total, pct))
-        else:
-            if self.lbl_disc_count is not None:
-                self.lbl_disc_count.config(text=ui('ui_0036', 0, 0, total, 0.0))
+        elif self.lbl_disc_count is not None:
+            self.lbl_disc_count.config(text=ui('ui_0036', 0, 0, total, 0.0))
         self._discovery_view_cache = view_key
         self._schedule_treeview_autofit(self.tree_disc)
+
     def _set_discovery_state_metadata(self, idx, target_st, player_name, date_text):
         """화면 상태 배열의 발견·보고 메타데이터를 한 레코드에 반영한다."""
         self.discovery_state[idx] = target_st
@@ -8893,14 +8793,14 @@ class CDS3SaveEditorApp:
             cur_date_str = self.get_current_game_date_str()
             self._set_discovery_state_metadata(idx, target_st, p_name, cur_date_str)
             self.sync_sea_monster_from_discovery(self.discovery_db[idx]['index'], target_st > 1)
-            contract_completed = (
-                target_st == 3 and
-                self._complete_sponsor_contract_for_discovery(self.discovery_db[idx]['index']))
+            contract_completed = target_st == 3 and self._complete_sponsor_contract_for_discovery(self.discovery_db[idx]['index'])
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
+            self._schedule_navigation_map_refresh()
             self.tree_disc.selection_set(str(idx))
             if contract_completed:
                 self.lbl_status.config(text=ui('ui_0461'))
+
     def cycle_selected_discovery_state(self, _event=None):
         """Enter: 미등장 → 미발견 → 발견 → 보고 완료 순으로 즉시 전환한다."""
         if not self.file_buffer:
@@ -8910,6 +8810,7 @@ class CDS3SaveEditorApp:
             idx = int(sel[0])
             self.set_discovery_single_state(idx, (self.discovery_state[idx] + 1) % 4)
         return 'break'
+
     def on_discovery_double_click(self, event):
         if not self.file_buffer:
             return
@@ -8918,8 +8819,8 @@ class CDS3SaveEditorApp:
             if item:
                 idx = int(item)
                 self.open_discovery_info_modal(idx)
+
     def open_discovery_info_modal(self, idx):
-        # ***<module>.CDS3SaveEditorApp.open_discovery_info_modal: Failure: Compilation Error
         items_list = []
         current_idx = 0
         for iid in self.tree_disc.get_children():
@@ -8933,17 +8834,19 @@ class CDS3SaveEditorApp:
         if not items_list:
             items_list = [idx]
             current_idx = 0
+
         def get_disc_info_fn(d_idx):
             if 0 <= d_idx < len(self.discovery_db):
-                    d = self.discovery_db[d_idx]
-                    desc = DISCOVERY_DESCRIPTIONS.get(d['index'], '')
-                    st = self.discovery_state[d_idx] if self.file_buffer else 0
-                    p_name = self.get_player_full_name() if self.file_buffer else UI_EMPTY_VALUE
-                    d_name = self.discovery_discoverer[d_idx] if self.file_buffer and self.discovery_discoverer[d_idx] else p_name if st > 1 else UI_EMPTY_VALUE
-                    disc_d = self.discovery_disc_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
-                    rep_d = self.discovery_rep_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
-                    return (d, desc, st, disc_d, rep_d, d_name)
+                d = self.discovery_db[d_idx]
+                desc = DISCOVERY_DESCRIPTIONS.get(d['index'], '')
+                st = self.discovery_state[d_idx] if self.file_buffer else 0
+                p_name = self.get_player_full_name() if self.file_buffer else UI_EMPTY_VALUE
+                d_name = self.discovery_discoverer[d_idx] if self.file_buffer and self.discovery_discoverer[d_idx] else p_name if st > 1 else UI_EMPTY_VALUE
+                disc_d = self.discovery_disc_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
+                rep_d = self.discovery_rep_date[d_idx] if self.file_buffer else UI_EMPTY_VALUE
+                return (d, desc, st, disc_d, rep_d, d_name)
             return (None, '', 0, UI_EMPTY_VALUE, UI_EMPTY_VALUE, UI_EMPTY_VALUE)
+
         def on_navigate_fn(d_idx):
             try:
                 if self.tree_disc.exists(str(d_idx)):
@@ -8951,14 +8854,17 @@ class CDS3SaveEditorApp:
                     self.tree_disc.see(str(d_idx))
             except Exception:
                 return None
+
         def on_state_change(d_idx, target_st):
             if self.file_buffer:
                 self.set_discovery_single_state(d_idx, target_st)
+
         def get_hint_state(hint_id):
             if not self.file_buffer or not 0 <= hint_id < len(HINT_STATE_OFFSETS):
                 return 0
             offset = HINT_STATE_OFFSETS[hint_id]
             return self.file_buffer[offset] if 0 <= offset < len(self.file_buffer) else 0
+
         def on_hint_toggle(d_idx):
             if not self.file_buffer or not 0 <= d_idx < len(self.discovery_db):
                 return
@@ -8968,15 +8874,15 @@ class CDS3SaveEditorApp:
             offset = HINT_STATE_OFFSETS[hint_id]
             if not 0 <= offset < len(self.file_buffer):
                 return
-            # 0x08(미획득)↔0x0D(획득)의 차이인 bit0·bit2를 함께 뒤집는다.
-            # 발견 완료 비트(bit1)는 보존한다.
             self.file_buffer[offset] ^= HINT_ACQUIRED_AND_CONTRACT_BITS
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
+
         def on_contract_cancel(_d_idx):
             self.cancel_sponsor_contract_from_hint()
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
+
         def is_contract_discovery(d_idx):
             contract = self._active_sponsor_contract()
             if contract is None or not 0 <= d_idx < len(self.discovery_db):
@@ -8985,18 +8891,8 @@ class CDS3SaveEditorApp:
             return discovery is not None and int(discovery['index']) == int(self.discovery_db[d_idx]['index'])
         d, desc, st, disc_d, rep_d, d_name = get_disc_info_fn(idx)
         if d:
-            DiscoveryInfoModal(
-                self.root, d, desc, current_state=st, disc_date=disc_d,
-                rep_date=rep_d, discoverer=d_name,
-                on_state_change_callback=on_state_change if self.file_buffer else None,
-                on_hint_toggle_callback=on_hint_toggle if self.file_buffer else None,
-                on_contract_cancel_callback=on_contract_cancel if self.file_buffer else None,
-                is_contract_discovery_fn=is_contract_discovery if self.file_buffer else None,
-                get_hint_state_fn=get_hint_state,
-                items_list=items_list, current_list_index=current_idx,
-                get_disc_info_fn=get_disc_info_fn, on_navigate_callback=on_navigate_fn,
-                state_index=idx,
-            )
+            DiscoveryInfoModal(self.root, d, desc, current_state=st, disc_date=disc_d, rep_date=rep_d, discoverer=d_name, on_state_change_callback=on_state_change if self.file_buffer else None, on_hint_toggle_callback=on_hint_toggle if self.file_buffer else None, on_contract_cancel_callback=on_contract_cancel if self.file_buffer else None, is_contract_discovery_fn=is_contract_discovery if self.file_buffer else None, get_hint_state_fn=get_hint_state, items_list=items_list, current_list_index=current_idx, get_disc_info_fn=get_disc_info_fn, on_navigate_callback=on_navigate_fn, state_index=idx)
+
     def show_discovery_context_menu(self, event):
         if not self.file_buffer:
             return
@@ -9005,8 +8901,8 @@ class CDS3SaveEditorApp:
             if item:
                 self.tree_disc.selection_set(item)
                 self._popup_discovery_menu(int(item), event.x_root, event.y_root)
+
     def _popup_discovery_menu(self, idx, x, y):
-        # ***<module>.CDS3SaveEditorApp._popup_discovery_menu: Failure: Different bytecode
         d_name = self.discovery_db[idx]['name']
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0294', d_name), state='disabled')
@@ -9016,6 +8912,7 @@ class CDS3SaveEditorApp:
         menu.add_command(label=discovery_state_text(2, menu=True), command=lambda: self.set_discovery_single_state(idx, 2))
         menu.add_command(label=discovery_state_text(3, menu=True), command=lambda: self.set_discovery_single_state(idx, 3))
         menu.tk_popup(x, y)
+
     def apply_batch_discovery_state(self):
         if not self.file_buffer:
             return
@@ -9039,7 +8936,6 @@ class CDS3SaveEditorApp:
             if not 0 <= offset < len(self.file_buffer):
                 continue
             before = self.file_buffer[offset]
-            # bit1(발견 완료)은 유지하고, bit0·bit2만 획득 여부로 맞춘다.
             self.file_buffer[offset] = set_hint_acquired(before, acquired)
             changed = changed or before != self.file_buffer[offset]
         if changed:
@@ -9059,20 +8955,22 @@ class CDS3SaveEditorApp:
                     self._complete_sponsor_contract_for_discovery(self.discovery_db[i]['index'])
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
+            self._schedule_navigation_map_refresh()
+
     def sync_sea_monster_from_discovery(self, d_idx, is_encountered):
         for m_idx, (m_off, m_desc, m_didx) in enumerate(SEA_MONSTERS):
             if d_idx == m_didx:
                 self.sea_monster_state[m_idx] = is_encountered
+
     def build_events_tab(self):
-        # ***<module>.CDS3SaveEditorApp.build_events_tab: Failure: Different bytecode
         parent = self.tab_events
         top_f = tk.Frame(parent, pady=4)
         top_f.pack(side=tk.TOP, fill=tk.X, padx=10)
-        tk.Label(top_f, text=ui('ui_0262'), font=('Malgun Gothic', 9)).pack(side=tk.LEFT, padx=4)
+        tk.Label(top_f, text=ui('ui_0262'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=4)
         self.cbo_batch_event_status = ttk.Combobox(top_f, values=EDITOR_MAPPINGS['event_batch_status_options'], state='readonly', width=16)
         self.cbo_batch_event_status.current(0)
         self.cbo_batch_event_status.pack(side=tk.LEFT, padx=4)
-        EditorButton(top_f, text=ui('ui_0243'), font=('Malgun Gothic', 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_event_state).pack(side=tk.LEFT, padx=4)
+        EditorButton(top_f, text=ui('ui_0243'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', command=self.apply_batch_event_state).pack(side=tk.LEFT, padx=4)
         tree_f = tk.Frame(parent)
         tree_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
         cols = ('game_id', 'name', 'status')
@@ -9087,6 +8985,7 @@ class CDS3SaveEditorApp:
         self.tree_events.bind('<Return>', self.toggle_selected_event_state)
         self.tree_events.bind('<Double-1>', self.toggle_selected_event_state)
         self.tree_events.bind('<Button-3>', self.show_event_context_menu)
+
     def refresh_events_table(self):
         self.tree_events.delete(*self.tree_events.get_children())
         for i, ev in enumerate(self.event_db):
@@ -9095,8 +8994,9 @@ class CDS3SaveEditorApp:
                 st_str = event_state_text(st)
             else:
                 st_str = UI_EMPTY_VALUE
-            self.tree_events.insert('', tk.END, iid=str(i), values=(f'{ev['disc_id']:03d}', ev['name'], st_str))
+            self.tree_events.insert('', tk.END, iid=str(i), values=('{0:03d}'.format(ev['disc_id']), ev['name'], st_str))
         self._schedule_treeview_autofit(self.tree_events)
+
     def set_event_single_state(self, idx, target_st):
         if not self.file_buffer:
             return
@@ -9104,6 +9004,7 @@ class CDS3SaveEditorApp:
             self.event_state[idx] = target_st
             self.refresh_events_table()
             self.tree_events.selection_set(str(idx))
+
     def toggle_selected_event_state(self, _event=None):
         """Enter: 이벤트 완료/미발생 상태를 즉시 서로 전환한다."""
         if not self.file_buffer:
@@ -9113,6 +9014,7 @@ class CDS3SaveEditorApp:
             idx = int(sel[0])
             self.set_event_single_state(idx, 0 if self.event_state[idx] else 1)
         return 'break'
+
     def show_event_context_menu(self, event):
         if not self.file_buffer:
             return
@@ -9121,8 +9023,8 @@ class CDS3SaveEditorApp:
             if item:
                 self.tree_events.selection_set(item)
                 self._popup_event_menu(int(item), event.x_root, event.y_root)
+
     def _popup_event_menu(self, idx, x, y):
-        # ***<module>.CDS3SaveEditorApp._popup_event_menu: Failure: Different bytecode
         ev_name = self.event_db[idx]['name']
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0294', ev_name), state='disabled')
@@ -9130,12 +9032,14 @@ class CDS3SaveEditorApp:
         menu.add_command(label=event_state_text(1, menu=True), command=lambda: self.set_event_single_state(idx, 1))
         menu.add_command(label=event_state_text(0, menu=True), command=lambda: self.set_event_single_state(idx, 0))
         menu.tk_popup(x, y)
+
     def apply_batch_event_state(self):
         if not self.file_buffer:
             return
         else:
             target_st = 0 if self.cbo_batch_event_status.current() == 1 else 1
             self.batch_set_event_state(target_st)
+
     def batch_set_event_state(self, target_st):
         if not self.file_buffer:
             return
@@ -9143,28 +9047,30 @@ class CDS3SaveEditorApp:
             for i in range(len(self.event_db)):
                 self.event_state[i] = target_st
             self.refresh_events_table()
+
     def _set_widget_state_recursive(self, widget, state):
         for child in widget.winfo_children():
             try:
-                if isinstance(child, (ttk.Button, ttk.Entry, ttk.Checkbutton, ttk.Combobox, ttk.Spinbox)):
+                if isinstance(child, (ttk.Button, ttk.Entry, ttk.Checkbutton, ttk.Combobox, SPINBOX_WIDGET)):
                     child.state(['!disabled' if state == tk.NORMAL else 'disabled'])
-                else:
-                    if isinstance(child, (tk.Button, tk.Entry, tk.Checkbutton, tk.Radiobutton, tk.Spinbox)):
-                        child.config(state=state)
+                elif isinstance(child, (tk.Button, tk.Entry, tk.Checkbutton, tk.Radiobutton, tk.Spinbox)):
+                    child.config(state=state)
             except Exception:
                 pass
             self._set_widget_state_recursive(child, state)
+
     def set_controls_enabled(self, enabled):
         state = tk.NORMAL if enabled else tk.DISABLED
         self.btn_save.config(state=state)
         self.chk_backup_widget.config(state=state)
-        tabs = [self.tab_profile, self.tab_skills, self.tab_fleet, self.tab_cities, self.tab_items, self.tab_discoveries, self.tab_events]
+        tabs = [self.tab_profile, self.tab_skills, self.tab_fleet, self.tab_cities, self.tab_map, self.tab_items, self.tab_discoveries, self.tab_events]
         for tab in tabs:
             self._set_widget_state_recursive(tab, state)
         for attr_name in ('txt_last_name', 'txt_first_name', 'cbo_wife', 'cbo_officer_name', 'cbo_person_search'):
             entry = getattr(self, attr_name, None)
             if isinstance(entry, NativeWinEdit):
                 entry.set_enabled(enabled)
+
     def set_entry_text(self, entry, text):
         if isinstance(entry, NativeWinEdit):
             entry.set(text)
@@ -9176,6 +9082,7 @@ class CDS3SaveEditorApp:
         entry.insert(0, str(text))
         if prev_state == 'disabled':
             entry.config(state='disabled')
+
     def set_spin_val(self, spin, val):
         prev_state = spin.state()
         if 'disabled' in prev_state:
@@ -9192,59 +9099,48 @@ class CDS3SaveEditorApp:
             picker = getattr(self, 'game_date_picker', None)
             if picker is not None:
                 picker.refresh()
+
     def on_open_file(self):
-        # ***<module>.CDS3SaveEditorApp.on_open_file: Failure: Different bytecode
         file_path = filedialog.askopenfilename(title=ui('ui_0187'), filetypes=[(ui('ui_0265'), '*.CDS;*.SAV;*.cds;*.sav'), (ui('ui_0266'), '*.*')])
         if file_path:
             self.load_save_file(file_path)
 
     def load_save_file(self, file_path):
         """Load the original CDS offsets, matching the recovered bytecode."""
-        # 함대 탭에서 영상이 재생 중일 수 있으므로, 로드 중에는 영상 갱신을 보류한다.
         self._suspend_fleet_preview = True
-        # 컨트롤 채우기 중의 trace 갱신은 마지막 명시적 갱신 한 번으로 합친다.
         self._is_loading_save = True
         self._suspend_tree_autofit = True
         try:
             with open(file_path, 'rb') as f:
                 self.file_buffer = bytearray(f.read())
             self.file_path = file_path
+            self._navigation_map_reveal_backup = None
+            self._navigation_map_preserve_view_on_refresh = False
             self._sponsor_contract_hint_resets.clear()
-            # 스폰서 취향은 세이브가 아니라 게임 EXE의 정적 표에 있다.
-            # 같은 폴더의 EXE를 검증해 읽고, 없거나 다른 버전이면 JSON 백업값을 쓴다.
-            self._sponsor_exe_preference_flags = (
-                read_sponsor_preferences_from_game_exe(os.path.dirname(file_path)) or {})
-            # 이전 목록에서 보고 있던 인물은 미리보기용 상태일 뿐이다. 새 파일을
-            # 열 때 남아 있으면 0xA5의 실제 부관 대신 그 인물이 다시 선택된다.
+            self._sponsor_exe_preference_flags = read_sponsor_preferences_from_game_exe(os.path.dirname(file_path)) or {}
             self._officer_preview_id = None
             self._officer_selected_id = None
-            # 부인 목록도 이전 파일의 선택 상태를 버린 뒤 0xAD의 배우자 값으로
-            # 다시 선택한다. 검색창은 검색 전용이므로 계속 비워 둔다.
             self._wife_selected_id = None
-            # 함선 정보의 되돌리기는 이 최초 로드본을 기준으로 한다.
             self.fleet_original_buffer = bytes(self.file_buffer)
             self.city_original_buffer = bytes(self.file_buffer)
             self.person_original_buffer = bytes(self.file_buffer)
-            # 통합 인물 목록은 로드한 세이브 원본을 별도 보관해 표시한다.
             self.person_display_buffer = bytes(self.file_buffer)
             self.set_controls_enabled(True)
 
             def read_cp949(buf, off, max_len):
                 return buf[off:off + max_len].split(b'\x00')[0].decode('cp949', errors='ignore').strip()
-
             self.set_entry_text(self.txt_first_name, read_cp949(self.file_buffer, 95, 18))
             self.set_entry_text(self.txt_last_name, read_cp949(self.file_buffer, 114, 18))
             gy = struct.unpack_from('<H', self.file_buffer, 21)[0]
-            gm, gd = self.file_buffer[25], self.file_buffer[26]
+            gm, gd = (self.file_buffer[25], self.file_buffer[26])
             self.set_spin_val(self.spn_game_y, gy if gy > 0 else 1480)
             self.set_spin_val(self.spn_game_m, gm if gm > 0 else 1)
             self.set_spin_val(self.spn_game_d, gd if gd > 0 else 1)
             by = struct.unpack_from('<H', self.file_buffer, 149)[0]
-            bm, bd = self.file_buffer[151], self.file_buffer[152]
+            bm, bd = (self.file_buffer[151], self.file_buffer[152])
             self.set_spin_val(self.spn_birth_y, by if by > 0 else 1450)
             self.set_spin_val(self.spn_birth_m, bm if bm > 0 else 1)
             self.set_spin_val(self.spn_birth_d, bd if bd > 0 else 1)
-
             job = struct.unpack_from('<H', self.file_buffer, 137)[0]
             self.cbo_job.current(job if 0 <= job < len(JOB_NAMES) else 0)
             blood = struct.unpack_from('<H', self.file_buffer, 141)[0]
@@ -9255,19 +9151,17 @@ class CDS3SaveEditorApp:
                 self.chk_all_nations.set(True)
                 self.toggle_all_nations()
             self.cbo_nation.current(nation if 0 <= nation < len(self.cbo_nation['values']) else 0)
+            self._set_player_location_from_buffer(self.file_buffer)
             face_id = struct.unpack_from('<H', self.file_buffer, 133)[0]
             self.player_face_id = face_id if 0 <= face_id < 410 else 13
             self.update_player_face_display()
             self._refresh_sponsor_contract_display()
-
             barmaid_id = read_spouse_barmaid_id(self.file_buffer)
             if barmaid_id is None:
                 self._set_wife_combo()
             else:
                 self._set_wife_combo(barmaid_id)
             self.update_wife_display()
-            # 새 세이브를 열 때는 이전 파일에서 사용한 검색/고용 필터를 유지하지
-            # 않는다. 목록을 새 버퍼 기준으로 만든 후 현재 부관 행을 선택해야 한다.
             if hasattr(self, 'cbo_officer_category'):
                 self.cbo_officer_category.current(0)
             if hasattr(self, 'cbo_officer_name'):
@@ -9275,16 +9169,9 @@ class CDS3SaveEditorApp:
             self._refresh_officer_search_results()
             self.refresh_officer_display()
             self._refresh_all_crew_profiles(reset_filters=True, refresh_lists=True)
-
             self.stat_values = list(self.file_buffer[45:51]) + [struct.unpack_from('<I', self.file_buffer, 51)[0]]
             self.refresh_stats_table()
-            self.money_values = [
-                min(99999999, struct.unpack_from('<I', self.file_buffer, offset)[0])
-                for offset in (153, 157, 161)
-            ] + [
-                struct.unpack_from('<I', self.file_buffer, offset)[0]
-                for offset in (83, 87)
-            ]
+            self.money_values = [min(99999999, struct.unpack_from('<I', self.file_buffer, offset)[0]) for offset in (153, 157, 161)] + [struct.unpack_from('<I', self.file_buffer, offset)[0] for offset in (83, 87)]
             self.refresh_money_table()
             self.skill_levels = [min(3, max(0, self.file_buffer[56 + i])) for i in range(len(SKILLS_DATA))]
             self.refresh_skills_table()
@@ -9292,11 +9179,9 @@ class CDS3SaveEditorApp:
             self.storage_ids = read_item_slots(self.file_buffer, STORAGE_SLOT_OFFSET, STORAGE_SLOT_CAPACITY)
             self.refresh_pocket_list()
             self.refresh_storage_list()
-            self.event_state = [int(event_is_completed(self.file_buffer, event['save_offset']))
-                                for event in self.event_db]
+            self.event_state = [int(event_is_completed(self.file_buffer, event['save_offset'])) for event in self.event_db]
             self.refresh_events_table()
             self.sea_monster_state = [bool(self.file_buffer[offset]) for offset, _, _ in SEA_MONSTERS]
-
             self.discovery_state = [0] * len(self.discovery_db)
             self.discovery_discoverer = [''] * len(self.discovery_db)
             self.discovery_disc_date = [UI_EMPTY_VALUE] * len(self.discovery_db)
@@ -9304,9 +9189,6 @@ class CDS3SaveEditorApp:
             for i, discovery in enumerate(self.discovery_db):
                 off = discovery['save_offset']
                 marker = self.file_buffer[off - 1]
-                # 세이브의 상태 마커는 미등장 0x00, 미발견 0x0C, 발견 0x4C,
-                # 보고 완료 0xCC이다. 상위 비트 검사는 기존 0x40/0xC0 형식도
-                # 함께 읽기 위해 사용한다.
                 state = state_from_marker(marker)
                 has_rep = state == 3
                 has_disc = state >= 2
@@ -9328,26 +9210,22 @@ class CDS3SaveEditorApp:
             self.refresh_discoveries_table()
             self.refresh_fleet_list()
             self.refresh_cities_list()
-            # 다른 목록·탭의 갱신이 끝난 다음 배우자 선택 표시를 확정한다.
+            self._sync_navigation_map_reveal_all_state()
+            self._schedule_navigation_map_refresh()
             self.root.after_idle(self._focus_loaded_wife_in_list)
-            # 통합 인물 화면도 새 세이브의 배우자·역할 슬롯을 기준으로 다시 선택한다.
             self.root.after_idle(self._refresh_person_browser)
             self.lbl_status.config(text=ui('ui_0366', os.path.basename(file_path)))
-            self.root.title(f'{APP_TITLE} - [{os.path.basename(file_path)}]')
+            self.root.title(ui('ui_0589', APP_TITLE, os.path.basename(file_path)))
         except Exception as exc:
             messagebox.showerror(ui('ui_0367'), ui('ui_0368', exc))
         finally:
             self._is_loading_save = False
             self._suspend_tree_autofit = False
-            # 전체 컨트롤 활성화로 바뀐 뒤에도 각 되돌리기 버튼은 원본과의 실제
-            # 차이만 반영한다.
             self._update_player_restore_state()
             self._update_fleet_reset_state()
             self._update_city_reset_state()
             self._set_person_assignment_buttons_visible()
-            # 로드 도중 표마다 중복 예약된 열맞춤은 여기서 한 번씩만 실행한다.
             self.root.after_idle(self._flush_pending_treeview_autofit)
-            # Treeview의 선택 이벤트가 끝난 뒤에만 새 미디어를 연결한다.
             previous_job = getattr(self, '_fleet_preview_resume_job', None)
             if previous_job is not None:
                 self.root.after_cancel(previous_job)
@@ -9358,24 +9236,24 @@ class CDS3SaveEditorApp:
             self.on_open_file()
         else:
             self.save_to_path(self.file_path)
+
     def save_to_path(self, target_path):
-        # ***<module>.CDS3SaveEditorApp.save_to_path: Failure: Different bytecode
-        if self._selected_city_index() is not None and not self.apply_city_edits():
+        if self._selected_city_index() is not None and (not self.apply_city_edits()):
             return
         try:
             bak_msg = ''
             if self.chk_auto_backup.get() and os.path.exists(target_path):
-                    target_dir, target_name = os.path.split(target_path)
-                    target_stem, target_ext = os.path.splitext(target_name)
-                    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    bak_path = os.path.join(target_dir, f'{target_stem}_{stamp}{target_ext}')
-                    try:
-                        with open(target_path, 'rb') as sf:
-                            with open(bak_path, 'wb') as df:
-                                df.write(sf.read())
-                        bak_msg = ui('ui_0509', bak_path)
-                    except Exception as bak_err:
-                        print('Backup creation error:', bak_err)
+                target_dir, target_name = os.path.split(target_path)
+                target_stem, target_ext = os.path.splitext(target_name)
+                stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                bak_path = os.path.join(target_dir, '{0}_{1}{2}'.format(target_stem, stamp, target_ext))
+                try:
+                    with open(target_path, 'rb') as sf:
+                        with open(bak_path, 'wb') as df:
+                            df.write(sf.read())
+                    bak_msg = ui('ui_0509', bak_path)
+                except Exception as bak_err:
+                    print(ui('ui_0654'), bak_err)
             first_bytes = self.txt_first_name.get().strip().encode('cp949')
             last_bytes = self.txt_last_name.get().strip().encode('cp949')
             self.file_buffer[95:113] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -9391,6 +9269,12 @@ class CDS3SaveEditorApp:
             struct.pack_into('<H', self.file_buffer, 137, self.cbo_job.current())
             struct.pack_into('<H', self.file_buffer, 141, self.cbo_blood.current())
             struct.pack_into('<H', self.file_buffer, 139, self.cbo_nation.current())
+            player_city_id = self._selected_player_city_id()
+            player_building_id = self._selected_player_building_id()
+            if player_city_id is None or player_building_id is None:
+                raise ValueError(ui('ui_0546'))
+            struct.pack_into('<H', self.file_buffer, 91, player_city_id)
+            struct.pack_into('<H', self.file_buffer, 93, player_building_id)
             if 135 <= len(self.file_buffer):
                 struct.pack_into('<H', self.file_buffer, 133, self.player_face_id)
             if 175 <= len(self.file_buffer):
@@ -9438,14 +9322,9 @@ class CDS3SaveEditorApp:
                 if d_off + 164 <= len(self.file_buffer):
                     st = self.discovery_state[i]
                     marker_off = d_off - 1
-                    # 미등장은 미발견(0x0C)과 달리 레코드 전체가 미등록 형식이다.
-                    # 다음 발견물의 공유 상태 마커(d_off + 163)는 보존한다.
                     if st == 0:
                         self.file_buffer[marker_off] = marker_for_state(st)
                         self.file_buffer[d_off:d_off + 163] = b'\x00' * 163
-                        # 일반 미발견 레코드와 동일하게 날짜 미설정 필드는 FF로
-                        # 남겨 둔다. 이 값까지 0으로 만들면 원래의 미등록 레코드와
-                        # 달라져 백과사전 순서 판정에 영향을 줄 수 있다.
                         self.file_buffer[d_off + 40:d_off + 48] = b'\xff' * 8
                         self.file_buffer[d_off + 134:d_off + 142] = b'\xff' * 8
                         continue
@@ -9463,30 +9342,26 @@ class CDS3SaveEditorApp:
                         self.file_buffer[d_off + 87] = 211
                         struct.pack_into('<H', self.file_buffer, d_off + 36, cur_y)
                         struct.pack_into('<H', self.file_buffer, d_off + 84, cur_y)
-                        # d_off + 163은 다음 발견물의 상태 마커이므로 건드리지 않는다.
+                    elif st == 2:
+                        self.file_buffer[marker_off] = marker_for_state(st)
+                        self.file_buffer[d_off] = 1
+                        self.file_buffer[d_off + 1:d_off + 19] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                        self.file_buffer[d_off + 1:d_off + 1 + min(len(p_name_bytes), 18)] = p_name_bytes[:18]
+                        self.file_buffer[d_off + 40:d_off + 48] = cur_date_bytes
+                        self.file_buffer[d_off + 95:d_off + 113] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                        self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
+                        self.file_buffer[d_off + 88] = 0
+                        struct.pack_into('<H', self.file_buffer, d_off + 36, cur_y)
+                        struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
                     else:
-                        if st == 2:
-                            self.file_buffer[marker_off] = marker_for_state(st)
-                            self.file_buffer[d_off] = 1
-                            self.file_buffer[d_off + 1:d_off + 19] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-                            self.file_buffer[d_off + 1:d_off + 1 + min(len(p_name_bytes), 18)] = p_name_bytes[:18]
-                            self.file_buffer[d_off + 40:d_off + 48] = cur_date_bytes
-                            self.file_buffer[d_off + 95:d_off + 113] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-                            self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
-                            self.file_buffer[d_off + 88] = 0
-                            struct.pack_into('<H', self.file_buffer, d_off + 36, cur_y)
-                            struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
-                        else:
-                            self.file_buffer[marker_off] = marker_for_state(st)
-                            self.file_buffer[d_off:d_off + 164] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-                            self.file_buffer[d_off + 40:d_off + 48] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
-                            self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
-                            struct.pack_into('<H', self.file_buffer, d_off + 36, 0)
-                            struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
+                        self.file_buffer[marker_off] = marker_for_state(st)
+                        self.file_buffer[d_off:d_off + 164] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                        self.file_buffer[d_off + 40:d_off + 48] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
+                        self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
+                        struct.pack_into('<H', self.file_buffer, d_off + 36, 0)
+                        struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
             with open(target_path, 'wb') as f:
                 f.write(self.file_buffer)
-            # 저장에 성공한 뒤에만 통합 인물 화면의 표시 스냅샷을 편집 버퍼로
-            # 갱신한다. 저장 전 역할/인물 편집은 목록 상세에 반영되지 않는다.
             self.person_display_buffer = bytes(self.file_buffer)
             if hasattr(self, 'tree_person_list'):
                 self._refresh_person_browser()
@@ -9494,64 +9369,170 @@ class CDS3SaveEditorApp:
             self.lbl_status.config(text=ui('ui_0041', os.path.basename(target_path)))
         except Exception as e:
             messagebox.showerror(ui('ui_0211'), ui('ui_0042', str(e)))
-    def open_barmaid_guide_html(self):
-        """JSON과 초상화 경로를 제공하는 로컬 웹 서버로 여급 도감을 연다."""
-        try:
-            from functools import partial
-            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-            from urllib.parse import quote
-            import webbrowser
-            candidates = [
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Resources', 'barmaids.html'),
-                os.path.join(getattr(sys, '_MEIPASS', ''), 'Resources', 'barmaids.html'),
-                os.path.join(os.path.dirname(sys.executable), 'Resources', 'barmaids.html'),
-            ]
-            target_path = None
-            for p in candidates:
-                if p and os.path.exists(p):
-                        target_path = p
-                        break
-            if target_path:
-                face_code = self.player_face_id if self.player_face_id is not None else 0
-                age = 0
-                if self.file_buffer:
-                    try:
-                        age = get_player_age(int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()), int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get()))
-                    except Exception:
-                        pass
-                resource_root = os.path.dirname(target_path)
 
-                # file:// 환경에서는 fetch()가 JSON 읽기를 차단하므로, localhost에서
-                # Resources 폴더를 제공한다. 서버 스레드는 에디터 종료와 함께 끝난다.
-                server = getattr(self, '_barmaid_web_server', None)
-                if server is None or getattr(self, '_barmaid_web_root', None) != resource_root:
-                    class QuietResourceHandler(SimpleHTTPRequestHandler):
-                        def log_message(self, _format, *_args):
-                            pass
-
-                    handler = partial(QuietResourceHandler, directory=resource_root)
-                    server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
-                    self._barmaid_web_server = server
-                    self._barmaid_web_root = resource_root
-                    import threading
-                    threading.Thread(target=server.serve_forever, daemon=True).start()
-
-                filename = quote(os.path.basename(target_path))
-                webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?face={face_code}&age={age}')
-            else:
-                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'))
-        except Exception as e:
-            messagebox.showerror(ui('ui_0211'), ui('ui_0043', e))
     def update_wife_combo_options(self):
-        # irreducible cflow, using cdg fallback
         """아내 콤보박스 항목 갱신"""
-        # ***<module>.CDS3SaveEditorApp.update_wife_combo_options: Failure: Different control flow
         current = self._wife_from_combo_text() if hasattr(self, 'cbo_wife') else None
         current_id = current['id'] if current else getattr(self, '_wife_selected_id', None)
         self._wife_name_options = [barmaid['name'] for barmaid in BARMAID_DATABASE]
         if hasattr(self, 'cbo_wife'):
             self._set_wife_combo(current_id)
         self.update_wife_display()
+
+
+    CITY_COMMON_TRADE_GOODS = {city_index: tuple(((int(good_id), int(base_price)) for good_id, base_price in zip(region['goods'], region['base_prices']))) for region in CITY_DATA.get('trade_regions', ()) for city_index in range(int(region['city_start']), int(region['city_end']) + 1)}
+
+    def _on_city_common_price_motion(self, event, display_index):
+        """공통 교역품 가격 라벨에 지역 기준가의 구매가 계산을 표시한다."""
+        try:
+            price = int(self.city_common_good_prices[display_index].get())
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return
+        self._show_city_price_tooltip(event, price, 'ui_0659')
+
+    def _show_city_price_tooltip(self, event, price, text_key):
+        """도시 시세를 반영한 최종 구매가 계산 툴팁을 한 개만 표시한다."""
+        if getattr(self, '_city_price_tooltip', None) is not None:
+            return
+        try:
+            market = int(self.city_edit_vars['update_counter'].get())
+        except (KeyError, TypeError, ValueError):
+            return
+        market_price = price * market // 100
+        buy_price = market_price * 3 // 2
+        tooltip_text = ui(text_key, price, market, market_price, buy_price)
+        tooltip = tk.Toplevel(self.root)
+        tooltip.wm_overrideredirect(True)
+        tooltip.attributes('-topmost', True)
+        tk.Label(tooltip, text=tooltip_text, justify='left', anchor='w', bg='#FFF8D6', fg='#333333', relief='solid', bd=1, padx=8, pady=6, font=(APP_FONT_FAMILY, 9)).pack()
+        tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
+        self._city_price_tooltip = tooltip
+
+    def _hide_city_price_tooltip(self, _event=None):
+        tooltip = getattr(self, '_city_price_tooltip', None)
+        self._city_price_tooltip = None
+        if tooltip is not None:
+            try:
+                tooltip.destroy()
+            except tk.TclError:
+                pass
+
+    def _clear_city_common_goods(self):
+        """이전 도시의 공통 교역품 표시와 공급량 위젯 연결을 모두 지운다."""
+        cards = getattr(self, 'city_common_good_cards', ())
+        if not cards:
+            return
+        for number in range(5):
+            self.city_field_widgets.pop('economy_{0}'.format(number), None)
+        empty_photo = get_black_photo(64, 64)
+        for display_index, (image_label, _name_label, _price_label, entry) in enumerate(cards):
+            name_var = self.city_common_good_names[display_index]
+            price_var = self.city_common_good_prices[display_index]
+            empty_var = self.city_common_good_empty_vars[display_index]
+            name_var.set(ui('ui_0319'))
+            price_var.set('')
+            empty_var.set('')
+            image_label.configure(image=empty_photo)
+            image_label.image = empty_photo
+            entry.configure(textvariable=empty_var, state=tk.DISABLED)
+
+    def _clear_city_trade_goods(self):
+        """교역소가 없는 도시에서 특산품과 공통 교역품 표시를 비운다."""
+        self.city_specialty_id = -1
+        specialty_var = getattr(self, 'city_specialty_var', None)
+        if specialty_var is not None:
+            specialty_var.set(ui('ui_0319'))
+        for key, empty_var in getattr(self, 'city_specialty_empty_vars', {}).items():
+            empty_var.set('')
+            widget = getattr(self, 'city_field_widgets', {}).get(key)
+            if widget is not None:
+                widget.configure(textvariable=empty_var, state=tk.DISABLED)
+        specialty_image = getattr(self, 'lbl_city_specialty_image', None)
+        if specialty_image is not None:
+            empty_photo = get_black_photo(64, 64)
+            specialty_image.configure(image=empty_photo)
+            specialty_image.image = empty_photo
+        self._clear_city_common_goods()
+
+    def _refresh_city_common_goods(self, city_index=None):
+        """선택 도시의 공통 교역품 이름·지역 기준가·공급량을 표시한다."""
+        self._clear_city_common_goods()
+        cards = getattr(self, 'city_common_good_cards', ())
+        if not cards or city_index is None:
+            return
+        common_goods = self.CITY_COMMON_TRADE_GOODS.get(city_index, ())
+        specialty_id = getattr(self, 'city_specialty_id', -1)
+        offerings = [(slot_index, good_id, base_price) for slot_index, (good_id, base_price) in enumerate(common_goods) if good_id >= 0 and good_id != specialty_id]
+        for display_index, (slot_index, good_id, base_price) in enumerate(offerings[:5]):
+            image_label, _name_label, _price_label, entry = cards[display_index]
+            self.city_common_good_names[display_index].set(self._trade_good_name(good_id))
+            self.city_common_good_prices[display_index].set(str(base_price))
+            image_path = get_trade_good_image_path(good_id)
+            photo = get_cached_photo_sized(image_path, 64, 64) if image_path else None
+            display_photo = photo or get_black_photo(64, 64)
+            image_label.configure(image=display_photo)
+            image_label.image = display_photo
+            key = 'economy_{0}'.format(slot_index)
+            entry.configure(textvariable=self.city_edit_vars[key], state=tk.NORMAL)
+            self.city_field_widgets[key] = entry
+
+    @staticmethod
+    def _disable_tree_keyboard_navigation(tree):
+        """읽기 전용 기본 정보 표는 탐색 대상에서 제외하되 자식 콤보는 유지한다."""
+        tree.configure(takefocus=False)
+        for key in ('Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Prior', 'Next', 'space', 'Return'):
+            tree.bind('<{0}>'.format(key), lambda _event: 'break')
+
+    def _person_current_city_state(self, character_id):
+        """이동 필드를 도시 없음(-1)보다 우선 판정한다. 위치 편집은 최신 버퍼 기준."""
+        if character_id not in CHARACTER_BY_ID or not self.file_buffer:
+            return (UI_EMPTY_VALUE, False)
+        offset = CHARACTER_LAYOUT.offset(character_id)
+        if offset + CHARACTER_SAVE_RECORD_SIZE > len(self.file_buffer):
+            return (UI_EMPTY_VALUE, False)
+        city = struct.unpack_from('<h', self.file_buffer, offset + 46)[0]
+        destination = struct.unpack_from('<h', self.file_buffer, offset + 114)[0]
+        progress = struct.unpack_from('<i', self.file_buffer, offset + 116)[0]
+        start_x, start_y, target_x, target_y = struct.unpack_from('<4i', self.file_buffer, offset + 128)
+        moving = city == -1 and progress >= 0 and (start_x >= 0) and (start_y >= 0) and (destination in CITY_NAME_BY_ID or (target_x >= 0 and target_y >= 0))
+        if moving:
+            return (ui('ui_0544'), False)
+        if city == -1:
+            return (UI_EMPTY_VALUE, False)
+        return (CITY_NAME_BY_ID.get(city, UI_EMPTY_VALUE), city in CITY_NAME_BY_ID)
+
+    def _position_person_city_cell(self):
+        tree = self.tree_person_details
+        combo = self.cbo_person_current_city
+        row = self._person_current_city_row
+        bounds = tree.bbox(row, 'value') if row and tree.exists(row) and tree.winfo_ismapped() else ()
+        if not bounds:
+            combo.close_list()
+            combo.place_forget()
+            return
+        x, y, width, height = bounds
+        width = min(width, tree.winfo_width() - x - 1)
+        if width <= 0:
+            combo.close_list()
+            combo.place_forget()
+            return
+        geometry = (x, y, width, height)
+        if getattr(combo, '_cell_geometry', None) != geometry:
+            combo.close_list()
+            combo._cell_geometry = geometry
+        combo.place(x=x, y=y, width=width, height=height)
+        combo.lift()
+
+    def _on_person_current_city_changed(self, _event=None):
+        character_id = self._person_current_city_id
+        _text, editable = self._person_current_city_state(character_id)
+        index = self.cbo_person_current_city.current()
+        if not editable or not 0 <= index < len(self._person_city_ids):
+            return
+        city_id = self._person_city_ids[index]
+        struct.pack_into('<h', self.file_buffer, CHARACTER_LAYOUT.offset(character_id) + 46, city_id)
+        self.tree_person_details.set(self._person_current_city_row, 'value', CITY_NAME_BY_ID[city_id])
+        self._set_person_assignment_buttons_visible()
 if __name__ == '__main__':
     root = tk.Tk()
     icon_path = get_app_icon_path()
@@ -9562,15 +9543,12 @@ if __name__ == '__main__':
             pass
     app = CDS3SaveEditorApp(root)
 
-    # PyInstaller 단일 파일 실행 시: 메인 창이 화면에 준비된 뒤 로딩 화면을 닫는다.
     def close_startup_splash():
         try:
             import pyi_splash
             pyi_splash.close()
         except (ImportError, RuntimeError):
             pass
-
     root.after(0, close_startup_splash)
     root.mainloop()
-    # libVLC가 만든 작업 스레드가 해제에 응답하지 않아도 창 닫기는 지연되지 않는다.
     os._exit(0)
