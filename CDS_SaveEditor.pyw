@@ -237,6 +237,7 @@ from editor_core.item_slots import (
 from editor_core.event_records import EVENT_RECORD_SIZE, event_is_completed
 from editor_core.tab_layout import configure_equal_columns
 from editor_core.treeview import clear_rows
+from editor_core.resources import load_json_resource
 
 
 class EditorButton(tk.Button):
@@ -340,33 +341,6 @@ def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colo
             json.dump(data, settings_file, ensure_ascii=False, indent=2)
     except (OSError, TypeError, ValueError):
         pass
-
-
-def load_json_resource(filename, data_directory=True):
-    """소스 실행과 PyInstaller 배포 환경 모두에서 JSON 리소스를 읽는다."""
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-
-    relative_paths = []
-    if data_directory:
-        relative_paths.append(os.path.join('Resources', 'data', filename))
-        relative_paths.append(os.path.join('CDS3SaveEditor', 'Resources', 'data', filename))
-    relative_paths.extend((os.path.join('Resources', filename),
-                           os.path.join('CDS3SaveEditor', 'Resources', filename)))
-    for base_dir in base_dirs:
-        for relative_path in relative_paths:
-            path = os.path.join(base_dir, relative_path)
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except FileNotFoundError:
-                continue
-    # UI 문자열 자체가 아직 로드되기 전에도 호출될 수 있으므로 파일명만 넘긴다.
-    raise FileNotFoundError(filename)
 
 
 GAME_MASTER_DATA = load_json_resource('master_data.json')
@@ -2669,6 +2643,109 @@ class FleetVideoPreview(tk.Frame):
         super().destroy()
 
 
+class UpwardCombobox(ttk.Combobox):
+    """셀 안에 배치할 수 있는 위로 펼쳐지는 읽기 전용 선택 목록."""
+
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self._popup = None
+        for sequence in ('<Button-1>', '<space>', '<Return>', '<Up>', '<Down>', '<Alt-Up>', '<Alt-Down>', '<F4>'):
+            self.bind(sequence, self._open_list)
+        self.bind('<Unmap>', self.close_list, add='+')
+        self.bind('<Destroy>', self.close_list, add='+')
+
+    def close_list(self, _event=None):
+        popup, self._popup = self._popup, None
+        if popup is not None:
+            try:
+                popup.grab_release()
+                popup.destroy()
+            except tk.TclError:
+                pass
+        return 'break'
+
+    def _open_list(self, _event=None):
+        if self.instate(('disabled',)):
+            return 'break'
+        if self._popup is not None:
+            return self.close_list()
+        values = self.cget('values')
+        if not values:
+            return 'break'
+        self.focus_set()
+        popup = self._popup = tk.Toplevel(self)
+        popup.withdraw()
+        popup.overrideredirect(True)
+        popup.transient(self.winfo_toplevel())
+        body = ttk.Frame(popup, relief='solid', borderwidth=1)
+        body.pack(fill=tk.BOTH, expand=True)
+        listing = tk.Listbox(body, height=min(8, len(values)), exportselection=False,
+                             activestyle='dotbox', font=self.cget('font'), borderwidth=0)
+        scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+        listing.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        listing.insert(tk.END, *values)
+        index = self.current()
+        if index >= 0:
+            listing.selection_set(index)
+            listing.activate(index)
+            listing.see(index)
+
+        def choose(event=None):
+            if event is not None and event.type == tk.EventType.ButtonRelease:
+                index = listing.nearest(event.y)
+                bounds = listing.bbox(index)
+                if not bounds or not bounds[1] <= event.y < bounds[1] + bounds[3]:
+                    return 'break'
+                listing.selection_clear(0, tk.END)
+                listing.selection_set(index)
+            selection = listing.curselection()
+            if selection:
+                self.current(selection[0])
+                self.close_list()
+                # Windows에서는 override-redirect 팝업을 닫으면 최상위 창의
+                # 포커스도 사라질 수 있다. 선택 완료 시에만 부모 창으로 복귀한다.
+                self.focus_force()
+                self.event_generate('<<ComboboxSelected>>')
+            return 'break'
+
+        def outside_click(event):
+            if not (popup.winfo_rootx() <= event.x_root < popup.winfo_rootx() + popup.winfo_width()
+                    and popup.winfo_rooty() <= event.y_root < popup.winfo_rooty() + popup.winfo_height()):
+                return self.close_list()
+
+        def focus_left(_event):
+            def check():
+                if self._popup is popup:
+                    focus = popup.focus_displayof()
+                    if focus is None or focus.winfo_toplevel() != popup:
+                        self.close_list()
+            self.after_idle(check)
+
+        listing.bind('<ButtonRelease-1>', choose)
+        listing.bind('<Return>', choose)
+        listing.bind('<MouseWheel>', lambda event: (
+            listing.yview_scroll(-1 if event.delta > 0 else 1, 'units'), 'break')[1])
+        popup.bind('<ButtonPress-1>', outside_click)
+        popup.bind('<Escape>', self.close_list)
+        popup.bind('<Tab>', self.close_list)
+        popup.bind('<FocusOut>', focus_left)
+        popup.update_idletasks()
+        # 화면 위쪽이 좁으면 행 수를 줄여서라도 셀 위에만 표시한다.
+        available = max(1, self.winfo_rooty() - self.winfo_vrooty())
+        height = min(popup.winfo_reqheight(), available)
+        width = max(self.winfo_width(), _dpi_px(120))
+        x = max(self.winfo_vrootx(), min(self.winfo_rootx(),
+                self.winfo_vrootx() + self.winfo_vrootwidth() - width))
+        popup.geometry(f'{width}x{height}+{x}+{self.winfo_rooty() - height}')
+        popup.deiconify()
+        popup.lift()
+        popup.grab_set()
+        listing.focus_set()
+        return 'break'
+
+
 class CDS3SaveEditorApp:
     # ***<module>.CDS3SaveEditorApp: Failure: Different bytecode
     """CDS3SaveEditorApp"""
@@ -3242,6 +3319,8 @@ class CDS3SaveEditorApp:
             try:
                 if tree.winfo_exists():
                     autofit_columns(tree)
+                    if tree is getattr(self, 'tree_person_details', None):
+                        self.root.after_idle(self._position_person_city_cell)
             except tk.TclError:
                 continue
 
@@ -3387,6 +3466,9 @@ class CDS3SaveEditorApp:
             marker = (ui('ui_0643') if reverse else ui('ui_0644')) if current_column == column else ''
             tree.heading(current_column, text=ui('ui_0645', header_text, marker))
         self._refresh_tree_zebra(tree)
+
+        if tree is getattr(self, 'tree_person_details', None):
+            self.root.after_idle(self._position_person_city_cell)
 
     def create_widgets(self):
         # ***<module>.CDS3SaveEditorApp.create_widgets: Failure: Different bytecode
@@ -7223,6 +7305,28 @@ class CDS3SaveEditorApp:
         self._person_detail_trees = (basic_tree, stats_tree, fame_tree, skill_tree, language_tree)
         self.tree_person_details = self._person_detail_trees[0]
         self.tree_person_stats = self._person_detail_trees[1]
+        self._disable_tree_keyboard_navigation(basic_tree)
+        self._person_current_city_row = None
+        self._person_current_city_id = None
+        self._person_city_ids = list(CITY_NAME_BY_ID)
+        self.cbo_person_current_city = UpwardCombobox(
+            basic_tree, values=[CITY_NAME_BY_ID[city_id] for city_id in self._person_city_ids],
+            state='disabled', height=8, font=(APP_FONT_FAMILY, 9))
+        self.cbo_person_current_city.bind('<<ComboboxSelected>>', self._on_person_current_city_changed)
+        city_scroll = ttk.Scrollbar(basic_tree.master, orient=tk.VERTICAL, command=basic_tree.yview)
+
+        def sync_city_cell(first, last):
+            city_scroll.set(first, last)
+            if float(first) > 0 or float(last) < 1:
+                if not city_scroll.winfo_manager():
+                    city_scroll.pack(side=tk.RIGHT, fill=tk.Y, before=basic_tree)
+            else:
+                city_scroll.pack_forget()
+            self._position_person_city_cell()
+
+        basic_tree.configure(yscrollcommand=sync_city_cell)
+        for sequence in ('<Configure>', '<Map>', '<B1-Motion>', '<ButtonRelease-1>'):
+            basic_tree.bind(sequence, lambda _event: self.root.after_idle(self._position_person_city_cell), add='+')
         self._sponsor_fame_tooltip = None
         self._sponsor_fame_tooltip_row = None
         self.tree_person_details.bind('<Motion>', self._on_sponsor_fame_motion, add='+')
@@ -7466,6 +7570,10 @@ class CDS3SaveEditorApp:
             if mask & (1 << bit)) or UI_EMPTY_VALUE)
 
     def _refresh_person_details(self, item_id):
+        self.cbo_person_current_city.close_list()
+        self.cbo_person_current_city.place_forget()
+        self._person_current_city_row = None
+        self._person_current_city_id = None
         kind = self._person_active_type
         role_mode = kind in self._crew_profiles or kind == 'unhireable'
         self._set_person_detail_mode(role_mode)
@@ -7509,6 +7617,7 @@ class CDS3SaveEditorApp:
             # 통합 인물 화면은 편집 버퍼가 아닌 마지막 저장/로드 시점의 별도
             # 스냅샷만 읽는다. 따라서 역할 지정은 file_buffer에 즉시 반영되어도
             # 여기의 기본 정보·능력치 등은 저장하기 전까지 바뀌지 않는다.
+            # 단, 편집 컨트롤인 '현재 도시'는 최신 file_buffer를 표시한다.
             self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
             image_path = (get_unemployable_image_path(int(item_id)) if kind == 'unhireable'
                           else get_sailer_image_path(int(item_id)))
@@ -7645,8 +7754,19 @@ class CDS3SaveEditorApp:
                 3: ui('ui_0405'),
             }.get(hire_state, str(hire_state))
             basic_rows.append((ui('ui_0495'), hire_text))
+        show_current_city = self._person_active_type != 'unhireable'
+        if show_current_city:
+            current_city, city_editable = self._person_current_city_state(character_id)
+            basic_rows.insert(7, (ui('ui_0542').rstrip(UI_LABEL_SUFFIX), current_city))
         for index, row in enumerate(basic_rows):
-            self._person_detail_trees[0].insert('', tk.END, values=(index, *row))
+            item = self._person_detail_trees[0].insert('', tk.END, values=(index, *row))
+            if show_current_city and index == 7:
+                self._person_current_city_row = item
+        if show_current_city:
+            self._person_current_city_id = character_id
+            self.cbo_person_current_city.set(current_city)
+            self.cbo_person_current_city.configure(state='readonly' if city_editable else 'disabled')
+            self.root.after_idle(self._position_person_city_cell)
 
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
@@ -7660,6 +7780,68 @@ class CDS3SaveEditorApp:
             target, row = (self._person_detail_trees[3], index) if index < 13 else (self._person_detail_trees[4], index - 13)
             target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
         self._schedule_treeview_autofit(*self._person_detail_trees)
+
+    @staticmethod
+    def _disable_tree_keyboard_navigation(tree):
+        """읽기 전용 기본 정보 표는 탐색 대상에서 제외하되 자식 콤보는 유지한다."""
+        tree.configure(takefocus=False)
+        # Tab 이동 및 저장/열기 같은 전역 단축키는 차단하지 않는다.
+        for key in ('Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Prior', 'Next', 'space', 'Return'):
+            tree.bind(f'<{key}>', lambda _event: 'break')
+
+    def _person_current_city_state(self, character_id):
+        """이동 필드를 도시 없음(-1)보다 우선 판정한다. 위치 편집은 최신 버퍼 기준."""
+        if character_id not in CHARACTER_BY_ID or not self.file_buffer:
+            return UI_EMPTY_VALUE, False
+        offset = CHARACTER_LAYOUT.offset(character_id)
+        if offset + CHARACTER_SAVE_RECORD_SIZE > len(self.file_buffer):
+            return UI_EMPTY_VALUE, False
+        city = struct.unpack_from('<h', self.file_buffer, offset + 0x2E)[0]
+        destination = struct.unpack_from('<h', self.file_buffer, offset + 0x72)[0]
+        progress = struct.unpack_from('<i', self.file_buffer, offset + 0x74)[0]
+        start_x, start_y, target_x, target_y = struct.unpack_from('<4i', self.file_buffer, offset + 0x80)
+        moving = (city == -1 and progress >= 0 and start_x >= 0 and start_y >= 0
+                  and (destination in CITY_NAME_BY_ID or (target_x >= 0 and target_y >= 0)))
+        if moving:
+            return ui('ui_0544'), False
+        if city == -1:
+            return UI_EMPTY_VALUE, False
+        return CITY_NAME_BY_ID.get(city, UI_EMPTY_VALUE), city in CITY_NAME_BY_ID
+
+    def _position_person_city_cell(self):
+        tree = self.tree_person_details
+        combo = self.cbo_person_current_city
+        row = self._person_current_city_row
+        bounds = tree.bbox(row, 'value') if row and tree.exists(row) and tree.winfo_ismapped() else ()
+        if not bounds:
+            combo.close_list()
+            combo.place_forget()
+            return
+        x, y, width, height = bounds
+        width = min(width, tree.winfo_width() - x - 1)
+        if width <= 0:
+            combo.close_list()
+            combo.place_forget()
+            return
+        geometry = (x, y, width, height)
+        if getattr(combo, '_cell_geometry', None) != geometry:
+            combo.close_list()
+            combo._cell_geometry = geometry
+        combo.place(x=x, y=y, width=width, height=height)
+        combo.lift()
+
+    def _on_person_current_city_changed(self, _event=None):
+        character_id = self._person_current_city_id
+        _text, editable = self._person_current_city_state(character_id)
+        index = self.cbo_person_current_city.current()
+        if not editable or not 0 <= index < len(self._person_city_ids):
+            return
+        city_id = self._person_city_ids[index]
+        # 도시 체류 중인 인물만 수정하므로 이동 경로/좌표와 다른 인물 필드는 건드리지 않는다.
+        struct.pack_into('<h', self.file_buffer, CHARACTER_LAYOUT.offset(character_id) + 0x2E, city_id)
+        self.tree_person_details.set(self._person_current_city_row, 'value', CITY_NAME_BY_ID[city_id])
+        self._set_person_assignment_buttons_visible()
+        # 포커스는 선택을 완료한 콤보에 유지한다. 기본 정보 표/인물 목록으로 보내지 않는다.
 
     def _on_person_detail_motion(self, event):
         """능력치 탭의 고용비 계수 항목에서만 계산식 툴팁을 표시한다."""

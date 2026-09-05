@@ -13,6 +13,13 @@
 # 에디터 소스와 PyInstaller 빌드 설정
 !/CDS_SaveEditor.pyw
 !/CDS3_SaveEditor.spec
+!/editor_core/
+!/editor_core/resources.py
+
+# 인물 현재 도시 편집 회귀 테스트
+!/tests/
+!/tests/test_person_current_city.py
+!/tests/test_error_messages.py
 
 # 실행과 빌드에 필요한 모든 리소스
 !/Resources/

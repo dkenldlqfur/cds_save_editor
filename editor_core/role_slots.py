@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .resources import error_text
 
 EMPTY_ROLE_SLOT = 0xFFFF
 ROLE_CHARACTER_PREFIX = 0x1000
@@ -12,7 +13,7 @@ def role_slot_code(character_id: int) -> int:
     """인물 ID를 세이브의 역할 슬롯 16비트 코드로 변환한다."""
     character_id = int(character_id)
     if not 0 <= character_id <= 0xFF:
-        raise ValueError('character ID does not fit in a role slot')
+        raise ValueError(error_text('role_character_id_out_of_range'))
     return ROLE_CHARACTER_PREFIX | character_id
 
 
@@ -34,7 +35,7 @@ def write_role_character_id(buffer: bytearray, offset: int, character_id: int | 
     """역할 슬롯에 인물 ID 또는 빈 슬롯을 기록한다."""
     offset = int(offset)
     if offset < 0 or offset + 2 > len(buffer):
-        raise ValueError('save buffer is too small for role slot')
+        raise ValueError(error_text('role_slot_buffer_too_small'))
     value = EMPTY_ROLE_SLOT if character_id is None else role_slot_code(character_id)
     buffer[offset:offset + 2] = value.to_bytes(2, 'little')
 

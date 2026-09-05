@@ -1,5 +1,6 @@
 """함선 세이브 레코드에서 UI와 독립적인 주소·비트 필드 계산."""
 
+from .resources import error_text
 
 MAST_SLOT_COUNT = 3
 MAST_SLOT_BITS = 2
@@ -59,10 +60,10 @@ def write_active_ship_indices(buffer: bytearray, ship_indices) -> None:
     """활성 함대 슬롯을 주어진 순서로 기록하고 남은 칸은 미사용으로 초기화한다."""
     indices = [int(index) for index in ship_indices]
     if len(indices) > FLEET_ACTIVE_SLOT_COUNT:
-        raise ValueError('active fleet slot count exceeds capacity')
+        raise ValueError(error_text('fleet_capacity_exceeded'))
     required_size = FLEET_ACTIVE_SLOTS_OFFSET + FLEET_ACTIVE_SLOT_COUNT * 2
     if len(buffer) < required_size:
-        raise ValueError('save buffer is too small for active fleet slots')
+        raise ValueError(error_text('fleet_slots_buffer_too_small'))
     for position in range(FLEET_ACTIVE_SLOT_COUNT):
         value = indices[position] if position < len(indices) else UNUSED_FLEET_SLOT
         offset = FLEET_ACTIVE_SLOTS_OFFSET + position * 2
@@ -72,6 +73,6 @@ def write_active_ship_indices(buffer: bytearray, ship_indices) -> None:
 def write_flagship_position(buffer: bytearray, position: int | None) -> None:
     """기함 슬롯을 기록하며 None은 기함 없음(FFFFFFFF)으로 저장한다."""
     if len(buffer) < FLEET_FLAGSHIP_OFFSET + 4:
-        raise ValueError('save buffer is too small for flagship position')
+        raise ValueError(error_text('flagship_buffer_too_small'))
     value = 0xFFFFFFFF if position is None else int(position)
     buffer[FLEET_FLAGSHIP_OFFSET:FLEET_FLAGSHIP_OFFSET + 4] = value.to_bytes(4, 'little', signed=False)

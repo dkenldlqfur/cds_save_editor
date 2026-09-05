@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .save_records import RecordTableLayout, read_value, write_value
+from .resources import error_text
 
 
 CONTRACT_STATE_OFFSET = 0x08
@@ -31,14 +32,14 @@ def active_sponsor_id(
 def remaining_days(buffer: bytes | bytearray, layout: RecordTableLayout, sponsor_id: int) -> int:
     """후원자 계약의 남은 일수를 반환한다."""
     if not layout.contains(buffer, sponsor_id):
-        raise ValueError('sponsor record is unavailable')
+        raise ValueError(error_text('sponsor_record_unavailable'))
     return read_value(buffer, layout.offset(sponsor_id) + REMAINING_DAYS_OFFSET, 'u16')
 
 
 def write_remaining_days(buffer: bytearray, layout: RecordTableLayout, sponsor_id: int, days: int) -> None:
     """후원자 계약의 남은 일수를 16비트 범위로 기록한다."""
     if not layout.contains(buffer, sponsor_id):
-        raise ValueError('sponsor record is unavailable')
+        raise ValueError(error_text('sponsor_record_unavailable'))
     write_value(buffer, layout.offset(sponsor_id) + REMAINING_DAYS_OFFSET, 'u16', days)
 
 
@@ -51,7 +52,7 @@ def clear_contract_fields(
 ) -> None:
     """계약 상태·남은 일수·선택적 종료 보조값을 초기화한다."""
     if not layout.contains(buffer, sponsor_id):
-        raise ValueError('sponsor record is unavailable')
+        raise ValueError(error_text('sponsor_record_unavailable'))
     offset = layout.offset(sponsor_id)
     write_value(buffer, offset + CONTRACT_STATE_OFFSET, 'u32', cancelled_state)
     write_value(buffer, offset + REMAINING_DAYS_OFFSET, 'u16', 0)

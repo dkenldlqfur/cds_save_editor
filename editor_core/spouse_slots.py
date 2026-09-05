@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .resources import error_text
 
 SPOUSE_SLOT_OFFSET = 173
 EMPTY_SPOUSE_SLOT = 0xFFFF
@@ -14,7 +15,7 @@ def spouse_slot_code(barmaid_id: int) -> int:
     """여급 ID를 세이브의 배우자 슬롯 코드로 변환한다."""
     barmaid_id = int(barmaid_id)
     if not 0 <= barmaid_id <= SPOUSE_ID_MASK:
-        raise ValueError('barmaid ID does not fit in spouse slot')
+        raise ValueError(error_text('spouse_id_out_of_range'))
     return SPOUSE_PREFIX | barmaid_id
 
 
@@ -34,6 +35,6 @@ def read_spouse_barmaid_id(buffer: bytes | bytearray) -> int | None:
 def write_spouse_barmaid_id(buffer: bytearray, barmaid_id: int | None) -> None:
     """배우자 슬롯에 여급 ID 또는 배우자 없음 값을 기록한다."""
     if SPOUSE_SLOT_OFFSET + 2 > len(buffer):
-        raise ValueError('save buffer is too small for spouse slot')
+        raise ValueError(error_text('spouse_slot_buffer_too_small'))
     value = EMPTY_SPOUSE_SLOT if barmaid_id is None else spouse_slot_code(barmaid_id)
     buffer[SPOUSE_SLOT_OFFSET:SPOUSE_SLOT_OFFSET + 2] = value.to_bytes(2, 'little')

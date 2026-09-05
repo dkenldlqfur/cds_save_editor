@@ -1,0 +1,15 @@
+{
+  "description": "editor_core 공통 오류 메시지. 기존 예외 문구와 발생 조건을 유지한다.",
+  "messages": {
+    "fleet_capacity_exceeded": "active fleet slot count exceeds capacity",
+    "fleet_slots_buffer_too_small": "save buffer is too small for active fleet slots",
+    "flagship_buffer_too_small": "save buffer is too small for flagship position",
+    "item_slots_buffer_too_small": "save buffer is too small for item slots",
+    "item_capacity_exceeded": "item count exceeds slot capacity",
+    "role_character_id_out_of_range": "character ID does not fit in a role slot",
+    "role_slot_buffer_too_small": "save buffer is too small for role slot",
+    "sponsor_record_unavailable": "sponsor record is unavailable",
+    "spouse_id_out_of_range": "barmaid ID does not fit in spouse slot",
+    "spouse_slot_buffer_too_small": "save buffer is too small for spouse slot"
+  }
+}
