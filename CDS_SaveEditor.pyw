@@ -234,7 +234,11 @@ from editor_core.item_slots import (
     read_item_slots,
     write_item_slots,
 )
-from editor_core.event_records import EVENT_RECORD_SIZE, event_is_completed
+from editor_core.event_records import (
+    EVENT_RECORD_PAYLOAD_SIZE,
+    event_is_completed,
+    sync_event_completion,
+)
 from editor_core.tab_layout import configure_equal_columns
 from editor_core.treeview import clear_rows
 from editor_core.resources import load_json_resource
@@ -355,6 +359,7 @@ DATA_CATEGORIES = load_json_resource('data_categories.json')
 DISCOVERY_REWARD_DATA = load_json_resource('discovery_reward_items.json')
 DISCOVERY_HINT_DATA = load_json_resource('discovery_hint_data.json')
 MAP_LOCATION_DATA = load_json_resource('map_locations.json')
+SPOUSE_APTITUDE_DATA = load_json_resource('spouse_aptitudes.json')
 APP_CONFIG = load_json_resource('app_config.json')
 UI_TEXTS = load_json_resource('ui_texts.json')['texts']
 APP_FONT_FAMILY = APP_CONFIG['ui']['font_family']
@@ -573,6 +578,9 @@ def event_state_text(state, menu=False):
 BARMAID_DATABASE = GAME_MASTER_DATA['barmaid_database']
 BARMAID_BY_ID = {int(record['id']): record for record in BARMAID_DATABASE}
 BARMAID_BY_NAME = {record['name']: record for record in BARMAID_DATABASE}
+SPOUSE_APTITUDE_NAMES = tuple(ui(key) for key in SPOUSE_APTITUDE_DATA['attribute_text_keys'])
+SPOUSE_APTITUDE_RECORDS = tuple(tuple(int(value) for value in record)
+                                 for record in SPOUSE_APTITUDE_DATA['records'])
 CHARACTER_BY_ID = {int(record['id']): record for record in CHARACTER_DATA['records']}
 SPONSOR_BY_ID = {int(record['id']): record for record in SPONSOR_DATA['records']}
 # 고용불가(경쟁자·대화 가능) 목록의 이미지 파일은 인물 ID가 아니라 목록 순번을 쓴다.
@@ -724,6 +732,27 @@ def get_barmaid_personality(barmaid):
     return UI_LIST_SEPARATOR.join(
         GAME_MASTER_DATA['personality_names'][int(personality_id)]
         for personality_id in barmaid['personality_ids'])
+
+
+def get_barmaid_aptitude_profile(barmaid):
+    """여급 ID에 대응하는 EXE 얼굴 코드와 자녀 적성 보정값 6개를 반환한다."""
+    try:
+        barmaid_id = int(barmaid['id'])
+        record = SPOUSE_APTITUDE_RECORDS[barmaid_id]
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None, ()
+    if len(record) != len(SPOUSE_APTITUDE_NAMES) + 1:
+        return None, ()
+    return record[0], record[1:]
+
+
+def get_spouse_oracle_aptitude_index(values):
+    """델포이 신탁과 같은 순서/동점 규칙으로 가장 큰 양수 적성을 고른다."""
+    best_index, best_value = -1, 0
+    for index, value in enumerate(values):
+        if int(value) > best_value:
+            best_index, best_value = index, int(value)
+    return best_index
 APP_VERSION = APP_CONFIG['version']
 # CDS_95.EXE는 주인공 명성·악명을 9,999,999(0x0098967F)로 제한한다.
 # 일반 인물 레코드의 두 값은 각각 unsigned short로 저장된다.
@@ -7250,10 +7279,10 @@ class CDS3SaveEditorApp:
         self.tree_person_list.bind('<Down>', lambda event: self._move_treeview_selection(event, 1))
 
         # 역할을 선택했을 때는 이전 화면의 상세 탭(기본 정보·능력치·명성·기술·언어)을
-        # 그대로 보여 준다. 부인·스폰서는 기본 정보 탭 하나만 사용한다.
+        # 그대로 보여 준다. 부인은 기본 정보와 얼굴별 적성, 스폰서는 기본 정보만 사용한다.
         self.person_detail_tabs = ttk.Notebook(browser, style='Editor.TNotebook')
         self.person_detail_tabs.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
-        self._person_detail_pages = [ttk.Frame(browser) for _ in range(5)]
+        self._person_detail_pages = [ttk.Frame(browser) for _ in range(6)]
         # 주인공 하단 탭과 같은 바깥 여백을 사용한다. 인물 탭의 일괄 적용 줄과
         # 목록이 서로 다른 부모 프레임에 있어 생기던 위치 차이를 없앤다.
         self._person_detail_bodies = []
@@ -7302,6 +7331,17 @@ class CDS3SaveEditorApp:
             self._person_detail_bodies[4], ('index', 'field', 'value'),
             ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 195, 'w', True), (ui('ui_0490'), 155, 'center', False)), 14,
             frame_padx=0, frame_pady=0, pack_pady=2)
+        self.lbl_spouse_aptitude_summary = tk.Label(
+            self._person_detail_bodies[5], text=UI_EMPTY_VALUE,
+            font=(APP_FONT_FAMILY, 9, 'bold'), anchor='w')
+        self.lbl_spouse_aptitude_summary.pack(fill=tk.X, padx=2, pady=(2, 3))
+        self.tree_person_spouse_aptitudes = self._make_officer_tree(
+            self._person_detail_bodies[5], ('index', 'field', 'value'),
+            ((ui('ui_0346'), 35, 'center', False), (ui('ui_0660'), 150, 'w', True),
+             (ui('ui_0661'), 100, 'center', False)), 6,
+            frame_padx=0, frame_pady=0, pack_pady=2)
+        self.tree_person_spouse_aptitudes.tag_configure(
+            'oracle_aptitude', background='#E8F0FE', foreground='#174EA6')
         self._person_detail_trees = (basic_tree, stats_tree, fame_tree, skill_tree, language_tree)
         self.tree_person_details = self._person_detail_trees[0]
         self.tree_person_stats = self._person_detail_trees[1]
@@ -7349,21 +7389,27 @@ class CDS3SaveEditorApp:
         self._set_person_detail_mode(False)
         self._refresh_person_browser()
 
-    def _set_person_detail_mode(self, role_mode):
-        """역할은 기존의 5개 상세 탭을, 부인·스폰서는 단일 정보 탭을 표시한다."""
+    def _set_person_detail_mode(self, role_mode, spouse_mode=False):
+        """역할은 5개 상세 탭, 부인은 기본 정보·적성, 그 외는 기본 정보만 표시한다."""
         if not hasattr(self, 'person_detail_tabs'):
             return
         tabs = self.person_detail_tabs
         pages = self._person_detail_pages
         if role_mode:
-            for page, title in zip(pages, self._person_detail_titles):
+            for page, title in zip(pages[:5], self._person_detail_titles):
                 tabs.add(page, text=title)
+            if str(pages[5]) in tabs.tabs():
+                tabs.hide(pages[5])
         else:
             tabs.add(pages[0], text=ui('ui_0489'))
-            for page in pages[1:]:
+            for page in pages[1:5]:
                 # 최초 구성에서는 아직 Notebook에 추가되지 않은 페이지가 있다.
                 if str(page) in tabs.tabs():
                     tabs.hide(page)
+            if spouse_mode:
+                tabs.add(pages[5], text=ui('ui_0660'))
+            elif str(pages[5]) in tabs.tabs():
+                tabs.hide(pages[5])
 
     def _on_person_type_changed(self, _event=None):
         index = self.cbo_person_type.current()
@@ -7576,8 +7622,9 @@ class CDS3SaveEditorApp:
         self._person_current_city_id = None
         kind = self._person_active_type
         role_mode = kind in self._crew_profiles or kind == 'unhireable'
-        self._set_person_detail_mode(role_mode)
+        self._set_person_detail_mode(role_mode, spouse_mode=(kind == 'spouse'))
         clear_rows(*self._person_detail_trees)
+        self._refresh_spouse_aptitudes()
         tree = self.tree_person_details
         tree.tag_configure('fortune_spouse', background='#FCE4EC')
         # 상세 목록과 툴팁은 목록 선택 이벤트의 지연 여부와 무관하게 같은 후원자를 가리켜야 한다.
@@ -7588,6 +7635,7 @@ class CDS3SaveEditorApp:
         if kind == 'spouse' and item_id not in ('', None, '__none__'):
             barmaid = BARMAID_BY_ID.get(int(item_id))
             if barmaid:
+                self._refresh_spouse_aptitudes(barmaid)
                 flags = int(barmaid.get('language_flags', 0))
                 languages = (UI_LIST_SEPARATOR.join(
                     name for bit, name in enumerate(LANGUAGE_NAMES) if flags & (1 << bit))
@@ -7632,6 +7680,26 @@ class CDS3SaveEditorApp:
                 self._person_face_label.config(image=photo)
         if not role_mode:
             self._schedule_treeview_autofit(tree)
+
+    def _refresh_spouse_aptitudes(self, barmaid=None):
+        """선택한 부인의 얼굴 코드별 자녀 적성과 신탁의 최댓값 판정을 표시한다."""
+        tree = getattr(self, 'tree_person_spouse_aptitudes', None)
+        summary = getattr(self, 'lbl_spouse_aptitude_summary', None)
+        if tree is None:
+            return
+        tree.delete(*tree.get_children())
+        face_code, values = get_barmaid_aptitude_profile(barmaid) if barmaid else (None, ())
+        best_index = get_spouse_oracle_aptitude_index(values)
+        if summary is not None:
+            summary.config(text=(ui('ui_0663', face_code)
+                                 if face_code is not None else UI_EMPTY_VALUE))
+        for index, name in enumerate(SPOUSE_APTITUDE_NAMES):
+            value = values[index] if index < len(values) else None
+            is_best = index == best_index
+            display_value = f'{value:+d}' if value is not None else UI_EMPTY_VALUE
+            tree.insert('', tk.END, values=(index, name, display_value),
+                tags=('oracle_aptitude',) if is_best else ())
+        self._schedule_treeview_autofit(tree)
 
     def _on_sponsor_fame_motion(self, event):
         """후원자 계산 필드 위에 해당 값의 산정 근거를 표시한다."""
@@ -8965,10 +9033,10 @@ class CDS3SaveEditorApp:
                 int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get()))
             birth_year = int(self.spn_birth_y.get())
             zodiac_id = get_birth_zodiac_id(birth_month, birth_day)
-            job_id = int(self.cbo_job.current())
+            blood_id = int(self.cbo_blood.current())
             face_id = int(self.player_face_id)
             age = get_player_age(game_year, game_month, game_day, birth_year, birth_month, birth_day)
-            if zodiac_id < 0 or job_id < 0:
+            if zodiac_id < 0 or blood_id < 0:
                 raise ValueError(ui('ui_0585'))
 
             candidates = [
@@ -8994,7 +9062,7 @@ class CDS3SaveEditorApp:
                 import threading
                 threading.Thread(target=server.serve_forever, daemon=True).start()
 
-            query = urlencode({'zodiac': zodiac_id, 'job': job_id, 'face': face_id, 'age': age})
+            query = urlencode({'zodiac': zodiac_id, 'blood': blood_id, 'face': face_id, 'age': age})
             filename = quote(os.path.basename(target_path))
             webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?{query}')
         except Exception as exc:
@@ -10993,14 +11061,11 @@ class CDS3SaveEditorApp:
             p_name_bytes = self.get_player_full_name().encode('cp949')
             for i, ev in enumerate(self.event_db):
                 e_off = ev['save_offset']
-                if e_off + EVENT_RECORD_SIZE <= len(self.file_buffer):
-                    if self.event_state[i] == 1:
-                        self.file_buffer[e_off] = 1
-                        self.file_buffer[e_off + 1:e_off + 19] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-                        self.file_buffer[e_off + 1:e_off + 1 + min(len(p_name_bytes), 18)] = p_name_bytes[:18]
-                        self.file_buffer[e_off + 88] = 255
-                    else:
-                        self.file_buffer[e_off:e_off + 164] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                if e_off + EVENT_RECORD_PAYLOAD_SIZE <= len(self.file_buffer):
+                    # 이벤트와 무관한 항목만 편집한 경우 게임이 기록한 마커와
+                    # 미확정 payload를 그대로 보존한다.
+                    sync_event_completion(
+                        self.file_buffer, e_off, self.event_state[i], p_name_bytes)
             for i, (m_off, m_desc, m_didx) in enumerate(SEA_MONSTERS):
                 if m_off < len(self.file_buffer):
                     self.file_buffer[m_off] = 1 if self.sea_monster_state[i] else 0
@@ -11017,6 +11082,10 @@ class CDS3SaveEditorApp:
                 if d_off + 164 <= len(self.file_buffer):
                     st = self.discovery_state[i]
                     marker_off = d_off - 1
+                    # 실제 상태를 바꾸지 않았다면 게임 원본의 마커, 날짜와
+                    # 아직 해석하지 못한 payload를 그대로 보존한다.
+                    if st == state_from_marker(self.file_buffer[marker_off]):
+                        continue
                     # 미등장은 미발견(0x0C)과 달리 레코드 전체가 미등록 형식이다.
                     # 다음 발견물의 공유 상태 마커(d_off + 163)는 보존한다.
                     if st == 0:
@@ -11057,7 +11126,8 @@ class CDS3SaveEditorApp:
                             struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
                         else:
                             self.file_buffer[marker_off] = marker_for_state(st)
-                            self.file_buffer[d_off:d_off + 164] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                            # d_off + 163은 다음 발견물의 상태 마커다.
+                            self.file_buffer[d_off:d_off + 163] = b'\x00' * 163
                             self.file_buffer[d_off + 40:d_off + 48] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
                             self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
                             struct.pack_into('<H', self.file_buffer, d_off + 36, 0)

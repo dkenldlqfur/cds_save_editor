@@ -33,7 +33,7 @@
 </head>
 <body>
   <h1>주인공 성격 계산표</h1>
-  <p class="note">최종 성격값은 각 축마다 <code>제한(별자리 기본값 + 직업 보정 + 얼굴/나이 보정, 0, 2)</code>로 계산된다. 값 0·1·2는 각각 성격축의 왼쪽·중립·오른쪽을 뜻한다.</p>
+  <p class="note">최종 성격값은 각 축마다 먼저 <code>제한(별자리 기본값 + 혈액형 보정, 0, 2)</code>을 계산한 뒤, 얼굴/나이 보정을 더하고 다시 0~2로 제한한다. 값 0·1·2는 각각 성격축의 왼쪽·중립·오른쪽을 뜻한다.</p>
 
   <h2>주인공 성격 진단서</h2>
   <section class="diagnosis">
@@ -74,14 +74,14 @@
     </tbody>
   </table></div>
 
-  <h2>직업 보정값</h2>
+  <h2>혈액형 보정값</h2>
   <div class="wrap"><table>
-    <thead><tr><th>직업</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
+    <thead><tr><th>혈액형</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
     <tbody>
-      <tr><td>탐험가</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="plus">+1</td><td class="minus">-1</td></tr>
-      <tr><td>발굴자</td><td>0</td><td class="plus">+1</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td></tr>
-      <tr><td>사냥꾼</td><td class="plus">+1</td><td>0</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td><td>0</td><td>0</td></tr>
-      <tr><td>정복자</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td><td>0</td><td class="plus">+1</td><td>0</td><td>0</td></tr>
+      <tr><td>A형</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="plus">+1</td><td class="minus">-1</td></tr>
+      <tr><td>B형</td><td>0</td><td class="plus">+1</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td></tr>
+      <tr><td>O형</td><td class="plus">+1</td><td>0</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td><td>0</td><td>0</td></tr>
+      <tr><td>AB형</td><td>0</td><td>0</td><td class="minus">-1</td><td>0</td><td>0</td><td class="plus">+1</td><td>0</td><td>0</td></tr>
     </tbody>
   </table></div>
 
@@ -100,9 +100,9 @@
       <tr><td>7</td><td>2</td><td class="minus">-1</td><td>23</td><td>5</td><td class="plus">+1</td></tr>
       <tr><td>8</td><td>5</td><td class="minus">-1</td><td>24</td><td>0</td><td>0</td></tr>
       <tr><td>9</td><td>4</td><td class="plus">+1</td><td>25</td><td>3</td><td class="plus">+1</td></tr>
-      <tr><td>10</td><td>2</td><td class="plus">+1</td><td>26</td><td>3</td><td class="plus">+1</td></tr>
+      <tr><td>10</td><td>2</td><td class="plus">+1</td><td>26</td><td>3</td><td class="minus">-1</td></tr>
       <tr><td>11</td><td>6</td><td class="plus">+1</td><td>27</td><td>7</td><td class="plus">+1</td></tr>
-      <tr><td>12</td><td>7</td><td class="plus">+1</td><td>28</td><td>5</td><td class="plus">+1</td></tr>
+      <tr><td>12</td><td>7</td><td class="plus">+1</td><td>28</td><td>5</td><td class="minus">-1</td></tr>
       <tr><td>13</td><td>4</td><td class="minus">-1</td><td>29</td><td>4</td><td class="plus">+1</td></tr>
       <tr><td>14</td><td>0</td><td class="minus">-1</td><td>30</td><td>6</td><td class="minus">-1</td></tr>
       <tr><td>15</td><td>5</td><td class="plus">+1</td><td>31</td><td>0</td><td class="plus">+1</td></tr>
@@ -113,11 +113,12 @@
     const axes = [['소심', '거만'], ['우유부단', '독선'], ['변덕', '집착'], ['겁쟁이', '무모'], ['냉혹', '팔방미인'], ['편협', '욕심쟁이'], ['무신경', '신경질'], ['낭비가', '깍쟁이']];
     const zodiacNames = ['양자리', '황소자리', '쌍둥이자리', '게자리', '사자자리', '처녀자리', '천칭자리', '전갈자리', '궁수자리', '염소자리', '물병자리', '물고기자리'];
     const zodiacValues = [[2,1,0,2,1,1,1,0],[1,0,2,1,1,0,1,2],[1,0,0,1,1,2,2,0],[0,1,1,0,2,1,1,2],[2,1,1,2,1,1,0,0],[1,2,0,0,1,1,2,2],[2,2,1,1,0,1,1,1],[1,1,2,1,2,0,2,0],[1,2,0,1,2,2,1,2],[2,1,2,1,1,0,1,1],[1,2,0,1,1,1,0,1],[0,0,1,1,2,1,1,1]];
-    const jobValues = [[0,0,0,0,0,0,1,-1],[0,1,0,0,0,0,-1,0],[1,0,0,0,-1,0,0,0],[0,0,-1,0,0,1,0,0]];
-    const faceAdjustments = [[0,0],[1,1],[7,-1],[3,-1],[0,1],[1,-1],[3,1],[2,-1],[5,-1],[4,1],[2,1],[6,1],[7,1],[4,-1],[0,-1],[5,1],[6,1],[2,1],[1,-1],[4,-1],[1,1],[2,-1],[7,-1],[5,1],[0,0],[3,1],[3,1],[7,1],[5,1],[4,1],[6,-1],[0,1]];
+    const bloodNames = ['A형', 'B형', 'O형', 'AB형'];
+    const bloodValues = [[0,0,0,0,0,0,1,-1],[0,1,0,0,0,0,-1,0],[1,0,0,0,-1,0,0,0],[0,0,-1,0,0,1,0,0]];
+    const faceAdjustments = [[0,0],[1,1],[7,-1],[3,-1],[0,1],[1,-1],[3,1],[2,-1],[5,-1],[4,1],[2,1],[6,1],[7,1],[4,-1],[0,-1],[5,1],[6,1],[2,1],[1,-1],[4,-1],[1,1],[2,-1],[7,-1],[5,1],[0,0],[3,1],[3,-1],[7,1],[5,-1],[4,1],[6,-1],[0,1]];
     const query = new URLSearchParams(window.location.search);
     const zodiac = Math.max(0, Math.min(11, Number(query.get('zodiac')) || 0));
-    const job = Math.max(0, Math.min(3, Number(query.get('job')) || 0));
+    const blood = Math.max(0, Math.min(3, Number(query.get('blood')) || 0));
     const face = Math.max(0, Math.min(15, Number(query.get('face')) || 0));
     const age = Math.max(0, Number(query.get('age')) || 0);
 
@@ -125,12 +126,13 @@
       const [faceAxis, faceDelta] = faceAdjustments[face + (age >= 36 ? 16 : 0)];
       const rows = axes.map(([left, right], axis) => {
         const base = zodiacValues[zodiac][axis];
-        const work = jobValues[job][axis];
+        const bloodValue = bloodValues[blood][axis];
+        const inheritedValue = Math.max(0, Math.min(2, base + bloodValue));
         const faceValue = axis === faceAxis ? faceDelta : 0;
-        const raw = base + work + faceValue;
+        const raw = inheritedValue + faceValue;
         const result = Math.max(0, Math.min(2, raw));
         const points = [0, 1, 2].map(point => point === result ? '●' : '○').join(' ─ ');
-        return `<div class="diagnosis-row"><span class="left">${left}</span><span class="scale">${points}</span><span>${right}</span><span class="formula">${zodiacNames[zodiac]} 성격표(${base}) + 직업 보정(${work}) + 얼굴/나이 보정(${faceValue}) = ${raw} → 제한(0, 2) = ${result}</span></div>`;
+        return `<div class="diagnosis-row"><span class="left">${left}</span><span class="scale">${points}</span><span>${right}</span><span class="formula">제한(${zodiacNames[zodiac]} 성격표(${base}) + ${bloodNames[blood]} 보정(${bloodValue}), 0, 2) = ${inheritedValue}; + 얼굴/나이 보정(${faceValue}) = ${raw} → 제한(0, 2) = ${result}</span></div>`;
       });
       document.querySelector('#diagnosis-result').innerHTML = rows.join('');
     }

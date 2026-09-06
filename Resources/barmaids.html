@@ -655,6 +655,46 @@
             cursor: pointer;
         }
 
+        .aptitude-box {
+            background: rgba(88, 166, 255, 0.08);
+            border: 1px solid rgba(88, 166, 255, 0.22);
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+
+        .aptitude-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .aptitude-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .aptitude-tag {
+            padding: 2px 6px;
+            border: 1px solid rgba(139, 148, 158, 0.35);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            background: rgba(139, 148, 158, 0.08);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .aptitude-tag.oracle {
+            color: #79c0ff;
+            border-color: rgba(88, 166, 255, 0.65);
+            background: rgba(88, 166, 255, 0.18);
+            font-weight: 700;
+        }
+
         /* Table View */
         .table-view-wrap {
             background: var(--bg-card);
@@ -740,7 +780,7 @@
         <div class="header">
             <div class="header-title-wrap">
                 <h1>대항해시대 3 주점 여급 공식 도감 (127명)</h1>
-                <p class="header-desc">대항해시대 3의 전 세계 127명 모든 여급의 상세 데이터베이스 (등장년도, 별자리, 혈액형, 성격/특징, 공식 14종 전수 언어, 운명의 반려자 판정)</p>
+                <p class="header-desc">대항해시대 3의 전 세계 127명 모든 여급의 상세 데이터베이스 (등장년도, 별자리, 혈액형, 성격/특징, 공식 14종 전수 언어, 운명의 반려자·자녀 적성)</p>
             </div>
             <div class="header-stats">
                 <div class="stat-badge">총 127명</div>
@@ -886,6 +926,7 @@
                         <th id="tableHeaderZodiac" onclick="sortTable('zodiac')">별자리</th>
                         <th id="tableHeaderBlood" onclick="sortTable('blood')">혈액형</th>
                         <th id="tableHeaderPersonality">성격 / 특징</th>
+                        <th id="tableHeaderAptitude">자녀 적성</th>
                         <th id="tableHeaderLanguages">전수 언어</th>
                     </tr>
                 </thead>
@@ -912,6 +953,7 @@
             master: 'data/master_data.json',
             cities: 'data/city_data.json',
             gameStrings: 'data/game_strings.json',
+            spouseAptitudes: 'data/spouse_aptitudes.json',
             uiTexts: 'data/ui_texts.json',
         };
         const PERSONALITY_COLORS = ['#8b949e', '#e3b341', '#3fb950', '#ff7b72', '#bc8cff', '#f778ba', '#58a6ff', '#39c5bb'];
@@ -924,6 +966,7 @@
         let PERSONALITY_GUIDE = {};
         let COMPAT_TIERS = {};
         let OFFICIAL_LANGS = [];
+        let APTITUDE_NAMES = [];
 
         function ui(key, fallback, ...values) {
             const text = UI_TEXTS[key] || fallback;
@@ -945,6 +988,7 @@
                 tableHeaderZodiac: ['ui_0065', '별자리'],
                 tableHeaderBlood: ['ui_0066', '혈액형'],
                 tableHeaderPersonality: ['ui_0067', '성격 / 특징'],
+                tableHeaderAptitude: ['ui_0665', '자녀 적성'],
                 tableHeaderLanguages: ['ui_0068', '전수 언어'],
                 resetButton: ['ui_0263', '초기화'],
             };
@@ -955,19 +999,23 @@
         }
 
         async function loadBarmaids() {
-            const [response, cityResponse, gameStringsResponse] = await Promise.all([
+            const [response, cityResponse, gameStringsResponse, aptitudeResponse] = await Promise.all([
                 fetch(DATA_URLS.master, { cache: 'no-store' }),
                 fetch(DATA_URLS.cities, { cache: 'no-store' }),
                 fetch(DATA_URLS.gameStrings, { cache: 'no-store' }),
+                fetch(DATA_URLS.spouseAptitudes, { cache: 'no-store' }),
             ]);
             if (!response.ok) throw new Error(`여급 데이터 로드 실패: ${response.status}`);
             if (!cityResponse.ok) throw new Error(`도시 데이터 로드 실패: ${cityResponse.status}`);
             if (!gameStringsResponse.ok) throw new Error(`게임 문자열 로드 실패: ${gameStringsResponse.status}`);
-            const [data, cityData, gameStrings] = await Promise.all([response.json(), cityResponse.json(), gameStringsResponse.json()]);
+            if (!aptitudeResponse.ok) throw new Error(`배우자 적성 데이터 로드 실패: ${aptitudeResponse.status}`);
+            const [data, cityData, gameStrings, aptitudeData] = await Promise.all([
+                response.json(), cityResponse.json(), gameStringsResponse.json(), aptitudeResponse.json()]);
             const cityNameById = new Map(cityData.records.map((city, cityId) => [cityId, city.name]));
             const languageNames = data.skills_data.slice(13, 27).map(skill => skill[0]);
             ZODIAC_NAMES = gameStrings.zodiac_names;
             OFFICIAL_LANGS = languageNames;
+            APTITUDE_NAMES = aptitudeData.attribute_text_keys.map(key => ui(key, key));
             PERSONALITY_GUIDE = Object.fromEntries(data.personality_names.map((name, id) => [name, {
                 name,
                 color: PERSONALITY_COLORS[id] || 'var(--text-secondary)',
@@ -982,6 +1030,9 @@
                     .filter(Boolean)
                     .join(', ');
                 const languages = languageNames.filter((_, bit) => b.language_flags & (1 << bit));
+                const aptitudeRecord = aptitudeData.records[b.id] ?? [];
+                const aptitudeValues = aptitudeRecord.slice(1);
+                const oracleAptitudeIndex = getOracleAptitudeIndex(aptitudeValues);
                 return {
                     ...b,
                     personality,
@@ -993,9 +1044,25 @@
                     traits: personality.split(/,\s*/),
                     languages,
                     lang_str: languages.join(' '),
+                    face_code: aptitudeRecord[0],
+                    aptitude_values: aptitudeValues,
+                    oracle_aptitude_index: oracleAptitudeIndex,
+                    oracle_aptitude: oracleAptitudeIndex >= 0 ? APTITUDE_NAMES[oracleAptitudeIndex] : '',
                     img: `faces/barmaids/barmaid_${String(b.id).padStart(3, '0')}.png`,
                 };
             });
+        }
+
+        function getOracleAptitudeIndex(values) {
+            let bestIndex = -1;
+            let bestValue = 0;
+            values.forEach((value, index) => {
+                if (value > bestValue) {
+                    bestIndex = index;
+                    bestValue = value;
+                }
+            });
+            return bestIndex;
         }
 
         let currentSort = { key: 'id', order: 'asc' };
@@ -1281,7 +1348,7 @@
                 }
 
                 if (q) {
-                    const fullText = (b.name + ' ' + b.city + ' ' + b.lang_str + ' ' + b.personality + ' ' + b.zodiac + ' ' + b.id_hex + ' ' + b.compat_label).toLowerCase();
+                    const fullText = (b.name + ' ' + b.city + ' ' + b.lang_str + ' ' + b.personality + ' ' + b.zodiac + ' ' + b.id_hex + ' ' + b.compat_label + ' ' + b.oracle_aptitude).toLowerCase();
                     if (!fullText.includes(q)) return false;
                 }
                 return true;
@@ -1310,6 +1377,15 @@
 
         function renderLanguageTags(barmaid, interactive = false) {
             return renderTags(barmaid.languages, 'lang-tag', interactive ? 'toggleLang' : '');
+        }
+
+        function renderAptitudeTags(barmaid) {
+            return APTITUDE_NAMES.map((name, index) => {
+                const value = barmaid.aptitude_values[index];
+                const displayValue = Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${value}` : '-';
+                const oracleClass = index === barmaid.oracle_aptitude_index ? ' oracle' : '';
+                return `<span class="aptitude-tag${oracleClass}">${name} ${displayValue}</span>`;
+            }).join('');
         }
 
         function formatYear(year) {
@@ -1363,6 +1439,12 @@
                                         ${renderPersonalityTags(b)}
                                     </div>
                                 </div>
+                                <div class="aptitude-box">
+                                    <div class="aptitude-title">
+                                        <span>${ui('ui_0665', '자녀 적성')} · ${ui('ui_0666', '얼굴 코드')} ${b.face_code ?? '-'}</span>
+                                    </div>
+                                    <div class="aptitude-tags">${renderAptitudeTags(b)}</div>
+                                </div>
                                 <div class="langs-box">
                                     <div class="langs-title">전수 언어</div>
                                     <div class="langs-tags">
@@ -1395,6 +1477,12 @@
                                 <div style="display:flex; gap:4px; flex-wrap:wrap;">
                                 ${renderPersonalityTags(b)}
                                 </div>
+                            </td>
+                            <td>
+                                <div class="aptitude-title">
+                                    <span>${ui('ui_0666', '얼굴 코드')} ${b.face_code ?? '-'}</span>
+                                </div>
+                                <div class="aptitude-tags">${renderAptitudeTags(b)}</div>
                             </td>
                             <td>
                                 <div class="langs-tags">
