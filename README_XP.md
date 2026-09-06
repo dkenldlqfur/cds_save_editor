@@ -23,21 +23,18 @@ python -m pip install "pyinstaller==3.3.1" "Pillow==5.4.1" "python-vlc==3.0.1111
 python -m PyInstaller --noconfirm --clean CDS_SaveEditor_xp.spec
 ```
 
-The resulting `dist\CDS_SaveEditor_XP_v1.2.2` directory must be copied or zipped
+The resulting `dist\CDS_SaveEditor_XP_v1.3` directory must be copied or zipped
 as a whole and smoke-tested on a real XP SP3 installation.  Building the
 executable on a newer Windows system does not substitute for that test.
 
-## Version 1.2.2 port
+## Version 1.3 port
 
-- Includes the 1.2.1 city trade layout, common goods, price tooltips, and
-  clearing of stale images/values for cities without a trading post.
-- Adds the current-city selector with an upward eight-row popup. Moving
-  characters and characters without a city are read-only; unhireable
-  characters do not show this row.
-- Keeps keyboard focus on the city selector and excludes the read-only
-  basic-information table from keyboard navigation.
-- Loads common error messages from `Resources/data/error_messages.json`
-  through a shared GUI-independent resource loader.
+- Includes the spouse aptitude tab and the six child-aptitude modifiers tied
+  to each barmaid face code.
+- Preserves untouched event/discovery records byte-for-byte and prevents a
+  save operation from overwriting the next record's activation marker.
+- Retains the 1.2.2 city trade layout, current-city selector, and shared
+  resource loader.
 - Retains the XP notebook/spinbox shims, Pillow compatibility, reduced
   32-bit VLC runtime, and disabled self-updater.
 
