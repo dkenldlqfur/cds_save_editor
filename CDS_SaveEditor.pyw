@@ -302,15 +302,29 @@ def normalize_navigation_map_marker_size(value):
     return max(0.5, min(6.0, round(size * 2.0) / 2.0))
 
 
+def normalize_navigation_map_zoom_limit(value):
+    """지도 확대 상한을 100~1000% 범위의 정수 백분율로 정규화한다."""
+    try:
+        text = str(value).strip().replace('%', '')
+        percentage = int(float(text))
+    except (TypeError, ValueError):
+        percentage = 500
+    return max(100, min(1000, percentage)) / 100.0
+
+
 def load_navigation_map_marker_settings():
-    """저장된 지도 마커 크기와 상태별 색상을 검증해 읽는다."""
+    """저장된 지도 마커·확대 설정을 검증해 읽는다."""
     try:
         with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
             settings = json.load(settings_file)
         marker_size = normalize_navigation_map_marker_size(
             settings.get('navigation_map_marker_size', 1))
+        zoom_limit = normalize_navigation_map_zoom_limit(
+            settings.get('navigation_map_zoom_limit', 500))
         saved_colors = settings.get('navigation_map_marker_colors', {})
+        saved_visibility = settings.get('navigation_map_marker_visibility', {})
         colors = {}
+        visibility = {}
         for group in ('city', 'discovery'):
             group_colors = saved_colors.get(group, {})
             if isinstance(group_colors, dict):
@@ -319,12 +333,19 @@ def load_navigation_map_marker_settings():
                     for key, value in group_colors.items()
                     if isinstance(value, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', value)
                 }
-        return marker_size, colors
+            group_visibility = saved_visibility.get(group, {})
+            if isinstance(group_visibility, dict):
+                visibility[group] = {
+                    key: value for key, value in group_visibility.items()
+                    if isinstance(value, bool)
+                }
+        return marker_size, zoom_limit, colors, visibility
     except (OSError, ValueError, TypeError, AttributeError):
-        return 1, {}
+        return 1, 5.0, {}, {}
 
 
-def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colors):
+def save_navigation_map_marker_settings(
+        marker_size, zoom_limit, city_colors, discovery_colors, city_visibility, discovery_visibility):
     """기존 테마 설정을 보존하면서 지도 마커 설정만 저장한다."""
     path = _theme_settings_path()
     try:
@@ -338,8 +359,13 @@ def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colo
         except (OSError, ValueError, TypeError):
             pass
         data['navigation_map_marker_size'] = normalize_navigation_map_marker_size(marker_size)
+        data['navigation_map_zoom_limit'] = normalize_navigation_map_zoom_limit(zoom_limit)
         data['navigation_map_marker_colors'] = {
             'city': dict(city_colors), 'discovery': dict(discovery_colors),
+        }
+        data['navigation_map_marker_visibility'] = {
+            'city': {key: bool(value) for key, value in city_visibility.items()},
+            'discovery': {key: bool(value) for key, value in discovery_visibility.items()},
         }
         with open(path, 'w', encoding='utf-8') as settings_file:
             json.dump(data, settings_file, ensure_ascii=False, indent=2)
@@ -359,10 +385,25 @@ DATA_CATEGORIES = load_json_resource('data_categories.json')
 DISCOVERY_REWARD_DATA = load_json_resource('discovery_reward_items.json')
 DISCOVERY_HINT_DATA = load_json_resource('discovery_hint_data.json')
 MAP_LOCATION_DATA = load_json_resource('map_locations.json')
+CITY_DISCOVERY_LOCATION_DATA = load_json_resource('city_discovery_locations.json')
 SPOUSE_APTITUDE_DATA = load_json_resource('spouse_aptitudes.json')
 APP_CONFIG = load_json_resource('app_config.json')
 UI_TEXTS = load_json_resource('ui_texts.json')['texts']
 APP_FONT_FAMILY = APP_CONFIG['ui']['font_family']
+
+# EXE의 도시 시설 표에서 추출한 도시 내부 발견물 연결이다. 발견물은 지도에
+# 별도 좌표가 없으므로, 해당 도시 마커가 도시/발견물 두 범주의 상태를 함께 가진다.
+CITY_DISCOVERIES_BY_CITY = {}
+for _city_discovery_entry in CITY_DISCOVERY_LOCATION_DATA.get('entries', ()):
+    _city_discovery_city_id = int(_city_discovery_entry['city_id'])
+    CITY_DISCOVERIES_BY_CITY.setdefault(_city_discovery_city_id, []).append({
+        'discovery_id': int(_city_discovery_entry['discovery_id']),
+        'facility': str(_city_discovery_entry['facility']),
+    })
+CITY_DISCOVERIES_BY_CITY = {
+    city_id: tuple(entries)
+    for city_id, entries in CITY_DISCOVERIES_BY_CITY.items()
+}
 
 # 후원자 JSON에는 EXE 원본 ID/계수만 보관한다. 화면에서 필요한 파생 문자열은
 # 공용 도시·국가 표와 후원자 직업 표를 이용해 한 번만 복원한다.
@@ -4872,9 +4913,30 @@ class CDS3SaveEditorApp:
         'unspawned': '#EF5350',
     }
     MAP_DISCOVERY_COLORS = {
-        'known': '#40C4FF',
+        'discovered': '#40C4FF',
+        'reported': '#00C853',
         'undiscovered': '#FF9100',
         'unspawned': '#B388FF',
+    }
+    # 지도 범례 필터용 상태 비트. 도시 내부 발견물 마커는 도시 상태 비트와
+    # 발견물 상태 비트를 동시에 보유한다.
+    MAP_FLAG_CITY_UNSPAWNED = 0x01
+    MAP_FLAG_CITY_UNDISCOVERED = 0x02
+    MAP_FLAG_CITY_DISCOVERED = 0x04
+    MAP_FLAG_DISCOVERY_UNSPAWNED = 0x08
+    MAP_FLAG_DISCOVERY_UNDISCOVERED = 0x10
+    MAP_FLAG_DISCOVERY_DISCOVERED = 0x20
+    MAP_FLAG_DISCOVERY_REPORTED = 0x40
+    MAP_CITY_STATE_FLAGS = {
+        'unspawned': MAP_FLAG_CITY_UNSPAWNED,
+        'undiscovered': MAP_FLAG_CITY_UNDISCOVERED,
+        'discovered': MAP_FLAG_CITY_DISCOVERED,
+    }
+    MAP_DISCOVERY_STATE_FLAGS = {
+        'unspawned': MAP_FLAG_DISCOVERY_UNSPAWNED,
+        'undiscovered': MAP_FLAG_DISCOVERY_UNDISCOVERED,
+        'discovered': MAP_FLAG_DISCOVERY_DISCOVERED,
+        'reported': MAP_FLAG_DISCOVERY_REPORTED,
     }
     # EXE 정적 도시 테이블(+0x18)의 조선소 판매 후보 마스크. 세이브의 현재 판매 목록과 다르다.
     CITY_SHIP_CANDIDATE_MASKS = tuple(
@@ -6021,6 +6083,7 @@ class CDS3SaveEditorApp:
         self._navigation_map_photo = None
         self._navigation_map_refresh_job = None
         self._navigation_map_draw_job = None
+        self._navigation_map_zoom_limit_apply_job = None
         self._navigation_map_dirty = True
         self._navigation_map_preserve_view_on_refresh = False
         self._navigation_map_zoom = 1.0
@@ -6030,20 +6093,60 @@ class CDS3SaveEditorApp:
         self._navigation_map_image_item = None
         self._navigation_map_border_item = None
         self._navigation_map_marker_records = []
+        self._navigation_map_marker_items = []
         self._navigation_map_source_default = ui('ui_0558')
         self._navigation_map_reveal_backup = None
-        marker_size, marker_colors = load_navigation_map_marker_settings()
+        marker_size, zoom_limit, marker_colors, marker_visibility = load_navigation_map_marker_settings()
         self._navigation_map_marker_size = marker_size
+        self._navigation_map_zoom_limit = zoom_limit
         self._navigation_map_city_colors = dict(self.MAP_CITY_COLORS)
         self._navigation_map_city_colors.update(marker_colors.get('city', {}))
+        saved_discovery_colors = dict(marker_colors.get('discovery', {}))
+        # 구버전의 "발견/보고" 공용 색상은 새 두 상태에 이어받는다.
+        legacy_known_color = saved_discovery_colors.pop('known', None)
+        if legacy_known_color:
+            saved_discovery_colors.setdefault('discovered', legacy_known_color)
+            saved_discovery_colors.setdefault('reported', legacy_known_color)
         self._navigation_map_discovery_colors = dict(self.MAP_DISCOVERY_COLORS)
-        self._navigation_map_discovery_colors.update(marker_colors.get('discovery', {}))
+        self._navigation_map_discovery_colors.update(saved_discovery_colors)
+        self._navigation_map_city_visibility = {
+            key: marker_visibility.get('city', {}).get(key, True)
+            for key in self.MAP_CITY_COLORS
+        }
+        saved_discovery_visibility = dict(marker_visibility.get('discovery', {}))
+        legacy_known_visibility = saved_discovery_visibility.get('known')
+        self._navigation_map_discovery_visibility = {
+            key: saved_discovery_visibility.get(
+                key,
+                legacy_known_visibility if key in ('discovered', 'reported')
+                and legacy_known_visibility is not None else True,
+            )
+            for key in self.MAP_DISCOVERY_COLORS
+        }
 
         header = tk.Frame(parent, padx=10, pady=7)
         header.pack(fill=tk.X)
         tk.Label(
             header, text=ui('ui_0547'), font=(APP_FONT_FAMILY, 10, 'bold'), anchor='w',
         ).pack(side=tk.LEFT)
+        tk.Label(
+            header, text=ui('ui_0671'), font=(APP_FONT_FAMILY, 9), fg='#5F6368',
+        ).pack(side=tk.LEFT, padx=(14, 3))
+        self.navigation_map_zoom_limit_var = tk.StringVar(value=str(round(zoom_limit * 100)))
+        self.edt_navigation_map_zoom_limit = tk.Entry(
+            header, textvariable=self.navigation_map_zoom_limit_var, width=4,
+            font=(APP_FONT_FAMILY, 9), justify='right',
+        )
+        self.edt_navigation_map_zoom_limit.pack(side=tk.LEFT)
+        tk.Label(
+            header, text='%', font=(APP_FONT_FAMILY, 9), fg='#5F6368',
+        ).pack(side=tk.LEFT, padx=(2, 0))
+        self.edt_navigation_map_zoom_limit.bind(
+            '<FocusOut>', self._on_navigation_map_zoom_limit_changed)
+        self.edt_navigation_map_zoom_limit.bind(
+            '<Return>', self._on_navigation_map_zoom_limit_changed)
+        self.edt_navigation_map_zoom_limit.bind(
+            '<KeyRelease>', self._schedule_navigation_map_zoom_limit_apply)
         self.navigation_map_zoom_var = tk.StringVar(value=ui('ui_0560', 100))
         tk.Label(
             header, textvariable=self.navigation_map_zoom_var,
@@ -6060,7 +6163,17 @@ class CDS3SaveEditorApp:
 
         marker_legend = tk.Frame(parent, padx=10, pady=1)
         marker_legend.pack(fill=tk.X)
-        marker_controls = tk.Frame(marker_legend)
+        city_legend = tk.Frame(marker_legend)
+        city_legend.pack(fill=tk.X)
+        discovery_legend = tk.Frame(marker_legend)
+        discovery_legend.pack(fill=tk.X)
+        tk.Label(
+            city_legend, text=ui('ui_0354'), font=(APP_FONT_FAMILY, 8, 'bold'),
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(
+            discovery_legend, text=ui('ui_0570'), font=(APP_FONT_FAMILY, 8, 'bold'),
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        marker_controls = tk.Frame(city_legend)
         marker_controls.pack(side=tk.RIGHT)
         tk.Label(
             marker_controls, text=ui('ui_0574'), font=(APP_FONT_FAMILY, 8), fg='#5F6368',
@@ -6079,26 +6192,35 @@ class CDS3SaveEditorApp:
         ).pack(side=tk.LEFT, padx=(7, 0))
 
         for symbol, text_key, group, color_key in (
-                (ui('ui_0598'), 'ui_0561', 'city', 'discovered'),
-                (ui('ui_0598'), 'ui_0562', 'city', 'undiscovered'),
-                (ui('ui_0598'), 'ui_0563', 'city', 'unspawned'),
-                (ui('ui_0599'), 'ui_0564', 'discovery', 'known'),
-                (ui('ui_0599'), 'ui_0565', 'discovery', 'undiscovered'),
-                (ui('ui_0599'), 'ui_0566', 'discovery', 'unspawned')):
+                (ui('ui_0598'), 'ui_0314', 'city', 'discovered'),
+                (ui('ui_0598'), 'ui_0112', 'city', 'undiscovered'),
+                (ui('ui_0598'), 'ui_0466', 'city', 'unspawned'),
+                (ui('ui_0599'), 'ui_0466', 'discovery', 'unspawned'),
+                (ui('ui_0599'), 'ui_0112', 'discovery', 'undiscovered'),
+                (ui('ui_0599'), 'ui_0667', 'discovery', 'discovered'),
+                (ui('ui_0599'), 'ui_0668', 'discovery', 'reported')):
             colors = (self._navigation_map_city_colors if group == 'city'
                       else self._navigation_map_discovery_colors)
+            legend_row = city_legend if group == 'city' else discovery_legend
+            visibility = (self._navigation_map_city_visibility if group == 'city'
+                          else self._navigation_map_discovery_visibility)
+            variable = tk.BooleanVar(value=visibility[color_key])
+            tk.Checkbutton(
+                legend_row, text=ui(text_key), variable=variable,
+                command=lambda marker_group=group, key=color_key, var=variable:
+                    self._on_navigation_map_marker_visibility_changed(marker_group, key, var),
+                font=(APP_FONT_FAMILY, 8), anchor='w', padx=1,
+            ).pack(side=tk.LEFT, padx=(0, 1))
             color_label = tk.Label(
-                marker_legend, text=symbol, fg=colors[color_key], cursor='hand2',
+                legend_row, text=symbol, fg=colors[color_key], cursor='hand2',
                 font=(APP_FONT_FAMILY, 10, 'bold'),
             )
-            color_label.pack(side=tk.LEFT)
+            color_label.pack(side=tk.LEFT, padx=(0, 7))
             color_label.bind(
                 '<Button-1>',
                 lambda _event, marker_group=group, key=color_key, widget=color_label:
                     self._choose_navigation_map_marker_color(marker_group, key, widget),
             )
-            tk.Label(marker_legend, text=ui(text_key), font=(APP_FONT_FAMILY, 8)).pack(
-                side=tk.LEFT, padx=(1, 9))
 
         map_frame = tk.Frame(parent, bg='#202124', bd=1, relief='sunken')
         map_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 4))
@@ -6131,9 +6253,20 @@ class CDS3SaveEditorApp:
     def _save_navigation_map_marker_settings(self):
         save_navigation_map_marker_settings(
             self._navigation_map_marker_size,
+            self._navigation_map_zoom_limit,
             self._navigation_map_city_colors,
             self._navigation_map_discovery_colors,
+            self._navigation_map_city_visibility,
+            self._navigation_map_discovery_visibility,
         )
+
+    def _on_navigation_map_marker_visibility_changed(self, group, key, variable):
+        """범례 체크 상태에 따라 해당 도시/발견물 마커만 다시 표시한다."""
+        visibility = (self._navigation_map_city_visibility if group == 'city'
+                      else self._navigation_map_discovery_visibility)
+        visibility[key] = bool(variable.get())
+        self._save_navigation_map_marker_settings()
+        self._redraw_navigation_map_marker_layer()
 
     def _on_navigation_map_marker_size_changed(self, _event=None):
         try:
@@ -6144,7 +6277,48 @@ class CDS3SaveEditorApp:
         self._navigation_map_marker_size = marker_size
         self.navigation_map_marker_size_var.set(ui('ui_0646', marker_size))
         self._save_navigation_map_marker_settings()
-        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+        image = getattr(self, '_navigation_map_native_image', None)
+        if image is not None:
+            self._collect_navigation_map_markers(image)
+        self._redraw_navigation_map_marker_layer()
+
+    def _apply_navigation_map_zoom_limit(self, canonicalize=False):
+        """검증된 확대 상한을 실제 지도와 저장 설정에 반영한다."""
+        zoom_limit = normalize_navigation_map_zoom_limit(self.navigation_map_zoom_limit_var.get())
+        self._navigation_map_zoom_limit = zoom_limit
+        if canonicalize:
+            self.navigation_map_zoom_limit_var.set(str(round(zoom_limit * 100)))
+        if self._navigation_map_zoom > zoom_limit:
+            self._navigation_map_zoom = zoom_limit
+            self.navigation_map_zoom_var.set(ui('ui_0560', round(zoom_limit * 100)))
+            # 상한을 낮춘 경우에는 다음 이벤트를 기다리지 않고 현재 지도를 즉시
+            # 다시 그려, 입력값과 실제 화면 확대율이 어긋나지 않게 한다.
+            if getattr(self, '_navigation_map_native_image', None) is not None:
+                self._draw_navigation_map()
+        self._save_navigation_map_marker_settings()
+
+    def _schedule_navigation_map_zoom_limit_apply(self, _event=None):
+        """타이핑이 잠시 멈췄을 때만 확대 상한을 자동 반영한다."""
+        previous = self._navigation_map_zoom_limit_apply_job
+        if previous is not None:
+            self.root.after_cancel(previous)
+        self._navigation_map_zoom_limit_apply_job = self.root.after(
+            300, self._apply_navigation_map_zoom_limit_from_text)
+
+    def _apply_navigation_map_zoom_limit_from_text(self):
+        self._navigation_map_zoom_limit_apply_job = None
+        value = self.navigation_map_zoom_limit_var.get().strip()
+        if re.fullmatch(r'\d{1,4}', value):
+            self._apply_navigation_map_zoom_limit(canonicalize=False)
+
+    def _on_navigation_map_zoom_limit_changed(self, _event=None):
+        """포커스를 옮기거나 Enter를 누르면 입력값을 정규화해 확정한다."""
+        previous = self._navigation_map_zoom_limit_apply_job
+        if previous is not None:
+            self.root.after_cancel(previous)
+            self._navigation_map_zoom_limit_apply_job = None
+        self._apply_navigation_map_zoom_limit(canonicalize=True)
+        return 'break'
 
     def _choose_navigation_map_marker_color(self, group, key, widget):
         colors = (self._navigation_map_city_colors if group == 'city'
@@ -6156,7 +6330,7 @@ class CDS3SaveEditorApp:
         colors[key] = selected.upper()
         widget.configure(fg=colors[key])
         self._save_navigation_map_marker_settings()
-        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+        self._redraw_navigation_map_marker_layer()
 
     def _on_main_tab_changed(self, _event=None):
         if (hasattr(self, 'tab_map') and hasattr(self, 'notebook')
@@ -6389,9 +6563,8 @@ class CDS3SaveEditorApp:
             cls._navigation_map_longitude_text(min_x),
             cls._navigation_map_longitude_text(max_x))
 
-    def _draw_navigation_map_markers(self, image):
-        """EXE에서 추출해 내장한 세계 좌표를 상태별 마커로 그린다."""
-        draw = ImageDraw.Draw(image)
+    def _collect_navigation_map_markers(self, image):
+        """배경과 별도로 그릴 도시·발견물 마커의 원본 좌표를 수집한다."""
         marker_records = []
         render_scale = image.width / float(self.NAVIGATION_MAP_WIDTH)
         marker_size = normalize_navigation_map_marker_size(
@@ -6399,16 +6572,6 @@ class CDS3SaveEditorApp:
         marker_diameter = max(1, int(round(marker_size * render_scale)))
         marker_radius = marker_diameter / 2.0
         range_line_width = max(1, int(round(marker_size * render_scale / 2.0)))
-
-        def draw_dot(center_x, center_y, color):
-            if marker_diameter == 1:
-                draw.point((center_x, center_y), fill=color)
-                return
-            left = center_x - marker_diameter // 2
-            top = center_y - marker_diameter // 2
-            draw.ellipse(
-                (left, top, left + marker_diameter - 1, top + marker_diameter - 1),
-                fill=color)
 
         discovery_state_by_id = {
             int(discovery['index']): self.discovery_state[index]
@@ -6421,7 +6584,12 @@ class CDS3SaveEditorApp:
                 continue
             discovery_id = int(region['id'])
             state = int(discovery_state_by_id.get(discovery_id, 0))
-            state_key = 'unspawned' if state == 0 else 'undiscovered' if state == 1 else 'known'
+            state_key = {
+                0: 'unspawned',
+                1: 'undiscovered',
+                2: 'discovered',
+                3: 'reported',
+            }.get(state, 'unspawned')
             min_x, min_y = int(region['min_x']), int(region['min_y'])
             max_x, max_y = int(region['max_x']), int(region['max_y'])
             center_x = int(round((min_x + max_x) * render_scale / 8.0))
@@ -6433,20 +6601,18 @@ class CDS3SaveEditorApp:
                 'x': center_x, 'y': center_y, 'kind': ui('ui_0570'),
                 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)),
                 'state': discovery_state_text(state), 'hit_radius': marker_radius,
+                'group': 'discovery', 'state_key': state_key,
+                'marker_flags': self.MAP_DISCOVERY_STATE_FLAGS[state_key],
             }
             if is_range:
                 bounds = tuple(int(round(value * render_scale / 4.0)) for value in (
                     min_x, min_y, max_x, max_y))
-                draw.rectangle(
-                    bounds, outline=self._navigation_map_discovery_colors[state_key],
-                    width=range_line_width)
                 marker['bounds'] = bounds
                 marker['hit_radius'] = range_line_width / 2.0
+                marker['line_width'] = range_line_width
                 marker['coordinate'] = self._navigation_map_range_text(
                     min_x, min_y, max_x, max_y)
             else:
-                draw_dot(
-                    center_x, center_y, self._navigation_map_discovery_colors[state_key])
                 marker['coordinate'] = self._navigation_map_coordinate_text(
                     (min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
             marker_records.append(marker)
@@ -6458,11 +6624,32 @@ class CDS3SaveEditorApp:
             center_x = int(round(int(point['world_x']) * render_scale / 4.0))
             center_y = int(round(int(point['world_y']) * render_scale / 4.0))
             state_key = self._navigation_city_marker_state(city_id)
-            draw_dot(center_x, center_y, self._navigation_map_city_colors[state_key])
+            city_discoveries = []
+            marker_flags = self.MAP_CITY_STATE_FLAGS[state_key]
+            for linked_discovery in CITY_DISCOVERIES_BY_CITY.get(city_id, ()):
+                discovery_id = linked_discovery['discovery_id']
+                discovery_state = int(discovery_state_by_id.get(discovery_id, 0))
+                discovery_state_key = {
+                    0: 'unspawned',
+                    1: 'undiscovered',
+                    2: 'discovered',
+                    3: 'reported',
+                }.get(discovery_state, 'unspawned')
+                marker_flags |= self.MAP_DISCOVERY_STATE_FLAGS[discovery_state_key]
+                city_discoveries.append({
+                    'facility': linked_discovery['facility'],
+                    'name': DISCOVERY_NAME_BY_NO.get(
+                        discovery_id, ui('ui_0295', discovery_id)),
+                    'state': discovery_state_text(discovery_state),
+                    'state_key': discovery_state_key,
+                })
             marker_records.append({
                 'x': center_x, 'y': center_y, 'kind': ui('ui_0354'),
                 'name': self.CITY_RECORDS[city_id]['name'],
                 'hit_radius': marker_radius,
+                'group': 'city', 'state_key': state_key,
+                'marker_flags': marker_flags,
+                'city_discoveries': tuple(city_discoveries),
                 'state': ui({'discovered': 'ui_0314', 'undiscovered': 'ui_0112',
                              'unspawned': 'ui_0466'}[state_key]),
                 'coordinate': self._navigation_map_coordinate_text(
@@ -6471,6 +6658,100 @@ class CDS3SaveEditorApp:
             city_count += 1
         self._navigation_map_marker_records = marker_records
         return city_count, discovery_count
+
+    def _navigation_map_marker_is_visible(self, marker):
+        """상태별 비트와 범례 체크 상태를 교차해 마커 노출 여부를 정한다."""
+        marker_flags = int(marker.get('marker_flags', 0))
+        enabled_flags = 0
+        for state_key, flag in self.MAP_CITY_STATE_FLAGS.items():
+            if self._navigation_map_city_visibility.get(state_key, True):
+                enabled_flags |= flag
+        for state_key, flag in self.MAP_DISCOVERY_STATE_FLAGS.items():
+            if self._navigation_map_discovery_visibility.get(state_key, True):
+                enabled_flags |= flag
+        return bool(marker_flags & enabled_flags)
+
+    def _navigation_map_marker_color(self, marker):
+        colors = (self._navigation_map_city_colors
+                  if marker.get('group') == 'city'
+                  else self._navigation_map_discovery_colors)
+        return colors[marker['state_key']]
+
+    def _navigation_map_marker_canvas_geometry(self):
+        """현재 확대·이동 상태에서 원본 지도 좌표를 캔버스 좌표로 바꿀 값을 구한다."""
+        canvas = self.navigation_map_canvas
+        image = self._navigation_map_native_image
+        width = getattr(self, '_navigation_map_render_width', 0)
+        height = getattr(self, '_navigation_map_render_height', 0)
+        if image is None or not width or not height:
+            return None
+        center_x = canvas.winfo_width() / 2.0 + self._navigation_map_pan_x
+        center_y = canvas.winfo_height() / 2.0 + self._navigation_map_pan_y
+        return (
+            center_x - width / 2.0, center_y - height / 2.0,
+            width / image.width, height / image.height,
+        )
+
+    @staticmethod
+    def _navigation_map_marker_canvas_coords(marker, geometry):
+        left, top, scale_x, scale_y = geometry
+        if 'bounds' in marker:
+            min_x, min_y, max_x, max_y = marker['bounds']
+            return (
+                left + min_x * scale_x, top + min_y * scale_y,
+                left + max_x * scale_x, top + max_y * scale_y,
+            )
+        radius = marker['hit_radius']
+        center_x = left + marker['x'] * scale_x
+        center_y = top + marker['y'] * scale_y
+        return (
+            center_x - radius * scale_x, center_y - radius * scale_y,
+            center_x + radius * scale_x, center_y + radius * scale_y,
+        )
+
+    def _draw_navigation_map_marker_layer(self):
+        """배경 이미지와 독립된 캔버스 마커 레이어를 만들거나 교체한다."""
+        canvas = getattr(self, 'navigation_map_canvas', None)
+        if canvas is None:
+            return
+        canvas.delete('navigation_map_marker')
+        self._navigation_map_marker_items = []
+        geometry = self._navigation_map_marker_canvas_geometry()
+        if geometry is None:
+            return
+        for marker in self._navigation_map_marker_records:
+            if not self._navigation_map_marker_is_visible(marker):
+                continue
+            color = self._navigation_map_marker_color(marker)
+            coords = self._navigation_map_marker_canvas_coords(marker, geometry)
+            if 'bounds' in marker:
+                scale_x, scale_y = geometry[2:]
+                line_width = max(1, int(round(
+                    marker.get('line_width', 1) * (scale_x + scale_y) / 2.0)))
+                item = canvas.create_rectangle(
+                    *coords, outline=color, width=line_width, tags='navigation_map_marker')
+            else:
+                item = canvas.create_oval(*coords, fill=color, outline='', tags='navigation_map_marker')
+            self._navigation_map_marker_items.append((item, marker))
+        canvas.tag_raise('navigation_map_marker')
+
+    def _position_navigation_map_marker_layer(self):
+        """지도의 확대·이동에 맞춰 기존 마커 레이어만 이동·크기 조정한다."""
+        canvas = getattr(self, 'navigation_map_canvas', None)
+        geometry = self._navigation_map_marker_canvas_geometry()
+        if canvas is None or geometry is None:
+            return
+        for item, marker in getattr(self, '_navigation_map_marker_items', ()):
+            canvas.coords(item, *self._navigation_map_marker_canvas_coords(marker, geometry))
+            if 'bounds' in marker:
+                scale_x, scale_y = geometry[2:]
+                canvas.itemconfigure(item, width=max(1, int(round(
+                    marker.get('line_width', 1) * (scale_x + scale_y) / 2.0))))
+
+    def _redraw_navigation_map_marker_layer(self):
+        """범례 변경은 지도 합성 없이 마커 레이어만 즉시 갱신한다."""
+        self._hide_navigation_map_tooltip()
+        self._draw_navigation_map_marker_layer()
 
     def _compose_navigation_map(self):
         base_image, _world_path = self._load_navigation_map_base()
@@ -6487,7 +6768,7 @@ class CDS3SaveEditorApp:
             composed = composed.resize(
                 (composed.width * marker_render_scale, composed.height * marker_render_scale),
                 Image.Resampling.NEAREST)
-        self._draw_navigation_map_markers(composed)
+        self._collect_navigation_map_markers(composed)
         total = self.NAVIGATION_MAP_WIDTH * self.NAVIGATION_MAP_HEIGHT
         exploration_percent = explored_count * 100.0 / total
         city_total = len(self.MAP_CITY_POINTS)
@@ -6512,6 +6793,8 @@ class CDS3SaveEditorApp:
             return
         self._hide_navigation_map_tooltip()
         canvas.delete('navigation_map')
+        canvas.delete('navigation_map_marker')
+        self._navigation_map_marker_items = []
         self._navigation_map_image_item = None
         self._navigation_map_border_item = None
         width = max(1, canvas.winfo_width())
@@ -6545,8 +6828,11 @@ class CDS3SaveEditorApp:
             self._sync_navigation_map_reveal_all_state()
             self._set_navigation_map_message(ui('ui_0551'))
             return
-        self._set_navigation_map_message(ui('ui_0559'))
-        self.root.update_idletasks()
+        # 이미 표시 중인 지도는 새 탐사 레이어 합성이 끝날 때까지 남겨 둔다.
+        # 전체 개방·저장 후 갱신에서 캔버스를 먼저 비우면 화면이 깜빡인다.
+        if self._navigation_map_native_image is None:
+            self._set_navigation_map_message(ui('ui_0559'))
+            self.root.update_idletasks()
         try:
             self._navigation_map_native_image = self._compose_navigation_map()
             self._navigation_map_dirty = False
@@ -6603,6 +6889,7 @@ class CDS3SaveEditorApp:
             center_x - width / 2.0, center_y - height / 2.0,
             center_x + width / 2.0, center_y + height / 2.0,
         )
+        self._position_navigation_map_marker_layer()
 
     def _draw_navigation_map(self):
         self._navigation_map_draw_job = None
@@ -6618,6 +6905,8 @@ class CDS3SaveEditorApp:
         self._navigation_map_photo = ImageTk.PhotoImage(resized)
         self._hide_navigation_map_tooltip()
         canvas.delete('navigation_map')
+        canvas.delete('navigation_map_marker')
+        self._navigation_map_marker_items = []
         self._navigation_map_render_width = width
         self._navigation_map_render_height = height
         self._navigation_map_image_item = canvas.create_image(
@@ -6628,6 +6917,7 @@ class CDS3SaveEditorApp:
             tags=('navigation_map', 'navigation_map_border'),
         )
         self._position_navigation_map_items()
+        self._draw_navigation_map_marker_layer()
 
     def _on_navigation_map_mousewheel(self, event):
         image = getattr(self, '_navigation_map_native_image', None)
@@ -6635,7 +6925,7 @@ class CDS3SaveEditorApp:
             return None
         old_zoom = self._navigation_map_zoom
         factor = 1.20 if event.delta > 0 else 1.0 / 1.20
-        new_zoom = max(1.0, min(4.0, old_zoom * factor))
+        new_zoom = max(1.0, min(self._navigation_map_zoom_limit, old_zoom * factor))
         if abs(new_zoom - old_zoom) < 0.0001:
             return 'break'
 
@@ -6702,6 +6992,9 @@ class CDS3SaveEditorApp:
         text = ui(
             'ui_0573', marker['kind'], marker['name'], marker['state'],
             marker['coordinate'])
+        city_discoveries = marker.get('city_discoveries', ())
+        if city_discoveries:
+            text += ui('ui_0669')
         gap = _dpi_px(12)
         padding = _dpi_px(5)
         x, y = event.x + gap, event.y + gap
@@ -6709,7 +7002,22 @@ class CDS3SaveEditorApp:
             x, y, text=text, anchor='nw', justify='left', fill='#202124',
             font=(APP_FONT_FAMILY, 9), tags=('navigation_map_tooltip',),
         )
-        bbox = canvas.bbox(text_item)
+        text_bbox = canvas.bbox(text_item)
+        if text_bbox is None:
+            return
+        line_y = text_bbox[3]
+        for discovery in city_discoveries:
+            line_item = canvas.create_text(
+                x, line_y,
+                text=ui('ui_0670', discovery['facility'], discovery['name'], discovery['state']),
+                anchor='nw', justify='left',
+                fill=self._navigation_map_discovery_colors[discovery['state_key']],
+                font=(APP_FONT_FAMILY, 9, 'bold'), tags=('navigation_map_tooltip',),
+            )
+            line_bbox = canvas.bbox(line_item)
+            if line_bbox is not None:
+                line_y = line_bbox[3]
+        bbox = canvas.bbox('navigation_map_tooltip')
         if bbox is None:
             return
         tooltip_width = bbox[2] - bbox[0] + padding * 2
@@ -6718,7 +7026,7 @@ class CDS3SaveEditorApp:
             x = max(padding, event.x - gap - tooltip_width)
         if y + tooltip_height > canvas.winfo_height():
             y = max(padding, event.y - gap - tooltip_height)
-        canvas.coords(text_item, x + padding, y + padding)
+        canvas.move('navigation_map_tooltip', x + padding - bbox[0], y + padding - bbox[1])
         background = canvas.create_rectangle(
             x, y, x + tooltip_width, y + tooltip_height,
             fill='#FFF8DC', outline='#5F6368', width=1,
@@ -6732,7 +7040,10 @@ class CDS3SaveEditorApp:
         image = getattr(self, '_navigation_map_native_image', None)
         render_width = getattr(self, '_navigation_map_render_width', 0)
         render_height = getattr(self, '_navigation_map_render_height', 0)
-        markers = getattr(self, '_navigation_map_marker_records', ())
+        markers = [
+            marker for marker in getattr(self, '_navigation_map_marker_records', ())
+            if self._navigation_map_marker_is_visible(marker)
+        ]
         if image is None or not render_width or not render_height or not markers:
             self._restore_navigation_map_source()
             return
