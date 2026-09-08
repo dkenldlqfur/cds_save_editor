@@ -314,23 +314,37 @@ def normalize_navigation_map_marker_size(value):
         size = 1.0
     return max(0.5, min(6.0, round(size * 2.0) / 2.0))
 
+def normalize_navigation_map_zoom_limit(value):
+    """XP판 지도 확대 상한을 100~1000% 범위로 정규화한다."""
+    try:
+        percentage = int(float(str(value).strip().replace('%', '')))
+    except (TypeError, ValueError):
+        percentage = 500
+    return max(100, min(1000, percentage)) / 100.0
+
 def load_navigation_map_marker_settings():
-    """저장된 지도 마커 크기와 상태별 색상을 검증해 읽는다."""
+    """저장된 지도 마커·확대 설정을 검증해 읽는다."""
     try:
         with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
             settings = json.load(settings_file)
         marker_size = normalize_navigation_map_marker_size(settings.get('navigation_map_marker_size', 1))
+        zoom_limit = normalize_navigation_map_zoom_limit(settings.get('navigation_map_zoom_limit', 500))
         saved_colors = settings.get('navigation_map_marker_colors', {})
+        saved_visibility = settings.get('navigation_map_marker_visibility', {})
         colors = {}
+        visibility = {}
         for group in ('city', 'discovery'):
             group_colors = saved_colors.get(group, {})
             if isinstance(group_colors, dict):
                 colors[group] = {key: value.upper() for key, value in group_colors.items() if isinstance(value, str) and re.fullmatch('#[0-9A-Fa-f]{6}', value)}
-        return (marker_size, colors)
+            group_visibility = saved_visibility.get(group, {})
+            if isinstance(group_visibility, dict):
+                visibility[group] = {key: value for key, value in group_visibility.items() if isinstance(value, bool)}
+        return (marker_size, zoom_limit, colors, visibility)
     except (OSError, ValueError, TypeError, AttributeError):
-        return (1, {})
+        return (1, 5.0, {}, {})
 
-def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colors):
+def save_navigation_map_marker_settings(marker_size, zoom_limit, city_colors, discovery_colors, city_visibility, discovery_visibility):
     """기존 테마 설정을 보존하면서 지도 마커 설정만 저장한다."""
     path = _theme_settings_path()
     try:
@@ -344,7 +358,9 @@ def save_navigation_map_marker_settings(marker_size, city_colors, discovery_colo
         except (OSError, ValueError, TypeError):
             pass
         data['navigation_map_marker_size'] = normalize_navigation_map_marker_size(marker_size)
+        data['navigation_map_zoom_limit'] = normalize_navigation_map_zoom_limit(zoom_limit)
         data['navigation_map_marker_colors'] = {'city': dict(city_colors), 'discovery': dict(discovery_colors)}
+        data['navigation_map_marker_visibility'] = {'city': dict(city_visibility), 'discovery': dict(discovery_visibility)}
         with open(path, 'w', encoding='utf-8') as settings_file:
             json.dump(data, settings_file, ensure_ascii=False, indent=2)
     except (OSError, TypeError, ValueError):
@@ -363,10 +379,20 @@ DATA_CATEGORIES = load_json_resource('data_categories.json')
 DISCOVERY_REWARD_DATA = load_json_resource('discovery_reward_items.json')
 DISCOVERY_HINT_DATA = load_json_resource('discovery_hint_data.json')
 MAP_LOCATION_DATA = load_json_resource('map_locations.json')
+CITY_DISCOVERY_LOCATION_DATA = load_json_resource('city_discovery_locations.json')
 SPOUSE_APTITUDE_DATA = load_json_resource('spouse_aptitudes.json')
 APP_CONFIG = load_json_resource('app_config.json')
 UI_TEXTS = load_json_resource('ui_texts.json')['texts']
 APP_FONT_FAMILY = APP_CONFIG['ui']['font_family']
+
+CITY_DISCOVERIES_BY_CITY = {}
+for _city_discovery_entry in CITY_DISCOVERY_LOCATION_DATA.get('entries', ()):
+    _city_discovery_city_id = int(_city_discovery_entry['city_id'])
+    CITY_DISCOVERIES_BY_CITY.setdefault(_city_discovery_city_id, []).append({
+        'discovery_id': int(_city_discovery_entry['discovery_id']),
+        'facility': str(_city_discovery_entry['facility']),
+    })
+CITY_DISCOVERIES_BY_CITY = dict((city_id, tuple(entries)) for city_id, entries in CITY_DISCOVERIES_BY_CITY.items())
 SPONSOR_JOB_NAME_BY_ID = {int(job_id): name for job_id, name in SPONSOR_DATA['job_names'].items()}
 for _sponsor_record in SPONSOR_DATA['records']:
     _sponsor_city_id = int(_sponsor_record['city_id'])
@@ -4236,7 +4262,16 @@ class CDS3SaveEditorApp:
     MAP_CITY_POINTS = tuple(MAP_LOCATION_DATA.get('city_points', ()))
     MAP_DISCOVERY_REGIONS = tuple(MAP_LOCATION_DATA.get('discovery_regions', ()))
     MAP_CITY_COLORS = {'discovered': '#00E676', 'undiscovered': '#FFD54F', 'unspawned': '#EF5350'}
-    MAP_DISCOVERY_COLORS = {'known': '#40C4FF', 'undiscovered': '#FF9100', 'unspawned': '#B388FF'}
+    MAP_DISCOVERY_COLORS = {'discovered': '#40C4FF', 'reported': '#00C853', 'undiscovered': '#FF9100', 'unspawned': '#B388FF'}
+    MAP_FLAG_CITY_UNSPAWNED = 0x01
+    MAP_FLAG_CITY_UNDISCOVERED = 0x02
+    MAP_FLAG_CITY_DISCOVERED = 0x04
+    MAP_FLAG_DISCOVERY_UNSPAWNED = 0x08
+    MAP_FLAG_DISCOVERY_UNDISCOVERED = 0x10
+    MAP_FLAG_DISCOVERY_DISCOVERED = 0x20
+    MAP_FLAG_DISCOVERY_REPORTED = 0x40
+    MAP_CITY_STATE_FLAGS = {'unspawned': MAP_FLAG_CITY_UNSPAWNED, 'undiscovered': MAP_FLAG_CITY_UNDISCOVERED, 'discovered': MAP_FLAG_CITY_DISCOVERED}
+    MAP_DISCOVERY_STATE_FLAGS = {'unspawned': MAP_FLAG_DISCOVERY_UNSPAWNED, 'undiscovered': MAP_FLAG_DISCOVERY_UNDISCOVERED, 'discovered': MAP_FLAG_DISCOVERY_DISCOVERED, 'reported': MAP_FLAG_DISCOVERY_REPORTED}
     CITY_SHIP_CANDIDATE_MASKS = tuple((int(mask) for mask, count in CITY_DATA['ship_candidate_mask_runs'] for _ in range(int(count))))
     CITY_INLAND_CONNECTIONS = {int(city_id): tuple(city_ids) for city_id, city_ids in CITY_DATA.get('inland_city_connections', {}).items()}
     CITY_FACILITY_NAMES = {int(bit): UI_TEXTS.get(name, name) for bit, name in CITY_DATA['facility_names'].items()}
@@ -5090,17 +5125,37 @@ class CDS3SaveEditorApp:
         self._navigation_map_image_item = None
         self._navigation_map_border_item = None
         self._navigation_map_marker_records = []
+        self._navigation_map_marker_items = []
+        self._navigation_map_zoom_limit_apply_job = None
         self._navigation_map_source_default = ui('ui_0558')
         self._navigation_map_reveal_backup = None
-        marker_size, marker_colors = load_navigation_map_marker_settings()
+        marker_size, zoom_limit, marker_colors, marker_visibility = load_navigation_map_marker_settings()
         self._navigation_map_marker_size = marker_size
+        self._navigation_map_zoom_limit = zoom_limit
         self._navigation_map_city_colors = dict(self.MAP_CITY_COLORS)
         self._navigation_map_city_colors.update(marker_colors.get('city', {}))
+        saved_discovery_colors = dict(marker_colors.get('discovery', {}))
+        legacy_known_color = saved_discovery_colors.pop('known', None)
+        if legacy_known_color:
+            saved_discovery_colors.setdefault('discovered', legacy_known_color)
+            saved_discovery_colors.setdefault('reported', legacy_known_color)
         self._navigation_map_discovery_colors = dict(self.MAP_DISCOVERY_COLORS)
-        self._navigation_map_discovery_colors.update(marker_colors.get('discovery', {}))
+        self._navigation_map_discovery_colors.update(saved_discovery_colors)
+        self._navigation_map_city_visibility = dict((key, marker_visibility.get('city', {}).get(key, True)) for key in self.MAP_CITY_COLORS)
+        saved_discovery_visibility = dict(marker_visibility.get('discovery', {}))
+        legacy_known_visibility = saved_discovery_visibility.get('known')
+        self._navigation_map_discovery_visibility = dict((key, saved_discovery_visibility.get(key, legacy_known_visibility if key in ('discovered', 'reported') and legacy_known_visibility is not None else True)) for key in self.MAP_DISCOVERY_COLORS)
         header = tk.Frame(parent, padx=10, pady=7)
         header.pack(fill=tk.X)
         tk.Label(header, text=ui('ui_0547'), font=(APP_FONT_FAMILY, 10, 'bold'), anchor='w').pack(side=tk.LEFT)
+        tk.Label(header, text=ui('ui_0671'), font=(APP_FONT_FAMILY, 9), fg='#5F6368').pack(side=tk.LEFT, padx=(14, 3))
+        self.navigation_map_zoom_limit_var = tk.StringVar(value=str(round(zoom_limit * 100)))
+        self.edt_navigation_map_zoom_limit = tk.Entry(header, textvariable=self.navigation_map_zoom_limit_var, width=4, font=(APP_FONT_FAMILY, 9), justify='right')
+        self.edt_navigation_map_zoom_limit.pack(side=tk.LEFT)
+        tk.Label(header, text='%', font=(APP_FONT_FAMILY, 9), fg='#5F6368').pack(side=tk.LEFT, padx=(2, 0))
+        self.edt_navigation_map_zoom_limit.bind('<FocusOut>', self._on_navigation_map_zoom_limit_changed)
+        self.edt_navigation_map_zoom_limit.bind('<Return>', self._on_navigation_map_zoom_limit_changed)
+        self.edt_navigation_map_zoom_limit.bind('<KeyRelease>', self._schedule_navigation_map_zoom_limit_apply)
         self.navigation_map_zoom_var = tk.StringVar(value=ui('ui_0560', 100))
         tk.Label(header, textvariable=self.navigation_map_zoom_var, font=(APP_FONT_FAMILY, 9), fg='#5F6368', anchor='w').pack(side=tk.LEFT, padx=(10, 0))
         self.navigation_map_summary_var = tk.StringVar(value=ui('ui_0548'))
@@ -5109,7 +5164,13 @@ class CDS3SaveEditorApp:
         self.chk_navigation_map_reveal_all.pack(side=tk.RIGHT)
         marker_legend = tk.Frame(parent, padx=10, pady=1)
         marker_legend.pack(fill=tk.X)
-        marker_controls = tk.Frame(marker_legend)
+        city_legend = tk.Frame(marker_legend)
+        city_legend.pack(fill=tk.X)
+        discovery_legend = tk.Frame(marker_legend)
+        discovery_legend.pack(fill=tk.X)
+        tk.Label(city_legend, text=ui('ui_0354'), font=(APP_FONT_FAMILY, 8, 'bold')).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(discovery_legend, text=ui('ui_0570'), font=(APP_FONT_FAMILY, 8, 'bold')).pack(side=tk.LEFT, padx=(0, 6))
+        marker_controls = tk.Frame(city_legend)
         marker_controls.pack(side=tk.RIGHT)
         tk.Label(marker_controls, text=ui('ui_0574'), font=(APP_FONT_FAMILY, 8), fg='#5F6368').pack(side=tk.LEFT, padx=(4, 2))
         self.navigation_map_marker_size_var = tk.StringVar(value=ui('ui_0646', marker_size))
@@ -5117,12 +5178,15 @@ class CDS3SaveEditorApp:
         marker_size_combo.pack(side=tk.LEFT)
         marker_size_combo.bind('<<ComboboxSelected>>', self._on_navigation_map_marker_size_changed)
         tk.Label(marker_controls, text=ui('ui_0575'), font=(APP_FONT_FAMILY, 8), fg='#5F6368').pack(side=tk.LEFT, padx=(7, 0))
-        for symbol, text_key, group, color_key in ((ui('ui_0598'), 'ui_0561', 'city', 'discovered'), (ui('ui_0598'), 'ui_0562', 'city', 'undiscovered'), (ui('ui_0598'), 'ui_0563', 'city', 'unspawned'), (ui('ui_0599'), 'ui_0564', 'discovery', 'known'), (ui('ui_0599'), 'ui_0565', 'discovery', 'undiscovered'), (ui('ui_0599'), 'ui_0566', 'discovery', 'unspawned')):
+        for symbol, text_key, group, color_key in ((ui('ui_0598'), 'ui_0314', 'city', 'discovered'), (ui('ui_0598'), 'ui_0112', 'city', 'undiscovered'), (ui('ui_0598'), 'ui_0466', 'city', 'unspawned'), (ui('ui_0599'), 'ui_0466', 'discovery', 'unspawned'), (ui('ui_0599'), 'ui_0112', 'discovery', 'undiscovered'), (ui('ui_0599'), 'ui_0667', 'discovery', 'discovered'), (ui('ui_0599'), 'ui_0668', 'discovery', 'reported')):
             colors = self._navigation_map_city_colors if group == 'city' else self._navigation_map_discovery_colors
-            color_label = tk.Label(marker_legend, text=symbol, fg=colors[color_key], cursor='hand2', font=(APP_FONT_FAMILY, 10, 'bold'))
+            visibility = self._navigation_map_city_visibility if group == 'city' else self._navigation_map_discovery_visibility
+            legend_row = city_legend if group == 'city' else discovery_legend
+            variable = tk.BooleanVar(value=visibility[color_key])
+            tk.Checkbutton(legend_row, text=ui(text_key), variable=variable, command=lambda marker_group=group, key=color_key, var=variable: self._on_navigation_map_marker_visibility_changed(marker_group, key, var), font=(APP_FONT_FAMILY, 8), anchor='w', padx=1).pack(side=tk.LEFT, padx=(0, 1))
+            color_label = tk.Label(legend_row, text=symbol, fg=colors[color_key], cursor='hand2', font=(APP_FONT_FAMILY, 10, 'bold'))
             color_label.pack(side=tk.LEFT)
             color_label.bind('<Button-1>', lambda _event, marker_group=group, key=color_key, widget=color_label: self._choose_navigation_map_marker_color(marker_group, key, widget))
-            tk.Label(marker_legend, text=ui(text_key), font=(APP_FONT_FAMILY, 8)).pack(side=tk.LEFT, padx=(1, 9))
         map_frame = tk.Frame(parent, bg='#202124', bd=1, relief='sunken')
         map_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 4))
         self.navigation_map_canvas = tk.Canvas(map_frame, bg='#202124', highlightthickness=0, bd=0)
@@ -5143,7 +5207,13 @@ class CDS3SaveEditorApp:
         self._set_navigation_map_message(ui('ui_0551'))
 
     def _save_navigation_map_marker_settings(self):
-        save_navigation_map_marker_settings(self._navigation_map_marker_size, self._navigation_map_city_colors, self._navigation_map_discovery_colors)
+        save_navigation_map_marker_settings(self._navigation_map_marker_size, self._navigation_map_zoom_limit, self._navigation_map_city_colors, self._navigation_map_discovery_colors, self._navigation_map_city_visibility, self._navigation_map_discovery_visibility)
+
+    def _on_navigation_map_marker_visibility_changed(self, group, key, variable):
+        visibility = self._navigation_map_city_visibility if group == 'city' else self._navigation_map_discovery_visibility
+        visibility[key] = bool(variable.get())
+        self._save_navigation_map_marker_settings()
+        self._schedule_navigation_map_refresh(force=True, preserve_view=True)
 
     def _on_navigation_map_marker_size_changed(self, _event=None):
         try:
@@ -5154,6 +5224,38 @@ class CDS3SaveEditorApp:
         self.navigation_map_marker_size_var.set(ui('ui_0646', marker_size))
         self._save_navigation_map_marker_settings()
         self._schedule_navigation_map_refresh(force=True, preserve_view=True)
+
+    def _apply_navigation_map_zoom_limit(self, canonicalize=False):
+        zoom_limit = normalize_navigation_map_zoom_limit(self.navigation_map_zoom_limit_var.get())
+        self._navigation_map_zoom_limit = zoom_limit
+        if canonicalize:
+            self.navigation_map_zoom_limit_var.set(str(round(zoom_limit * 100)))
+        if self._navigation_map_zoom > zoom_limit:
+            self._navigation_map_zoom = zoom_limit
+            self.navigation_map_zoom_var.set(ui('ui_0560', round(zoom_limit * 100)))
+            if getattr(self, '_navigation_map_native_image', None) is not None:
+                self._draw_navigation_map()
+        self._save_navigation_map_marker_settings()
+
+    def _schedule_navigation_map_zoom_limit_apply(self, _event=None):
+        previous = self._navigation_map_zoom_limit_apply_job
+        if previous is not None:
+            self.root.after_cancel(previous)
+        self._navigation_map_zoom_limit_apply_job = self.root.after(300, self._apply_navigation_map_zoom_limit_from_text)
+
+    def _apply_navigation_map_zoom_limit_from_text(self):
+        self._navigation_map_zoom_limit_apply_job = None
+        value = self.navigation_map_zoom_limit_var.get().strip()
+        if re.fullmatch(r'\d{1,4}', value):
+            self._apply_navigation_map_zoom_limit(False)
+
+    def _on_navigation_map_zoom_limit_changed(self, _event=None):
+        previous = self._navigation_map_zoom_limit_apply_job
+        if previous is not None:
+            self.root.after_cancel(previous)
+            self._navigation_map_zoom_limit_apply_job = None
+        self._apply_navigation_map_zoom_limit(True)
+        return 'break'
 
     def _choose_navigation_map_marker_color(self, group, key, widget):
         colors = self._navigation_map_city_colors if group == 'city' else self._navigation_map_discovery_colors
@@ -5381,22 +5483,25 @@ class CDS3SaveEditorApp:
                 continue
             discovery_id = int(region['id'])
             state = int(discovery_state_by_id.get(discovery_id, 0))
-            state_key = 'unspawned' if state == 0 else 'undiscovered' if state == 1 else 'known'
+            state_key = {0: 'unspawned', 1: 'undiscovered', 2: 'discovered', 3: 'reported'}.get(state, 'unspawned')
             min_x, min_y = (int(region['min_x']), int(region['min_y']))
             max_x, max_y = (int(region['max_x']), int(region['max_y']))
             center_x = int(round((min_x + max_x) * render_scale / 8.0))
             center_y = int(round((min_y + max_y) * render_scale / 8.0))
             is_range = max_x - min_x + 1 >= 8 or max_y - min_y + 1 >= 8
-            marker = {'x': center_x, 'y': center_y, 'kind': ui('ui_0570'), 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)), 'state': discovery_state_text(state), 'hit_radius': marker_radius}
+            marker = {'x': center_x, 'y': center_y, 'kind': ui('ui_0570'), 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)), 'state': discovery_state_text(state), 'hit_radius': marker_radius, 'group': 'discovery', 'state_key': state_key, 'marker_flags': self.MAP_DISCOVERY_STATE_FLAGS[state_key]}
             if is_range:
                 bounds = tuple((int(round(value * render_scale / 4.0)) for value in (min_x, min_y, max_x, max_y)))
-                draw.rectangle(bounds, outline=self._navigation_map_discovery_colors[state_key], width=range_line_width)
                 marker['bounds'] = bounds
                 marker['hit_radius'] = range_line_width / 2.0
                 marker['coordinate'] = self._navigation_map_range_text(min_x, min_y, max_x, max_y)
             else:
-                draw_dot(center_x, center_y, self._navigation_map_discovery_colors[state_key])
                 marker['coordinate'] = self._navigation_map_coordinate_text((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+            if self._navigation_map_marker_is_visible(marker):
+                if is_range:
+                    draw.rectangle(marker['bounds'], outline=self._navigation_map_discovery_colors[state_key], width=range_line_width)
+                else:
+                    draw_dot(center_x, center_y, self._navigation_map_discovery_colors[state_key])
             marker_records.append(marker)
             discovery_count += 1
         city_count = 0
@@ -5405,11 +5510,31 @@ class CDS3SaveEditorApp:
             center_x = int(round(int(point['world_x']) * render_scale / 4.0))
             center_y = int(round(int(point['world_y']) * render_scale / 4.0))
             state_key = self._navigation_city_marker_state(city_id)
-            draw_dot(center_x, center_y, self._navigation_map_city_colors[state_key])
-            marker_records.append({'x': center_x, 'y': center_y, 'kind': ui('ui_0354'), 'name': self.CITY_RECORDS[city_id]['name'], 'hit_radius': marker_radius, 'state': ui({'discovered': 'ui_0314', 'undiscovered': 'ui_0112', 'unspawned': 'ui_0466'}[state_key]), 'coordinate': self._navigation_map_coordinate_text(int(point['world_x']), int(point['world_y']))})
+            city_discoveries = []
+            marker_flags = self.MAP_CITY_STATE_FLAGS[state_key]
+            for linked_discovery in CITY_DISCOVERIES_BY_CITY.get(city_id, ()):
+                discovery_id = linked_discovery['discovery_id']
+                discovery_state = int(discovery_state_by_id.get(discovery_id, 0))
+                discovery_state_key = {0: 'unspawned', 1: 'undiscovered', 2: 'discovered', 3: 'reported'}.get(discovery_state, 'unspawned')
+                marker_flags |= self.MAP_DISCOVERY_STATE_FLAGS[discovery_state_key]
+                city_discoveries.append({'facility': linked_discovery['facility'], 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)), 'state': discovery_state_text(discovery_state), 'state_key': discovery_state_key})
+            marker = {'x': center_x, 'y': center_y, 'kind': ui('ui_0354'), 'name': self.CITY_RECORDS[city_id]['name'], 'hit_radius': marker_radius, 'group': 'city', 'state_key': state_key, 'marker_flags': marker_flags, 'city_discoveries': tuple(city_discoveries), 'state': ui({'discovered': 'ui_0314', 'undiscovered': 'ui_0112', 'unspawned': 'ui_0466'}[state_key]), 'coordinate': self._navigation_map_coordinate_text(int(point['world_x']), int(point['world_y']))}
+            if self._navigation_map_marker_is_visible(marker):
+                draw_dot(center_x, center_y, self._navigation_map_city_colors[state_key])
+            marker_records.append(marker)
             city_count += 1
         self._navigation_map_marker_records = marker_records
         return (city_count, discovery_count)
+
+    def _navigation_map_marker_is_visible(self, marker):
+        enabled_flags = 0
+        for state_key, flag in self.MAP_CITY_STATE_FLAGS.items():
+            if self._navigation_map_city_visibility.get(state_key, True):
+                enabled_flags |= flag
+        for state_key, flag in self.MAP_DISCOVERY_STATE_FLAGS.items():
+            if self._navigation_map_discovery_visibility.get(state_key, True):
+                enabled_flags |= flag
+        return bool(int(marker.get('marker_flags', 0)) & enabled_flags)
 
     def _compose_navigation_map(self):
         base_image, _world_path = self._load_navigation_map_base()
@@ -5553,7 +5678,7 @@ class CDS3SaveEditorApp:
             return None
         old_zoom = self._navigation_map_zoom
         factor = 1.2 if event.delta > 0 else 1.0 / 1.2
-        new_zoom = max(1.0, min(4.0, old_zoom * factor))
+        new_zoom = max(1.0, min(self._navigation_map_zoom_limit, old_zoom * factor))
         if abs(new_zoom - old_zoom) < 0.0001:
             return 'break'
         canvas = self.navigation_map_canvas
@@ -5613,11 +5738,23 @@ class CDS3SaveEditorApp:
         canvas = self.navigation_map_canvas
         self._hide_navigation_map_tooltip()
         text = ui('ui_0573', marker['kind'], marker['name'], marker['state'], marker['coordinate'])
+        city_discoveries = marker.get('city_discoveries', ())
+        if city_discoveries:
+            text += ui('ui_0669')
         gap = _dpi_px(12)
         padding = _dpi_px(5)
         x, y = (event.x + gap, event.y + gap)
         text_item = canvas.create_text(x, y, text=text, anchor='nw', justify='left', fill='#202124', font=(APP_FONT_FAMILY, 9), tags=('navigation_map_tooltip',))
-        bbox = canvas.bbox(text_item)
+        text_bbox = canvas.bbox(text_item)
+        if text_bbox is None:
+            return
+        line_y = text_bbox[3]
+        for discovery in city_discoveries:
+            line_item = canvas.create_text(x, line_y, text=ui('ui_0670', discovery['facility'], discovery['name'], discovery['state']), anchor='nw', justify='left', fill=self._navigation_map_discovery_colors[discovery['state_key']], font=(APP_FONT_FAMILY, 9, 'bold'), tags=('navigation_map_tooltip',))
+            line_bbox = canvas.bbox(line_item)
+            if line_bbox is not None:
+                line_y = line_bbox[3]
+        bbox = canvas.bbox('navigation_map_tooltip')
         if bbox is None:
             return
         tooltip_width = bbox[2] - bbox[0] + padding * 2
@@ -5626,7 +5763,7 @@ class CDS3SaveEditorApp:
             x = max(padding, event.x - gap - tooltip_width)
         if y + tooltip_height > canvas.winfo_height():
             y = max(padding, event.y - gap - tooltip_height)
-        canvas.coords(text_item, x + padding, y + padding)
+        canvas.move('navigation_map_tooltip', x + padding - bbox[0], y + padding - bbox[1])
         background = canvas.create_rectangle(x, y, x + tooltip_width, y + tooltip_height, fill='#FFF8DC', outline='#5F6368', width=1, tags=('navigation_map_tooltip',))
         canvas.tag_lower(background, text_item)
         canvas.tag_raise('navigation_map_tooltip')
@@ -5636,7 +5773,7 @@ class CDS3SaveEditorApp:
         image = getattr(self, '_navigation_map_native_image', None)
         render_width = getattr(self, '_navigation_map_render_width', 0)
         render_height = getattr(self, '_navigation_map_render_height', 0)
-        markers = getattr(self, '_navigation_map_marker_records', ())
+        markers = [marker for marker in getattr(self, '_navigation_map_marker_records', ()) if self._navigation_map_marker_is_visible(marker)]
         if image is None or not render_width or (not render_height) or (not markers):
             self._restore_navigation_map_source()
             return
