@@ -43,21 +43,12 @@
   <h2>성격축 순서</h2>
   <div class="wrap"><table>
     <thead><tr><th>번호</th><th>성격축</th><th>0</th><th>1</th><th>2</th></tr></thead>
-    <tbody>
-      <tr><td>0</td><td>소심 ↔ 거만</td><td>소심</td><td>중립</td><td>거만</td></tr>
-      <tr><td>1</td><td>우유부단 ↔ 독선</td><td>우유부단</td><td>중립</td><td>독선</td></tr>
-      <tr><td>2</td><td>변덕 ↔ 집착</td><td>변덕</td><td>중립</td><td>집착</td></tr>
-      <tr><td>3</td><td>겁쟁이 ↔ 무모</td><td>겁쟁이</td><td>중립</td><td>무모</td></tr>
-      <tr><td>4</td><td>냉혹 ↔ 팔방미인</td><td>냉혹</td><td>중립</td><td>팔방미인</td></tr>
-      <tr><td>5</td><td>편협 ↔ 욕심쟁이</td><td>편협</td><td>중립</td><td>욕심쟁이</td></tr>
-      <tr><td>6</td><td>무신경 ↔ 신경질</td><td>무신경</td><td>중립</td><td>신경질</td></tr>
-      <tr><td>7</td><td>낭비가 ↔ 깍쟁이</td><td>낭비가</td><td>중립</td><td>깍쟁이</td></tr>
-    </tbody>
+    <tbody id="personality-axis-body"></tbody>
   </table></div>
 
   <h2>별자리 기본값</h2>
   <div class="wrap"><table>
-    <thead><tr><th>별자리</th><th>0<br><span class="axis">소심/거만</span></th><th>1<br><span class="axis">우유부단/독선</span></th><th>2<br><span class="axis">변덕/집착</span></th><th>3<br><span class="axis">겁쟁이/무모</span></th><th>4<br><span class="axis">냉혹/팔방미인</span></th><th>5<br><span class="axis">편협/욕심쟁이</span></th><th>6<br><span class="axis">무신경/신경질</span></th><th>7<br><span class="axis">낭비가/깍쟁이</span></th></tr></thead>
+    <thead><tr id="zodiac-axis-header"><th>별자리</th></tr></thead>
     <tbody>
       <tr><td>양자리</td><td>2</td><td>1</td><td>0</td><td>2</td><td>1</td><td>1</td><td>1</td><td>0</td></tr>
       <tr><td>황소자리</td><td>1</td><td>0</td><td>2</td><td>1</td><td>1</td><td>0</td><td>1</td><td>2</td></tr>
@@ -110,7 +101,7 @@
   </table></div>
 
   <script>
-    const axes = [['소심', '거만'], ['우유부단', '독선'], ['변덕', '집착'], ['겁쟁이', '무모'], ['냉혹', '팔방미인'], ['편협', '욕심쟁이'], ['무신경', '신경질'], ['낭비가', '깍쟁이']];
+    let axes = [];
     const zodiacNames = ['양자리', '황소자리', '쌍둥이자리', '게자리', '사자자리', '처녀자리', '천칭자리', '전갈자리', '궁수자리', '염소자리', '물병자리', '물고기자리'];
     const zodiacValues = [[2,1,0,2,1,1,1,0],[1,0,2,1,1,0,1,2],[1,0,0,1,1,2,2,0],[0,1,1,0,2,1,1,2],[2,1,1,2,1,1,0,0],[1,2,0,0,1,1,2,2],[2,2,1,1,0,1,1,1],[1,1,2,1,2,0,2,0],[1,2,0,1,2,2,1,2],[2,1,2,1,1,0,1,1],[1,2,0,1,1,1,0,1],[0,0,1,1,2,1,1,1]];
     const bloodNames = ['A형', 'B형', 'O형', 'AB형'];
@@ -121,6 +112,15 @@
     const blood = Math.max(0, Math.min(3, Number(query.get('blood')) || 0));
     const face = Math.max(0, Math.min(15, Number(query.get('face')) || 0));
     const age = Math.max(0, Number(query.get('age')) || 0);
+
+    function renderAxisReferences() {
+      document.querySelector('#personality-axis-body').innerHTML = axes.map(([left, right], axis) =>
+        `<tr><td>${axis}</td><td>${left} ↔ ${right}</td><td>${left}</td><td>중립</td><td>${right}</td></tr>`
+      ).join('');
+      document.querySelector('#zodiac-axis-header').innerHTML = '<th>별자리</th>' + axes.map(
+        ([left, right], axis) => `<th>${axis}<br><span class="axis">${left}/${right}</span></th>`
+      ).join('');
+    }
 
     function calculateDiagnosis() {
       const [faceAxis, faceDelta] = faceAdjustments[face + (age >= 36 ? 16 : 0)];
@@ -136,7 +136,18 @@
       });
       document.querySelector('#diagnosis-result').innerHTML = rows.join('');
     }
-    calculateDiagnosis();
+    async function initialize() {
+      const response = await fetch('data/personality_axes.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`성격 축 데이터 로드 실패: ${response.status}`);
+      const data = await response.json();
+      axes = data.axes;
+      renderAxisReferences();
+      calculateDiagnosis();
+    }
+
+    initialize().catch(error => {
+      document.querySelector('#diagnosis-result').textContent = error.message;
+    });
   </script>
 </body>
 </html>

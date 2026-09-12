@@ -55,6 +55,22 @@
     "34": 247,
     "35": 248
   },
+  "figurehead_effects": {
+    "disaster_grade1_chance": 11,
+    "disaster_grade2_chance": 41,
+    "disaster_grade3_chance": 71,
+    "cannon_damage_reduction": 20,
+    "shooting_damage_reduction": 50,
+    "melee_damage_reduction": 70,
+    "cannon_attack_percent": 120,
+    "shooting_attack_percent": 150,
+    "melee_attack_percent": 200,
+    "hull_recovery": 5,
+    "movement_bonus": 1,
+    "movement_maximum": 6,
+    "special_cannon_attack_percent": 200,
+    "all_attack_percent": 150
+  },
   "mast_names": {
     "0": null,
     "1": "△",

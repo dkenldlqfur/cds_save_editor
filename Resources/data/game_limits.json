@@ -1,0 +1,23 @@
+{
+  "player": {
+    "ability": 255,
+    "vitality": 2000,
+    "skill": 3,
+    "language": 3,
+    "cash": 99999999,
+    "deposit": 99999999,
+    "contract": 99999999,
+    "fame": 99999999,
+    "infamy": 99999999
+  },
+  "person": {
+    "ability": 255,
+    "vitality": 2000,
+    "reputation": 65535,
+    "skill": 3,
+    "language": 3
+  },
+  "sponsor": {
+    "remaining_days": 65535
+  }
+}
