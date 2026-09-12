@@ -60,8 +60,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
 import tkinter.font as tkfont
 
-# ``ttk.Spinbox`` is not exposed by the Tcl/Tk bundled with Python 3.4.
-# Keep the themed widget's ``set`` method when falling back to Tk's Spinbox.
 class CompatSpinbox(tk.Spinbox):
 
     def set(self, value):
@@ -78,15 +76,7 @@ class CompatSpinbox(tk.Spinbox):
                 self.configure(state='disabled')
             elif state == '!disabled' and self.cget('state') == 'disabled':
                 self.configure(state='normal')
-
-
 SPINBOX_WIDGET = getattr(ttk, 'Spinbox', CompatSpinbox)
-
-# The Python 3.4 / Tcl-Tk 8.6 combination bundled for XP has a PyInstaller-only
-# fault in ttk::notebook: its ``add`` command receives option values as options.
-# Ordinary Tk controls do not have that fault, so use a small tab container made
-# of Frame + Button on that runtime.  Pages in this program are siblings of the
-# notebook (which ttk supports), therefore ``place(in_=...)`` is intentional.
 if sys.version_info[:2] <= (3, 4):
 
     class XPNotebook(tk.Frame):
@@ -104,9 +94,7 @@ if sys.version_info[:2] <= (3, 4):
             title = kwargs.get('text', 'Tab')
             if child not in self._xp_pages:
                 self._xp_pages.append(child)
-                button = tk.Button(self._xp_tab_bar, text=title,
-                    command=lambda page=child: self.select(page),
-                    padx=8, pady=2)
+                button = tk.Button(self._xp_tab_bar, text=title, command=lambda page=child: self.select(page), padx=8, pady=2)
                 button.pack(side=tk.LEFT, padx=1, pady=1)
                 self._xp_buttons[child] = button
             else:
@@ -127,7 +115,7 @@ if sys.version_info[:2] <= (3, 4):
                         break
 
         def tabs(self):
-            return tuple(str(page) for page in self._xp_pages)
+            return tuple((str(page) for page in self._xp_pages))
 
         def tab(self, child, **kwargs):
             button = self._xp_buttons.get(child)
@@ -152,23 +140,20 @@ if sys.version_info[:2] <= (3, 4):
                 return
             for page in self._xp_pages:
                 page.place_forget()
-            child.place(in_=self, x=0, y=27, relwidth=1, relheight=1,
-                height=-27, bordermode='inside')
+            child.place(in_=self, x=0, y=27, relwidth=1, relheight=1, height=-27, bordermode='inside')
             child.lift()
             self._xp_current = child
             self.event_generate('<<NotebookTabChanged>>')
-
     ttk.Notebook = XPNotebook
 try:
     from PIL import Image, ImageDraw, ImageTk
 except ImportError:
     Image = ImageDraw = ImageTk = None
-if Image is not None and not hasattr(Image, 'Resampling'):
+if Image is not None and (not hasattr(Image, 'Resampling')):
 
     class _CompatImageResampling:
         LANCZOS = Image.LANCZOS
         NEAREST = Image.NEAREST
-
     Image.Resampling = _CompatImageResampling
 _dpi_layout_scale = 1.0
 _raw_place_configure = None
@@ -256,13 +241,16 @@ from editor_core.save_records import RecordTableLayout, VALUE_LIMITS, read_chara
 from editor_core.fleet_records import active_ship_indices, flagship_position, fleet_slot_offset, mast_count, pack_mast_slots, write_active_ship_indices, write_flagship_position
 from editor_core.city_records import CityRecordLayout, refreshed_ship_mask
 from editor_core.role_slots import EMPTY_ROLE_SLOT, active_role_character_ids, read_role_character_id, role_character_id, role_slot_code, write_role_character_id
-from editor_core.sponsor_records import active_sponsor_id, clear_contract_fields, remaining_days as sponsor_remaining_days, write_remaining_days as write_sponsor_remaining_days
+from editor_core.sponsor_records import INTIMACY_MAX as SPONSOR_INTIMACY_MAX, INTIMACY_MIN as SPONSOR_INTIMACY_MIN, active_sponsor_id, clear_contract_fields, intimacy as sponsor_intimacy, power_grade as sponsor_power_grade, remaining_days as sponsor_remaining_days, write_intimacy as write_sponsor_intimacy, write_remaining_days as write_sponsor_remaining_days
 from editor_core.discovery_records import HINT_ACQUIRED_AND_CONTRACT_BITS, hint_is_acquired_and_contract_linked, marker_for_state, set_hint_acquired, state_from_marker
 from editor_core.spouse_slots import SPOUSE_SLOT_OFFSET, read_spouse_barmaid_id, write_spouse_barmaid_id
 from editor_core.item_slots import POCKET_SLOT_CAPACITY, POCKET_SLOT_OFFSET, STORAGE_SLOT_CAPACITY, STORAGE_SLOT_OFFSET, read_item_slots, write_item_slots
 from editor_core.event_records import EVENT_RECORD_PAYLOAD_SIZE, event_is_completed, sync_event_completion
 from editor_core.tab_layout import configure_equal_columns
 from editor_core.treeview import clear_rows
+from editor_core.resources import load_json_resource
+from editor_core.game_data_profile import GameDataProfile
+from editor_core.game_executable import ExecutableFormatError, load_executable_profile
 
 class EditorButton(tk.Button):
     """화면 전체에서 같은 높이를 유지하는 공통 버튼."""
@@ -313,13 +301,14 @@ def normalize_navigation_map_marker_size(value):
     except (TypeError, ValueError):
         size = 1.0
     return max(0.5, min(6.0, round(size * 2.0) / 2.0))
+NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT = 300
 
 def normalize_navigation_map_zoom_limit(value):
     """XP판 지도 확대 상한을 100~1000% 범위로 정규화한다."""
     try:
         percentage = int(float(str(value).strip().replace('%', '')))
     except (TypeError, ValueError):
-        percentage = 500
+        percentage = NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT
     return max(100, min(1000, percentage)) / 100.0
 
 def load_navigation_map_marker_settings():
@@ -328,7 +317,7 @@ def load_navigation_map_marker_settings():
         with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
             settings = json.load(settings_file)
         marker_size = normalize_navigation_map_marker_size(settings.get('navigation_map_marker_size', 1))
-        zoom_limit = normalize_navigation_map_zoom_limit(settings.get('navigation_map_zoom_limit', 500))
+        zoom_limit = normalize_navigation_map_zoom_limit(settings.get('navigation_map_zoom_limit', NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT))
         saved_colors = settings.get('navigation_map_marker_colors', {})
         saved_visibility = settings.get('navigation_map_marker_visibility', {})
         colors = {}
@@ -342,7 +331,7 @@ def load_navigation_map_marker_settings():
                 visibility[group] = {key: value for key, value in group_visibility.items() if isinstance(value, bool)}
         return (marker_size, zoom_limit, colors, visibility)
     except (OSError, ValueError, TypeError, AttributeError):
-        return (1, 5.0, {}, {})
+        return (1, NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT / 100.0, {}, {})
 
 def save_navigation_map_marker_settings(marker_size, zoom_limit, city_colors, discovery_colors, city_visibility, discovery_visibility):
     """기존 테마 설정을 보존하면서 지도 마커 설정만 저장한다."""
@@ -365,34 +354,40 @@ def save_navigation_map_marker_settings(marker_size, zoom_limit, city_colors, di
             json.dump(data, settings_file, ensure_ascii=False, indent=2)
     except (OSError, TypeError, ValueError):
         pass
-
-from editor_core.resources import load_json_resource
-GAME_MASTER_DATA = load_json_resource('master_data.json')
-CHARACTER_DATA = load_json_resource('character_database.json')
-SPONSOR_DATA = load_json_resource('sponsor_data.json')
-FLEET_DATA = load_json_resource('fleet_data.json')
-CITY_DATA = load_json_resource('city_data.json')
-GAME_STRINGS = load_json_resource('game_strings.json')
-TRADE_GOODS_DATA = load_json_resource('trade_goods.json')
-DISCOVERY_TRADE_GOOD_DATA = load_json_resource('discovery_trade_goods.json')
-DATA_CATEGORIES = load_json_resource('data_categories.json')
-DISCOVERY_REWARD_DATA = load_json_resource('discovery_reward_items.json')
-DISCOVERY_HINT_DATA = load_json_resource('discovery_hint_data.json')
-MAP_LOCATION_DATA = load_json_resource('map_locations.json')
-CITY_DISCOVERY_LOCATION_DATA = load_json_resource('city_discovery_locations.json')
-SPOUSE_APTITUDE_DATA = load_json_resource('spouse_aptitudes.json')
+def build_city_common_trade_goods(city_data):
+    """Map each city to the common goods of its active EXE trade region."""
+    regions = tuple(city_data.get('trade_regions', ()))
+    offerings = tuple((tuple(((int(good_id), int(base_price)) for good_id, base_price in zip(region['goods'], region['base_prices']))) for region in regions))
+    region_ids = city_data.get('trade_region_ids', ())
+    records = city_data.get('records', ())
+    if len(region_ids) == len(records):
+        return {city_id: offerings[int(region_id)] for city_id, region_id in enumerate(region_ids) if 0 <= int(region_id) < len(offerings)}
+    return {city_id: offerings[region_id] for region_id, region in enumerate(regions) for city_id in range(int(region['city_start']), int(region['city_end']) + 1)}
+GAME_DATA_PROFILE = GameDataProfile.from_builtin()
+GAME_MASTER_DATA = GAME_DATA_PROFILE.resource('master_data')
+CHARACTER_DATA = GAME_DATA_PROFILE.resource('characters')
+SPONSOR_DATA = GAME_DATA_PROFILE.resource('sponsors')
+FLEET_DATA = GAME_DATA_PROFILE.resource('fleet')
+CITY_DATA = GAME_DATA_PROFILE.resource('cities')
+GAME_STRINGS = GAME_DATA_PROFILE.resource('game_strings')
+TRADE_GOODS_DATA = GAME_DATA_PROFILE.resource('trade_goods')
+DISCOVERY_TRADE_GOOD_DATA = GAME_DATA_PROFILE.resource('discovery_trade_goods')
+DATA_CATEGORIES = GAME_DATA_PROFILE.resource('data_categories')
+DISCOVERY_REWARD_DATA = GAME_DATA_PROFILE.resource('discovery_rewards')
+DISCOVERY_HINT_DATA = GAME_DATA_PROFILE.resource('discovery_hints')
+MAP_LOCATION_DATA = GAME_DATA_PROFILE.resource('map_locations')
+CITY_DISCOVERY_LOCATION_DATA = GAME_DATA_PROFILE.resource('city_discovery_locations')
+SPOUSE_APTITUDE_DATA = GAME_DATA_PROFILE.resource('spouse_aptitudes')
+PERSONALITY_AXIS_DATA = GAME_DATA_PROFILE.resource('personality_axes')
+GAME_LIMITS = GAME_DATA_PROFILE.resource('limits')
 APP_CONFIG = load_json_resource('app_config.json')
 UI_TEXTS = load_json_resource('ui_texts.json')['texts']
 APP_FONT_FAMILY = APP_CONFIG['ui']['font_family']
-
 CITY_DISCOVERIES_BY_CITY = {}
 for _city_discovery_entry in CITY_DISCOVERY_LOCATION_DATA.get('entries', ()):
     _city_discovery_city_id = int(_city_discovery_entry['city_id'])
-    CITY_DISCOVERIES_BY_CITY.setdefault(_city_discovery_city_id, []).append({
-        'discovery_id': int(_city_discovery_entry['discovery_id']),
-        'facility': str(_city_discovery_entry['facility']),
-    })
-CITY_DISCOVERIES_BY_CITY = dict((city_id, tuple(entries)) for city_id, entries in CITY_DISCOVERIES_BY_CITY.items())
+    CITY_DISCOVERIES_BY_CITY.setdefault(_city_discovery_city_id, []).append({'discovery_id': int(_city_discovery_entry['discovery_id']), 'facility': str(_city_discovery_entry['facility'])})
+CITY_DISCOVERIES_BY_CITY = dict(((city_id, tuple(entries)) for city_id, entries in CITY_DISCOVERIES_BY_CITY.items()))
 SPONSOR_JOB_NAME_BY_ID = {int(job_id): name for job_id, name in SPONSOR_DATA['job_names'].items()}
 for _sponsor_record in SPONSOR_DATA['records']:
     _sponsor_city_id = int(_sponsor_record['city_id'])
@@ -468,7 +463,14 @@ def resolve_ui_references(value):
     if isinstance(value, dict):
         return {key: resolve_ui_references(item) for key, item in value.items()}
     return value
-EDITOR_MAPPINGS = resolve_ui_references(load_json_resource('editor_mappings.json'))
+EDITOR_MAPPINGS = resolve_ui_references(GAME_DATA_PROFILE.resource('editor_mappings'))
+
+def game_limit(path):
+    """Resolve a dotted limit name from the active static-data profile."""
+    group, name = str(path).split('.', 1)
+    return int(GAME_LIMITS[group][name])
+for _money_definition in EDITOR_MAPPINGS['money_definitions']:
+    _money_definition[1] = game_limit(_money_definition[1])
 GROUP_TITLES = EDITOR_MAPPINGS['group_titles']
 TAB_TITLES = EDITOR_MAPPINGS['tab_titles']
 TREE_COLUMN_TITLES = EDITOR_MAPPINGS['tree_column_titles']
@@ -546,22 +548,31 @@ def event_state_text(state, menu=False):
     if menu and (not state):
         return ui('ui_0186')
     return ui('ui_0185') if state else ui('ui_0206')
-BARMAID_DATABASE = GAME_MASTER_DATA['barmaid_database']
-BARMAID_BY_ID = {int(record['id']): record for record in BARMAID_DATABASE}
-BARMAID_BY_NAME = {record['name']: record for record in BARMAID_DATABASE}
+BARMAID_DATABASE = GAME_DATA_PROFILE.barmaids
+BARMAID_BY_ID = GAME_DATA_PROFILE.barmaid_by_id
+BARMAID_BY_NAME = GAME_DATA_PROFILE.barmaid_by_name
 SPOUSE_APTITUDE_NAMES = tuple((ui(key) for key in SPOUSE_APTITUDE_DATA['attribute_text_keys']))
 SPOUSE_APTITUDE_RECORDS = tuple((tuple((int(value) for value in record)) for record in SPOUSE_APTITUDE_DATA['records']))
-CHARACTER_BY_ID = {int(record['id']): record for record in CHARACTER_DATA['records']}
-SPONSOR_BY_ID = {int(record['id']): record for record in SPONSOR_DATA['records']}
+SPOUSE_PERSONALITY_AXES = tuple((tuple((str(value) for value in axis)) for axis in PERSONALITY_AXIS_DATA['axes']))
+CHARACTER_BY_ID = GAME_DATA_PROFILE.character_by_id
+SPONSOR_BY_ID = GAME_DATA_PROFILE.sponsor_by_id
 UNEMPLOYABLE_CHARACTER_IDS = tuple(sorted((int(record['id']) for record in CHARACTER_DATA['records'] if int(record.get('hire_state', 0)) in (0, 1))))
-UNEMPLOYABLE_FACE_INDEX_BY_CHARACTER_ID = {character_id: index for index, character_id in enumerate(UNEMPLOYABLE_CHARACTER_IDS)}
 ROLE_SLOT_OFFSETS = (165, 167, 169, 171)
 ROLE_SLOT_BY_KEY = {'officer': 165, 'navigator': 167, 'surveyor': 169, 'interpreter': 171}
 CHARACTER_LAYOUT = RecordTableLayout(37450, 144, max(CHARACTER_BY_ID, default=-1) + 1)
 CHARACTER_SAVE_TABLE_OFFSET = CHARACTER_LAYOUT.base_offset
 CHARACTER_SAVE_RECORD_SIZE = CHARACTER_LAYOUT.record_size
 CHARACTER_SPECIAL_STAT_OFFSET = 6
-CHARACTER_SPECIAL_STAT_MAX = 2000
+PLAYER_ABILITY_MAX = int(GAME_LIMITS['player']['ability'])
+CHARACTER_SPECIAL_STAT_MAX = int(GAME_LIMITS['player']['vitality'])
+PLAYER_SKILL_MAX = int(GAME_LIMITS['player']['skill'])
+PLAYER_LANGUAGE_MAX = int(GAME_LIMITS['player']['language'])
+PERSON_ABILITY_MAX = int(GAME_LIMITS['person']['ability'])
+PERSON_SPECIAL_STAT_MAX = int(GAME_LIMITS['person']['vitality'])
+PERSON_REPUTATION_MAX = int(GAME_LIMITS['person']['reputation'])
+PERSON_SKILL_MAX = int(GAME_LIMITS['person']['skill'])
+PERSON_LANGUAGE_MAX = int(GAME_LIMITS['person']['language'])
+SPONSOR_REMAINING_DAYS_MAX = int(GAME_LIMITS['sponsor']['remaining_days'])
 CHARACTER_SAVE_TABLE_END = CHARACTER_LAYOUT.end_offset
 SPONSOR_LAYOUT = RecordTableLayout(81296, 28, max(SPONSOR_BY_ID, default=-1) + 1)
 SPONSOR_SAVE_TABLE_OFFSET = SPONSOR_LAYOUT.base_offset
@@ -571,7 +582,7 @@ SPONSOR_CONTRACT_CANCELLED_STATE = 0
 SPONSOR_CONTRACT_CANCEL_AUX_VALUES = {0: 65537}
 SPONSOR_CONTRACT_CANCEL_SIDE_EFFECTS = {0: {'u16': ((165, 65535), (18887, 65535), (18980, 65535), (108051, 0)), 'u8': ((64858, 4),)}}
 SPONSOR_LOANED_SHIP_SLOTS = {0: (0, 1)}
-CITY_NAME_BY_ID = {city_id: record['name'] for city_id, record in enumerate(CITY_DATA['records'])}
+CITY_NAME_BY_ID = GAME_DATA_PROFILE.city_name_by_id
 BLOOD_NAMES = GAME_MASTER_DATA['blood_names']
 DISCOVERY_DESCRIPTIONS = {int(k): v for k, v in GAME_MASTER_DATA['discovery_descriptions'].items()}
 DISCOVERY_MASTER_DB = GAME_MASTER_DATA['discovery_master_db']
@@ -581,7 +592,7 @@ ITEM_DESCRIPTION_VALUES = {int(k): v for k, v in GAME_MASTER_DATA['item_descript
 ITEM_MASTER_DB = GAME_MASTER_DATA['item_master_db']
 ITEM_CATEGORY_NAMES = [UI_TEXTS.get(name, name) for name in GAME_MASTER_DATA['item_category_names']]
 ITEM_STATS_TABLE = {int(k): v for k, v in GAME_MASTER_DATA['item_stats_table'].items()}
-TRADE_GOOD_NAME_BY_ID = {int(entry['id']): entry['name'] for entry in TRADE_GOODS_DATA['records']}
+TRADE_GOOD_NAME_BY_ID = GAME_DATA_PROFILE.trade_good_name_by_id
 DISCOVERY_TRADE_GOOD_REFS = {int(discovery_no): int(trade_good_id) for discovery_no, trade_good_id in DISCOVERY_TRADE_GOOD_DATA['discovery_trade_good_ids'].items()}
 DISCOVERY_NAME_BY_NO = {int(discovery_no): name if name is not None else TRADE_GOOD_NAME_BY_ID.get(DISCOVERY_TRADE_GOOD_REFS.get(int(discovery_no)), '') for discovery_no, name, *_ in DISCOVERY_MASTER_DB}
 DISCOVERY_REWARD_ITEM_IDS = {int(discovery_no): int(item_id) for discovery_no, item_id in DISCOVERY_REWARD_DATA['discovery_reward_item_ids'].items()}
@@ -649,15 +660,15 @@ def get_barmaid_personality(barmaid):
     return UI_LIST_SEPARATOR.join((GAME_MASTER_DATA['personality_names'][int(personality_id)] for personality_id in barmaid['personality_ids']))
 
 def get_barmaid_aptitude_profile(barmaid):
-    """여급 ID에 대응하는 EXE 얼굴 코드와 자녀 적성 보정값 6개를 반환한다."""
+    """여급 ID의 얼굴 코드, 자녀 적성 6개와 EXE 미참조 후행값 2개를 반환한다."""
     try:
         barmaid_id = int(barmaid['id'])
         record = SPOUSE_APTITUDE_RECORDS[barmaid_id]
     except (KeyError, TypeError, ValueError, IndexError):
-        return (None, ())
-    if len(record) != len(SPOUSE_APTITUDE_NAMES) + 1:
-        return (None, ())
-    return (record[0], record[1:])
+        return (None, (), None, None)
+    if len(record) != len(SPOUSE_APTITUDE_NAMES) + 3:
+        return (None, (), None, None)
+    return (record[0], record[1:1 + len(SPOUSE_APTITUDE_NAMES)], record[-2], record[-1])
 
 def get_spouse_oracle_aptitude_index(values):
     """델포이 신탁과 같은 순서/동점 규칙으로 가장 큰 양수 적성을 고른다."""
@@ -667,8 +678,7 @@ def get_spouse_oracle_aptitude_index(values):
             best_index, best_value = (index, int(value))
     return best_index
 APP_VERSION = APP_CONFIG['version']
-PLAYER_REPUTATION_MAX = 9999999
-PERSON_REPUTATION_MAX = 65535
+PLAYER_REPUTATION_MAX = min(int(GAME_LIMITS['player']['fame']), int(GAME_LIMITS['player']['infamy']))
 APP_TITLE = ui('ui_0583', APP_VERSION)
 UPDATE_CONFIG = APP_CONFIG.get('update', {})
 UPDATE_REPOSITORY = ''
@@ -1132,11 +1142,10 @@ def get_city_preview_photo(city_index):
     return get_cached_photo(path)
 
 @lru_cache(maxsize=None)
-def get_face_image_path(gender, face_id):
-    """얼굴 초상화 이미지 경로 조회 (female_### / player_###)."""
-    sub = 'female' if gender == 'female' else 'player'
-    prefix = 'female' if gender == 'female' else 'player'
-    fn = '{0}_{1:03d}.png'.format(prefix, face_id)
+def get_face_image_path(gender, face_code):
+    """패처와 같은 성별 아카이브·얼굴 코드로 초상화 경로를 조회한다."""
+    archive = 'female' if gender == 'female' or gender == 1 else 'male'
+    fn = '{0}_{1:03d}.png'.format(archive, int(face_code))
     base_dirs = []
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
@@ -1144,34 +1153,21 @@ def get_face_image_path(gender, face_id):
         base_dirs.append(os.path.dirname(sys.executable))
     base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
     for b in base_dirs:
-        p1 = os.path.join(b, 'Resources', 'faces', sub, fn)
+        p1 = os.path.join(b, 'Resources', 'faces', archive, fn)
         if os.path.exists(p1):
             return p1
         else:
-            p2 = os.path.join(b, 'CDS3SaveEditor', 'Resources', 'faces', sub, fn)
+            p2 = os.path.join(b, 'CDS3SaveEditor', 'Resources', 'faces', archive, fn)
             if os.path.exists(p2):
                 return p2
     return
 
-@lru_cache(maxsize=None)
-def get_barmaid_image_path(barmaid_id):
-    """여급 전용 기본 초상화 이미지 경로 조회"""
-    fn = 'barmaid_{0:03d}.png'.format(barmaid_id)
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-    for b in base_dirs:
-        p1 = os.path.join(b, 'Resources', 'faces', 'barmaids', fn)
-        if os.path.exists(p1):
-            return p1
-        else:
-            p2 = os.path.join(b, 'CDS3SaveEditor', 'Resources', 'faces', 'barmaids', fn)
-            if os.path.exists(p2):
-                return p2
-    return
+def get_barmaid_face_image_path(barmaid):
+    """여급 ID가 아닌 FEMALE.CDS 얼굴 코드로 초상화를 찾는다."""
+    face_code = barmaid.get('face_code')
+    if face_code is None:
+        face_code = get_barmaid_aptitude_profile(barmaid)[0]
+    return get_face_image_path('female', face_code) if face_code is not None else None
 
 @lru_cache(maxsize=None)
 def get_item_image_path(item_id):
@@ -1194,59 +1190,16 @@ def get_item_image_path(item_id):
                         return p
     return
 
-@lru_cache(maxsize=None)
-def get_sailer_image_path(character_id):
-    """정적 등장인물 ID에 대응하는 항해사 초상화 경로를 조회한다."""
-    fn = 'sailer_{0:03d}.png'.format(int(character_id))
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-    for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'sailer'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sailer')):
-            path = os.path.join(base_dir, relative_dir, fn)
-            if os.path.isfile(path):
-                return path
-    return None
-
-@lru_cache(maxsize=None)
-def get_unemployable_image_path(character_id):
-    """경쟁자·대화 가능처럼 등용할 수 없는 인물의 초상화 경로를 조회한다."""
-    image_index = UNEMPLOYABLE_FACE_INDEX_BY_CHARACTER_ID.get(int(character_id))
-    if image_index is None:
+def get_character_face_image_path(character_id):
+    """인물 마스터의 성별과 얼굴 코드로 초상화를 찾는다."""
+    character = CHARACTER_BY_ID.get(int(character_id))
+    if not character:
         return None
-    file_name = 'unemployable_{0:03d}.png'.format(image_index)
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-    for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'unemployable'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'unemployable')):
-            path = os.path.join(base_dir, relative_dir, file_name)
-            if os.path.isfile(path):
-                return path
-    return None
+    return get_face_image_path(character.get('gender', 0), character.get('face_code', -1))
 
-@lru_cache(maxsize=None)
-def get_sponsor_image_path(sponsor_id):
-    """스폰서 순번에 대응하는 전용 초상화 경로를 조회한다."""
-    fn = 'sponsor_{0:03d}.png'.format(int(sponsor_id))
-    base_dirs = []
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            base_dirs.append(sys._MEIPASS)
-        base_dirs.append(os.path.dirname(sys.executable))
-    base_dirs.append(os.path.dirname(os.path.abspath(__file__)))
-    for base_dir in base_dirs:
-        for relative_dir in (os.path.join('Resources', 'faces', 'sponsor'), os.path.join('CDS3SaveEditor', 'Resources', 'faces', 'sponsor')):
-            path = os.path.join(base_dir, relative_dir, fn)
-            if os.path.isfile(path):
-                return path
-    return None
+def get_sponsor_face_image_path(sponsor):
+    """후원자 마스터의 성별과 얼굴 코드로 초상화를 찾는다."""
+    return get_face_image_path(sponsor.get('gender', 0), sponsor.get('face_code', -1))
 
 @lru_cache(maxsize=None)
 def get_trade_good_image_path(good_id):
@@ -1386,7 +1339,7 @@ class FacePickerModal(tk.Toplevel):
         self.grab_set()
         self.gender = gender
         self.on_select_callback = on_select_callback
-        default_max_faces = 145 if gender == 'female' else 410
+        default_max_faces = 144 if gender == 'female' else 414
         self.max_faces = max(1, min(default_max_faces, int(max_faces))) if max_faces is not None else default_max_faces
         self.selected_face_id = current_face_id if 0 <= current_face_id < self.max_faces else 0
         self._compact_grid = self.max_faces <= 16
@@ -1575,12 +1528,8 @@ def autofit_columns(tree, min_w=45, max_w=None, padding=28):
             if shrinkable:
                 widths = [max(min_w, width - round(excess * max(0, width - min_w) / shrinkable)) for width in widths]
         elif total_width < available_width:
-            # 내용 폭만 적용하면 창을 넓힐 때 오른쪽이 빈 채로 남는다. 각 표가
-            # 지정한 stretch 열(대개 이름 또는 값 열)에 남은 공간을 나눠 준다.
-            stretch_indices = [index for index, col in enumerate(cols)
-                if bool(tree.column(col, 'stretch'))]
+            stretch_indices = [index for index, col in enumerate(cols) if bool(tree.column(col, 'stretch'))]
             if not stretch_indices and cols:
-                # 가변 열이 따로 없는 보조 표는 마지막 열을 확장한다.
                 stretch_indices = [len(cols) - 1]
             if stretch_indices:
                 remaining = available_width - total_width
@@ -2072,8 +2021,6 @@ class DiscoveryInfoModal(InfoModalBase):
         if not runtime_dir:
             return False
         try:
-            # XP has no os.add_dll_directory().  Its loader therefore needs
-            # the libvlc directory at the front of PATH to find libvlccore.
             os.environ['PATH'] = runtime_dir + os.pathsep + os.environ.get('PATH', '')
             if hasattr(os, 'add_dll_directory'):
                 self._vlc_dll_dir = os.add_dll_directory(runtime_dir)
@@ -2264,7 +2211,6 @@ class FleetVideoPreview(tk.Frame):
             self.label.config(image='', text=ui('ui_0113'))
             return
         try:
-            # See DiscoveryDetailPopup._play_video: required by the XP loader.
             os.environ['PATH'] = runtime_dir + os.pathsep + os.environ.get('PATH', '')
             if hasattr(os, 'add_dll_directory'):
                 self._vlc_dll_dir = os.add_dll_directory(runtime_dir)
@@ -2498,6 +2444,8 @@ class CDS3SaveEditorApp:
 
     def __init__(self, root):
         self.root = root
+        self.game_data_profile = GAME_DATA_PROFILE
+        self.game_executable_path = None
         global _dpi_layout_scale
         self.dpi_scale = get_windows_dpi_scale()
         _dpi_layout_scale = self.dpi_scale
@@ -2804,7 +2752,7 @@ class CDS3SaveEditorApp:
         try:
             if visible:
                 if not self.btn_check_update.winfo_manager():
-                    self.btn_check_update.pack(side=tk.LEFT, padx=4, after=self.btn_save)
+                    self.btn_check_update.pack(side=tk.RIGHT, padx=4)
             else:
                 self.btn_check_update.pack_forget()
         except (AttributeError, tk.TclError):
@@ -2954,7 +2902,7 @@ class CDS3SaveEditorApp:
         style.configure('Treeview', rowheight=_dpi_px(22), font=(APP_FONT_FAMILY, 9))
 
     def _change_theme(self, _event=None):
-        """상단 콤보박스에서 고른 Tk 테마를 즉시 다시 적용한다."""
+        """보기 메뉴에서 고른 Tk 테마를 즉시 다시 적용한다."""
         self.setup_styles(self.theme_var.get())
         save_theme('save_editor_theme', self.theme_var.get())
         self._schedule_all_treeview_autofit()
@@ -2964,9 +2912,6 @@ class CDS3SaveEditorApp:
 
     def _schedule_treeview_autofit(self, *trees):
         """목록 갱신 직후 실제 배치 폭을 기준으로 열 너비를 다시 계산한다."""
-        # XP용 Python 3.4에서는 모든 셀의 글자 폭을 재는 작업이 매우 느려
-        # 첫 클릭 때 UI가 수 초 멈춘다. 이 빌드는 Treeview의 stretch 옵션으로
-        # 폭을 조절하므로, 비용이 큰 내용 기반 자동 맞춤은 사용하지 않는다.
         if sys.version_info[:2] <= (3, 4):
             return
         if getattr(self, '_suspend_tree_autofit', False):
@@ -3149,22 +3094,33 @@ class CDS3SaveEditorApp:
     def create_widgets(self):
         self.root.bind('<Control-o>', lambda e: self.on_open_file())
         self.root.bind('<Control-s>', lambda e: self.on_save_file())
+        self.chk_auto_backup = tk.BooleanVar(value=True)
+        self.menu_bar = tk.Menu(self.root)
+        self.file_menu = tk.Menu(self.menu_bar, tearoff=False)
+        self.file_menu.add_command(label=ui('ui_0114'), accelerator='Ctrl+O', command=self.on_open_file)
+        self.file_menu.add_command(label=ui('ui_0680'), command=self.on_open_game_executable, state=tk.DISABLED)
+        self._game_exe_menu_index = self.file_menu.index(tk.END)
+        self.file_menu.add_command(label=ui('ui_0681'), command=self.use_builtin_game_data, state=tk.DISABLED)
+        self._builtin_profile_menu_index = self.file_menu.index(tk.END)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label=ui('ui_0115'), accelerator='Ctrl+S', command=self.on_save_file)
+        self._save_menu_index = self.file_menu.index(tk.END)
+        self.file_menu.add_separator()
+        self.file_menu.add_checkbutton(label=ui('ui_0116'), variable=self.chk_auto_backup)
+        self._backup_menu_index = self.file_menu.index(tk.END)
+        self.menu_bar.add_cascade(label=ui('ui_0677'), menu=self.file_menu)
+        self.view_menu = tk.Menu(self.menu_bar, tearoff=False)
+        self.theme_menu = tk.Menu(self.view_menu, tearoff=False)
+        for theme_name in self.theme_names:
+            self.theme_menu.add_radiobutton(label=theme_name, value=theme_name, variable=self.theme_var, command=self._change_theme)
+        self.view_menu.add_cascade(label=ui('ui_0679'), menu=self.theme_menu)
+        self.menu_bar.add_cascade(label=ui('ui_0678'), menu=self.view_menu)
+        self.root.config(menu=self.menu_bar)
         top_bar = tk.Frame(self.root, height=40, bg='#F0F0F0', padx=8, pady=6)
         top_bar.pack(side=tk.TOP, fill=tk.X)
-        btn_open = EditorButton(top_bar, text=ui('ui_0114'), font=(APP_FONT_FAMILY, 9), command=self.on_open_file, bg='#E8F0FE', padx=8)
-        btn_open.pack(side=tk.LEFT, padx=4)
-        self.btn_save = EditorButton(top_bar, text=ui('ui_0115'), font=(APP_FONT_FAMILY, 9), command=self.on_save_file, bg='#E6F4EA', fg='#137333', padx=8)
-        self.btn_save.pack(side=tk.LEFT, padx=4)
         self.btn_check_update = EditorButton(top_bar, text=ui('ui_0417'), font=(APP_FONT_FAMILY, 9), command=self.check_for_updates, padx=8)
-        self.chk_auto_backup = tk.BooleanVar(value=True)
-        self.chk_backup_widget = tk.Checkbutton(top_bar, text=ui('ui_0116'), variable=self.chk_auto_backup, font=(APP_FONT_FAMILY, 9), bg='#F0F0F0')
-        self.chk_backup_widget.pack(side=tk.LEFT, padx=10)
-        self.cbo_theme = ttk.Combobox(top_bar, textvariable=self.theme_var, values=self.theme_names, state='readonly', width=11)
-        self.cbo_theme.pack(side=tk.RIGHT, padx=(0, 8))
-        self.cbo_theme.bind('<<ComboboxSelected>>', self._change_theme)
-        tk.Label(top_bar, text=ui('ui_0584'), font=(APP_FONT_FAMILY, 9), bg='#F0F0F0').pack(side=tk.RIGHT, padx=(0, 4))
-        self.lbl_status = tk.Label(top_bar, text=ui('ui_0117'), font=(APP_FONT_FAMILY, 9), fg='#5F6368')
-        self.lbl_status.pack(side=tk.RIGHT, padx=8)
+        self.lbl_status = tk.Label(top_bar, text=ui('ui_0117'), font=(APP_FONT_FAMILY, 9), fg='#5F6368', anchor='w')
+        self.lbl_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         notebook_style = ttk.Style(self.root)
         notebook_style.configure('Editor.TNotebook', tabmargins=(2, 5, 2, 0))
         notebook_style.configure('Editor.TNotebook.Tab', width=15, padding=(8, 5), font=(APP_FONT_FAMILY, 9), relief='flat', anchor='center')
@@ -3198,7 +3154,7 @@ class CDS3SaveEditorApp:
         center_treeview_columns(self.root)
         self._configure_text_byte_limit(self.txt_last_name, 18)
         self._configure_text_byte_limit(self.txt_first_name, 18)
-        for spinbox, minimum, maximum in ((self.spn_birth_y, 1000, 3000), (self.spn_birth_m, 1, 12), (self.spn_birth_d, 1, 31), (self.spn_game_y, 1000, 3000), (self.spn_game_m, 1, 12), (self.spn_game_d, 1, 31), (self.spn_batch_money, 0, 99999999), (self.spn_batch_reputation, 0, PLAYER_REPUTATION_MAX), (self.spn_batch_tech, 0, 3), (self.spn_batch_lang, 0, 3)):
+        for spinbox, minimum, maximum in ((self.spn_birth_y, 1000, 3000), (self.spn_birth_m, 1, 12), (self.spn_birth_d, 1, 31), (self.spn_game_y, 1000, 3000), (self.spn_game_m, 1, 12), (self.spn_game_d, 1, 31), (self.spn_batch_stats, 0, PLAYER_ABILITY_MAX), (self.spn_batch_money, 0, min(game_limit('player.cash'), game_limit('player.deposit'), game_limit('player.contract'))), (self.spn_batch_reputation, 0, PLAYER_REPUTATION_MAX), (self.spn_batch_tech, 0, PLAYER_SKILL_MAX), (self.spn_batch_lang, 0, PLAYER_LANGUAGE_MAX)):
             self._configure_bounded_spinbox(spinbox, minimum, maximum)
 
     def _configure_text_byte_limit(self, entry, max_bytes):
@@ -3235,10 +3191,18 @@ class CDS3SaveEditorApp:
 
     def _configure_bounded_spinbox(self, spinbox, minimum, maximum):
         """스핀 상한을 넘는 직접 입력도 즉시 최대값으로 보정한다."""
+        spinbox._cds_value_bounds = (minimum, maximum)
+        if getattr(spinbox, '_cds_bounds_configured', False):
+            return
+        spinbox._cds_bounds_configured = True
         command = self.root.register(lambda proposed: proposed == '' or proposed.isdigit())
         spinbox.configure(validate='key', validatecommand=(command, '%P'))
-        spinbox.bind('<KeyRelease>', lambda _event: self._clamp_spinbox(spinbox, minimum, maximum), add='+')
-        spinbox.bind('<FocusOut>', lambda _event: self._clamp_spinbox(spinbox, minimum, maximum), add='+')
+        spinbox.bind('<KeyRelease>', lambda _event: self._clamp_configured_spinbox(spinbox), add='+')
+        spinbox.bind('<FocusOut>', lambda _event: self._clamp_configured_spinbox(spinbox), add='+')
+
+    def _clamp_configured_spinbox(self, spinbox):
+        minimum, maximum = spinbox._cds_value_bounds
+        self._clamp_spinbox(spinbox, minimum, maximum)
 
     @staticmethod
     def _clamp_spinbox(spinbox, minimum, maximum):
@@ -3579,13 +3543,16 @@ class CDS3SaveEditorApp:
             return (ui('ui_0319'), ui('ui_0319'))
         if not isinstance(code, int) or not 0 <= code <= 35:
             return (UI_EMPTY_VALUE, UI_EMPTY_VALUE)
+        effects = FLEET_DATA['figurehead_effects']
         if code <= 33:
             sea_effect = ui(('ui_0527', 'ui_0528', 'ui_0529', 'ui_0530')[code % 4])
-            chance = 11 if code <= 13 else 41 if code <= 25 else 71
+            chance_key = 'disaster_grade1_chance' if code <= 13 else 'disaster_grade2_chance' if code <= 25 else 'disaster_grade3_chance'
+            chance = int(effects[chance_key])
             sea_text = ui('ui_0531', sea_effect, chance)
         else:
             sea_text = ui('ui_0319')
-        battle_text = {26: ui('ui_0532'), 27: ui('ui_0533'), 28: ui('ui_0534'), 29: ui('ui_0535'), 30: ui('ui_0536'), 31: ui('ui_0537'), 32: ui('ui_0538'), 33: ui('ui_0539'), 34: ui('ui_0540'), 35: ui('ui_0541')}.get(code, ui('ui_0319'))
+        multiplier = lambda key: '{0:g}'.format(int(effects[key]) / 100)
+        battle_text = {26: ui('ui_0532', effects['cannon_damage_reduction']), 27: ui('ui_0533', effects['shooting_damage_reduction']), 28: ui('ui_0534', effects['melee_damage_reduction']), 29: ui('ui_0535', multiplier('cannon_attack_percent')), 30: ui('ui_0536', multiplier('shooting_attack_percent')), 31: ui('ui_0537', multiplier('melee_attack_percent')), 32: ui('ui_0538', effects['hull_recovery']), 33: ui('ui_0539', effects['movement_bonus'], effects['movement_maximum']), 34: ui('ui_0540', multiplier('special_cannon_attack_percent')), 35: ui('ui_0541', multiplier('all_attack_percent'))}.get(code, ui('ui_0319'))
         return (sea_text, battle_text)
 
     def _update_fleet_figurehead_effects(self):
@@ -4263,13 +4230,13 @@ class CDS3SaveEditorApp:
     MAP_DISCOVERY_REGIONS = tuple(MAP_LOCATION_DATA.get('discovery_regions', ()))
     MAP_CITY_COLORS = {'discovered': '#00E676', 'undiscovered': '#FFD54F', 'unspawned': '#EF5350'}
     MAP_DISCOVERY_COLORS = {'discovered': '#40C4FF', 'reported': '#00C853', 'undiscovered': '#FF9100', 'unspawned': '#B388FF'}
-    MAP_FLAG_CITY_UNSPAWNED = 0x01
-    MAP_FLAG_CITY_UNDISCOVERED = 0x02
-    MAP_FLAG_CITY_DISCOVERED = 0x04
-    MAP_FLAG_DISCOVERY_UNSPAWNED = 0x08
-    MAP_FLAG_DISCOVERY_UNDISCOVERED = 0x10
-    MAP_FLAG_DISCOVERY_DISCOVERED = 0x20
-    MAP_FLAG_DISCOVERY_REPORTED = 0x40
+    MAP_FLAG_CITY_UNSPAWNED = 1
+    MAP_FLAG_CITY_UNDISCOVERED = 2
+    MAP_FLAG_CITY_DISCOVERED = 4
+    MAP_FLAG_DISCOVERY_UNSPAWNED = 8
+    MAP_FLAG_DISCOVERY_UNDISCOVERED = 16
+    MAP_FLAG_DISCOVERY_DISCOVERED = 32
+    MAP_FLAG_DISCOVERY_REPORTED = 64
     MAP_CITY_STATE_FLAGS = {'unspawned': MAP_FLAG_CITY_UNSPAWNED, 'undiscovered': MAP_FLAG_CITY_UNDISCOVERED, 'discovered': MAP_FLAG_CITY_DISCOVERED}
     MAP_DISCOVERY_STATE_FLAGS = {'unspawned': MAP_FLAG_DISCOVERY_UNSPAWNED, 'undiscovered': MAP_FLAG_DISCOVERY_UNDISCOVERED, 'discovered': MAP_FLAG_DISCOVERY_DISCOVERED, 'reported': MAP_FLAG_DISCOVERY_REPORTED}
     CITY_SHIP_CANDIDATE_MASKS = tuple((int(mask) for mask, count in CITY_DATA['ship_candidate_mask_runs'] for _ in range(int(count))))
@@ -4278,6 +4245,7 @@ class CDS3SaveEditorApp:
     CITY_STATUS_NAMES = {int(code): name for code, name in CITY_DATA['status_names'].items()}
     CITY_CULTURE_NAMES = {int(entry['id']): entry['name'] for entry in GAME_STRINGS['city_cultures']}
     TRADE_GOOD_NAMES = {int(entry['id']): entry['name'] for entry in TRADE_GOODS_DATA['records']}
+    CITY_COMMON_TRADE_GOODS = build_city_common_trade_goods(CITY_DATA)
     CITY_GOODS_SUPPLY_BY_SIZE = (20, 50, 100, 200, 350, 500, 700, 1000)
     CITY_FIELD_DEFINITIONS = (('state', 'ui_0300', 0, 'i16', 'default_state'), ('flags', 'ui_0301', 2, 'u16', 'default_flags'), ('shipyard_level', 'ui_0302', 4, 'u8', 'shipyard_level'), ('update_counter', 'ui_0303', 5, 'u8', 'default_update_counter'), ('value_a', 'ui_0304', 6, 'i16', 'default_value_a'), ('value_b', 'ui_0305', 8, 'u32', 'default_value_b'), ('value_c', 'ui_0306', 12, 'u32', 'default_value_c'), ('facility_flags', 'ui_0307', 16, 'u16', 'facility_flags'), ('ship_mask', 'ui_0308', 18, 'u16', 'default_ship_mask')) + tuple(tuple((('good_{0}'.format(number), 'ui_0309', 20 + number * 4, 'i32', 'default_goods', number) for number in range(8)))) + (('city_status', 'ui_0310', 52, 'i16', 'default_city_value'),) + tuple(tuple((('economy_{0}'.format(number), 'ui_0311', 54 + number * 4, 'u32', 'default_economy_values', number) for number in range(5)))) + (('link_value', 'ui_0312', 74, 'i16', 'default_link_value'),)
     CITY_HIDDEN_FIELD_KEYS = frozenset()
@@ -4613,8 +4581,6 @@ class CDS3SaveEditorApp:
         except (KeyError, TypeError, ValueError):
             return
         self._show_city_price_tooltip(event, price, 'ui_0488')
-
-
 
     @staticmethod
     def _city_default_value(record, definition):
@@ -5141,10 +5107,10 @@ class CDS3SaveEditorApp:
             saved_discovery_colors.setdefault('reported', legacy_known_color)
         self._navigation_map_discovery_colors = dict(self.MAP_DISCOVERY_COLORS)
         self._navigation_map_discovery_colors.update(saved_discovery_colors)
-        self._navigation_map_city_visibility = dict((key, marker_visibility.get('city', {}).get(key, True)) for key in self.MAP_CITY_COLORS)
+        self._navigation_map_city_visibility = dict(((key, marker_visibility.get('city', {}).get(key, True)) for key in self.MAP_CITY_COLORS))
         saved_discovery_visibility = dict(marker_visibility.get('discovery', {}))
         legacy_known_visibility = saved_discovery_visibility.get('known')
-        self._navigation_map_discovery_visibility = dict((key, saved_discovery_visibility.get(key, legacy_known_visibility if key in ('discovered', 'reported') and legacy_known_visibility is not None else True)) for key in self.MAP_DISCOVERY_COLORS)
+        self._navigation_map_discovery_visibility = dict(((key, saved_discovery_visibility.get(key, legacy_known_visibility if key in ('discovered', 'reported') and legacy_known_visibility is not None else True)) for key in self.MAP_DISCOVERY_COLORS))
         header = tk.Frame(parent, padx=10, pady=7)
         header.pack(fill=tk.X)
         tk.Label(header, text=ui('ui_0547'), font=(APP_FONT_FAMILY, 10, 'bold'), anchor='w').pack(side=tk.LEFT)
@@ -5246,7 +5212,7 @@ class CDS3SaveEditorApp:
     def _apply_navigation_map_zoom_limit_from_text(self):
         self._navigation_map_zoom_limit_apply_job = None
         value = self.navigation_map_zoom_limit_var.get().strip()
-        if re.fullmatch(r'\d{1,4}', value):
+        if re.fullmatch('\\d{1,4}', value):
             self._apply_navigation_map_zoom_limit(False)
 
     def _on_navigation_map_zoom_limit_changed(self, _event=None):
@@ -5984,7 +5950,7 @@ class CDS3SaveEditorApp:
         self.lbl_sponsor_remaining_day_unit = tk.Label(self.sponsor_remaining_line, text=ui('ui_0235'), font=VAL_FONT)
         self.sponsor_remaining_days_var = tk.StringVar(value='')
         sponsor_days_validate = self.root.register(self._validate_sponsor_remaining_days)
-        self.spn_sponsor_remaining_days = SPINBOX_WIDGET(self.sponsor_remaining_line, textvariable=self.sponsor_remaining_days_var, from_=0, to=65535, width=6, justify='right', font=VAL_FONT, command=self._apply_sponsor_remaining_days, validate='key', validatecommand=(sponsor_days_validate, '%P'))
+        self.spn_sponsor_remaining_days = SPINBOX_WIDGET(self.sponsor_remaining_line, textvariable=self.sponsor_remaining_days_var, from_=0, to=SPONSOR_REMAINING_DAYS_MAX, width=6, justify='right', font=VAL_FONT, command=self._apply_sponsor_remaining_days, validate='key', validatecommand=(sponsor_days_validate, '%P'))
         self.spn_sponsor_remaining_days.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
         self.lbl_sponsor_remaining_day_unit.pack(side=tk.LEFT)
         self.spn_sponsor_remaining_days.bind('<Return>', self._apply_sponsor_remaining_days, add='+')
@@ -6075,9 +6041,10 @@ class CDS3SaveEditorApp:
         grp_stats.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_stats_top = tk.Frame(grp_stats)
         f_stats_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_stats_top, text=ui('ui_0390', 255), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_stats = SPINBOX_WIDGET(f_stats_top, from_=0, to=255, width=5, justify='center', font=(APP_FONT_FAMILY, 9))
-        self.spn_batch_stats.set('255')
+        self.lbl_batch_stats_limit = tk.Label(f_stats_top, text=ui('ui_0390', PLAYER_ABILITY_MAX), font=(APP_FONT_FAMILY, 9))
+        self.lbl_batch_stats_limit.pack(side=tk.LEFT, padx=2)
+        self.spn_batch_stats = SPINBOX_WIDGET(f_stats_top, from_=0, to=PLAYER_ABILITY_MAX, width=5, justify='center', font=(APP_FONT_FAMILY, 9))
+        self.spn_batch_stats.set(str(PLAYER_ABILITY_MAX))
         self.spn_batch_stats.pack(side=tk.LEFT, padx=4)
         EditorButton(f_stats_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_stats).pack(side=tk.LEFT, padx=4)
         cols_stat = ('index', 'field', 'value', 'maximum')
@@ -6101,9 +6068,11 @@ class CDS3SaveEditorApp:
         grp_money.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_money_top = tk.Frame(grp_money)
         f_money_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_money_top, text=ui('ui_0390', '99,999,999'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_money = SPINBOX_WIDGET(f_money_top, from_=0, to=99999999, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
-        self.spn_batch_money.set('99999999')
+        money_batch_max = min((int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions'][:3]))
+        self.lbl_batch_money_limit = tk.Label(f_money_top, text=ui('ui_0390', '{0:,}'.format(money_batch_max)), font=(APP_FONT_FAMILY, 9))
+        self.lbl_batch_money_limit.pack(side=tk.LEFT, padx=2)
+        self.spn_batch_money = SPINBOX_WIDGET(f_money_top, from_=0, to=money_batch_max, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
+        self.spn_batch_money.set(str(money_batch_max))
         self.spn_batch_money.pack(side=tk.LEFT, padx=4)
         EditorButton(f_money_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_money).pack(side=tk.LEFT, padx=4)
         cols_money = ('index', 'field', 'value', 'maximum')
@@ -6127,9 +6096,11 @@ class CDS3SaveEditorApp:
         grp_reputation.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         f_reputation_top = tk.Frame(grp_reputation)
         f_reputation_top.pack(side=tk.TOP, fill=tk.X, pady=2)
-        tk.Label(f_reputation_top, text=ui('ui_0390', '{0:,}'.format(PLAYER_REPUTATION_MAX)), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_reputation = SPINBOX_WIDGET(f_reputation_top, from_=0, to=PLAYER_REPUTATION_MAX, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
-        self.spn_batch_reputation.set(str(PLAYER_REPUTATION_MAX))
+        reputation_batch_max = min((int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions'][3:5]))
+        self.lbl_batch_reputation_limit = tk.Label(f_reputation_top, text=ui('ui_0390', '{0:,}'.format(reputation_batch_max)), font=(APP_FONT_FAMILY, 9))
+        self.lbl_batch_reputation_limit.pack(side=tk.LEFT, padx=2)
+        self.spn_batch_reputation = SPINBOX_WIDGET(f_reputation_top, from_=0, to=reputation_batch_max, width=11, justify='center', font=(APP_FONT_FAMILY, 9))
+        self.spn_batch_reputation.set(str(reputation_batch_max))
         self.spn_batch_reputation.pack(side=tk.LEFT, padx=4)
         EditorButton(f_reputation_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_reputation).pack(side=tk.LEFT, padx=4)
         f_tree_r = tk.Frame(grp_reputation)
@@ -6142,7 +6113,7 @@ class CDS3SaveEditorApp:
         self.tree_reputation.bind('<Return>', lambda e: self.on_money_edit_request(tree=self.tree_reputation))
         self.tree_reputation.bind('<Double-1>', lambda e: self.on_money_edit_request(e, self.tree_reputation))
         self.tree_reputation.bind('<Button-3>', lambda e: self.on_money_edit_request(e, self.tree_reputation))
-        self.stat_values = [255] * 6 + [CHARACTER_SPECIAL_STAT_MAX]
+        self.stat_values = [PLAYER_ABILITY_MAX] * 6 + [CHARACTER_SPECIAL_STAT_MAX]
         self.money_values = [0] * 5
         self.update_player_face_display()
         self.update_wife_display()
@@ -6222,23 +6193,24 @@ class CDS3SaveEditorApp:
             self._person_detail_bodies.append(body)
         self._person_detail_titles = PERSON_TAB_TITLES
         self._person_batch_spinners = {}
-        for detail_index, maximum, width, label_text in ((1, 255, 5, ui('ui_0390', 255)), (2, PERSON_REPUTATION_MAX, 8, ui('ui_0390', '{0:,}'.format(PERSON_REPUTATION_MAX))), (3, 3, 4, ui('ui_0247')), (4, 3, 4, ui('ui_0247'))):
+        self._person_batch_labels = {}
+        for detail_index, maximum, width, label_text in ((1, PERSON_ABILITY_MAX, 5, ui('ui_0390', PERSON_ABILITY_MAX)), (2, PERSON_REPUTATION_MAX, 8, ui('ui_0390', '{0:,}'.format(PERSON_REPUTATION_MAX))), (3, PERSON_SKILL_MAX, 4, ui('ui_0247')), (4, PERSON_LANGUAGE_MAX, 4, ui('ui_0247'))):
             batch_bar = tk.Frame(self._person_detail_bodies[detail_index])
             batch_bar.pack(side=tk.TOP, fill=tk.X, pady=2)
-            tk.Label(batch_bar, text=label_text, font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
+            label = tk.Label(batch_bar, text=label_text, font=(APP_FONT_FAMILY, 9))
+            label.pack(side=tk.LEFT, padx=2)
             spinner = SPINBOX_WIDGET(batch_bar, from_=0, to=maximum, width=width, justify='center', font=(APP_FONT_FAMILY, 9))
             spinner.set(str(maximum))
             spinner.pack(side=tk.LEFT, padx=4)
             EditorButton(batch_bar, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', command=lambda index=detail_index: self._apply_person_batch_detail(index)).pack(side=tk.LEFT, padx=4)
             self._person_batch_spinners[detail_index] = spinner
+            self._person_batch_labels[detail_index] = label
         basic_tree = self._make_officer_tree(self._person_detail_bodies[0], ('index', 'field', 'value'), ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8, frame_padx=0, frame_pady=0, pack_pady=2)
         stats_tree = self._make_officer_tree(self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False), (TREE_COLUMN_TITLES['stats']['maximum'], 115, 'center', True)), 7, frame_padx=0, frame_pady=0, pack_pady=2)
         fame_tree = self._make_officer_tree(self._person_detail_bodies[2], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 145, 'center', False), (ui('ui_0350'), 135, 'e', False), (TREE_COLUMN_TITLES['money']['maximum'], 115, 'center', True)), 5, frame_padx=0, frame_pady=0, pack_pady=2)
         skill_tree = self._make_officer_tree(self._person_detail_bodies[3], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 190, 'w', True), (ui('ui_0490'), 150, 'center', False)), 13, frame_padx=0, frame_pady=0, pack_pady=2)
         language_tree = self._make_officer_tree(self._person_detail_bodies[4], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 195, 'w', True), (ui('ui_0490'), 155, 'center', False)), 14, frame_padx=0, frame_pady=0, pack_pady=2)
-        self.lbl_spouse_aptitude_summary = tk.Label(self._person_detail_bodies[5], text=UI_EMPTY_VALUE, font=(APP_FONT_FAMILY, 9, 'bold'), anchor='w')
-        self.lbl_spouse_aptitude_summary.pack(fill=tk.X, padx=2, pady=(2, 3))
-        self.tree_person_spouse_aptitudes = self._make_officer_tree(self._person_detail_bodies[5], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0660'), 150, 'w', True), (ui('ui_0661'), 100, 'center', False)), 6, frame_padx=0, frame_pady=0, pack_pady=2)
+        self.tree_person_spouse_aptitudes = self._make_officer_tree(self._person_detail_bodies[5], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0660'), 150, 'w', True), (ui('ui_0661'), 100, 'center', False)), 8, frame_padx=0, frame_pady=0, pack_pady=2)
         self.tree_person_spouse_aptitudes.tag_configure('oracle_aptitude', background='#E8F0FE', foreground='#174EA6')
         self._person_detail_trees = (basic_tree, stats_tree, fame_tree, skill_tree, language_tree)
         self.tree_person_details = self._person_detail_trees[0]
@@ -6246,9 +6218,11 @@ class CDS3SaveEditorApp:
         self._disable_tree_keyboard_navigation(basic_tree)
         self._person_current_city_row = None
         self._person_current_city_id = None
+        self._person_current_city_editing = False
         self._person_city_ids = list(CITY_NAME_BY_ID)
         self.cbo_person_current_city = UpwardCombobox(basic_tree, values=[CITY_NAME_BY_ID[city_id] for city_id in self._person_city_ids], state='disabled', height=8, font=(APP_FONT_FAMILY, 9))
         self.cbo_person_current_city.bind('<<ComboboxSelected>>', self._on_person_current_city_changed)
+        self.cbo_person_current_city.bind('<Escape>', self._cancel_person_current_city_edit, add='+')
         city_scroll = ttk.Scrollbar(basic_tree.master, orient=tk.VERTICAL, command=basic_tree.yview)
 
         def sync_city_cell(first, last):
@@ -6267,6 +6241,7 @@ class CDS3SaveEditorApp:
         self.tree_person_details.bind('<Motion>', self._on_sponsor_fame_motion, add='+')
         self.tree_person_details.bind('<Leave>', self._hide_sponsor_fame_tooltip, add='+')
         self.tree_person_details.bind('<ButtonPress>', self._hide_sponsor_fame_tooltip, add='+')
+        self.tree_person_details.bind('<Double-1>', self._edit_person_basic_value, add='+')
         self._person_hire_cost_tooltip = None
         self._person_hire_cost_tooltip_row = None
         self.tree_person_stats.bind('<Motion>', self._on_person_detail_motion, add='+')
@@ -6461,11 +6436,12 @@ class CDS3SaveEditorApp:
     def _refresh_person_details(self, item_id):
         self.cbo_person_current_city.close_list()
         self.cbo_person_current_city.place_forget()
+        self._person_current_city_editing = False
         self._person_current_city_row = None
         self._person_current_city_id = None
         kind = self._person_active_type
         role_mode = kind in self._crew_profiles or kind == 'unhireable'
-        self._set_person_detail_mode(role_mode, spouse_mode=(kind == 'spouse'))
+        self._set_person_detail_mode(role_mode, spouse_mode=kind == 'spouse')
         clear_rows(*self._person_detail_trees)
         self._refresh_spouse_aptitudes()
         tree = self.tree_person_details
@@ -6478,23 +6454,26 @@ class CDS3SaveEditorApp:
             barmaid = BARMAID_BY_ID.get(int(item_id))
             if barmaid:
                 self._refresh_spouse_aptitudes(barmaid)
+                face_code = get_barmaid_aptitude_profile(barmaid)[0]
                 flags = int(barmaid.get('language_flags', 0))
                 languages = UI_LIST_SEPARATOR.join((name for bit, name in enumerate(LANGUAGE_NAMES) if flags & 1 << bit)) or UI_EMPTY_VALUE
                 fortune_face_code = self._get_wife_fortune_face_code()
                 fortune_text = ui('ui_0272') if fortune_face_code is not None and is_fortune_spouse(barmaid, fortune_face_code) else ui('ui_0277')
-                rows = ((ui('ui_0062'), barmaid['name']), (ui('ui_0354'), get_barmaid_city_name(barmaid)), (ui('ui_0432'), '{0}{1}'.format(barmaid['year'], ui('ui_0233'))), (ui('ui_0399').rstrip(UI_LABEL_SUFFIX), get_barmaid_zodiac_name(barmaid)), (ui('ui_0230').rstrip(UI_LABEL_SUFFIX), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)), (ui('ui_0061'), fortune_text), (ui('ui_0068'), languages))
-                image_path = get_barmaid_image_path(barmaid['id'])
+                rows = ((ui('ui_0062'), barmaid['name']), (ui('ui_0666'), str(face_code) if face_code is not None else UI_EMPTY_VALUE), (ui('ui_0354'), get_barmaid_city_name(barmaid)), (ui('ui_0432'), '{0}{1}'.format(barmaid['year'], ui('ui_0233'))), (ui('ui_0399').rstrip(UI_LABEL_SUFFIX), get_barmaid_zodiac_name(barmaid)), (ui('ui_0230').rstrip(UI_LABEL_SUFFIX), get_barmaid_blood_name(barmaid)), (ui('ui_0501'), get_barmaid_personality(barmaid)), (ui('ui_0061'), fortune_text), (ui('ui_0068'), languages))
+                image_path = get_barmaid_face_image_path(barmaid)
         elif kind == 'sponsor' and item_id:
             sponsor = SPONSOR_BY_ID.get(int(item_id))
             if sponsor:
                 self._person_detail_sponsor_id = int(sponsor['id'])
                 preferences = self._sponsor_preference_names(sponsor)
                 retire = int(sponsor['retirement_year'])
-                rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']), (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), '{0}{1}'.format(sponsor['appearance_year'], ui('ui_0233'))), (ui('ui_0433'), '{0}{1}'.format(retire, ui('ui_0233')) if retire else UI_EMPTY_VALUE), (ui('ui_0434'), str(int(sponsor['wealth_factor']))), (ui('ui_0464'), str(int(sponsor['power']))), (ui('ui_0647'), str(int(sponsor['appraisal']))), (ui('ui_0431'), preferences))
-                image_path = get_sponsor_image_path(sponsor['id'])
+                intimacy = sponsor_intimacy(self.file_buffer, SPONSOR_LAYOUT, int(sponsor['id'])) if self.file_buffer and SPONSOR_LAYOUT.contains(self.file_buffer, int(sponsor['id'])) else None
+                power = int(sponsor['power'])
+                rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']), (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), '{0}{1}'.format(sponsor['appearance_year'], ui('ui_0233'))), (ui('ui_0433'), '{0}{1}'.format(retire, ui('ui_0233')) if retire else UI_EMPTY_VALUE), (ui('ui_0434'), str(int(sponsor['wealth_factor']))), (ui('ui_0464'), ui('ui_0694', power, sponsor_power_grade(power))), (ui('ui_0690'), str(intimacy) if intimacy is not None else UI_EMPTY_VALUE), (ui('ui_0647'), str(int(sponsor['appraisal']))), (ui('ui_0431'), preferences))
+                image_path = get_sponsor_face_image_path(sponsor)
         elif role_mode and item_id not in ('', None, '__none__'):
             self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
-            image_path = get_unemployable_image_path(int(item_id)) if kind == 'unhireable' else get_sailer_image_path(int(item_id))
+            image_path = get_character_face_image_path(int(item_id))
         if not role_mode:
             for index, (field, value) in enumerate(rows):
                 tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
@@ -6508,21 +6487,27 @@ class CDS3SaveEditorApp:
             self._schedule_treeview_autofit(tree)
 
     def _refresh_spouse_aptitudes(self, barmaid=None):
-        """선택한 부인의 얼굴 코드별 자녀 적성과 신탁의 최댓값 판정을 표시한다."""
+        """선택한 부인의 자녀 적성과 EXE에서 참조되지 않는 후행 데이터를 표시한다."""
         tree = getattr(self, 'tree_person_spouse_aptitudes', None)
-        summary = getattr(self, 'lbl_spouse_aptitude_summary', None)
         if tree is None:
             return
         tree.delete(*tree.get_children())
-        face_code, values = get_barmaid_aptitude_profile(barmaid) if barmaid else (None, ())
+        profile = get_barmaid_aptitude_profile(barmaid) if barmaid else (None, (), None, None)
+        face_code, values, personality_axis, personality_delta = profile
         best_index = get_spouse_oracle_aptitude_index(values)
-        if summary is not None:
-            summary.config(text=ui('ui_0663', face_code) if face_code is not None else UI_EMPTY_VALUE)
         for index, name in enumerate(SPOUSE_APTITUDE_NAMES):
             value = values[index] if index < len(values) else None
             is_best = index == best_index
             display_value = '{0:+d}'.format(value) if value is not None else UI_EMPTY_VALUE
             tree.insert('', tk.END, values=(index, name, display_value), tags=('oracle_aptitude',) if is_best else ())
+        axis_names = SPOUSE_PERSONALITY_AXES[personality_axis] if personality_axis is not None and 0 <= personality_axis < len(SPOUSE_PERSONALITY_AXES) else ()
+        axis_text = ui('ui_0674', axis_names[0], axis_names[1]) if len(axis_names) == 2 else UI_EMPTY_VALUE
+        if personality_delta is None:
+            delta_text = UI_EMPTY_VALUE
+        else:
+            delta_text = ui('ui_0676', personality_delta)
+        tree.insert('', tk.END, values=(len(SPOUSE_APTITUDE_NAMES), ui('ui_0672'), axis_text))
+        tree.insert('', tk.END, values=(len(SPOUSE_APTITUDE_NAMES) + 1, ui('ui_0673'), delta_text))
         self._schedule_treeview_autofit(tree)
 
     def _on_sponsor_fame_motion(self, event):
@@ -6536,7 +6521,7 @@ class CDS3SaveEditorApp:
             self._hide_sponsor_fame_tooltip()
         if not is_sponsor_field or self._sponsor_fame_tooltip is not None:
             return
-        field_name, field_value = (values[1], values[2])
+        field_name = values[1]
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.attributes('-topmost', True)
@@ -6545,10 +6530,8 @@ class CDS3SaveEditorApp:
         if field_name == ui('ui_0431'):
             tooltip_text = ui('ui_0648')
         else:
-            try:
-                coefficient = int(field_value)
-            except (TypeError, ValueError):
-                coefficient = 0
+            coefficient_key = {ui('ui_0434'): 'wealth_factor', ui('ui_0464'): 'power', ui('ui_0647'): 'appraisal'}.get(field_name)
+            coefficient = int(sponsor.get(coefficient_key, 0)) if sponsor and coefficient_key else 0
         if field_name == ui('ui_0434'):
             tooltip_text = ui('ui_0468', coefficient, coefficient * 10000)
         elif field_name == ui('ui_0464'):
@@ -6563,6 +6546,36 @@ class CDS3SaveEditorApp:
         tooltip.geometry('+{0}+{1}'.format(event.x_root + 16, event.y_root + 18))
         self._sponsor_fame_tooltip = tooltip
         self._sponsor_fame_tooltip_row = row
+
+    def _edit_sponsor_intimacy(self, event=None):
+        """후원자 상세 목록의 친밀도 행을 더블클릭해 0~100으로 수정한다."""
+        if self._person_active_type != 'sponsor' or not self.file_buffer:
+            return
+        tree = self.tree_person_details
+        row = tree.identify_row(event.y) if event is not None else ''
+        values = tree.item(row, 'values') if row else ()
+        if len(values) < 3 or values[1] != ui('ui_0690'):
+            return
+        sponsor_id = getattr(self, '_person_detail_sponsor_id', None)
+        sponsor = SPONSOR_BY_ID.get(int(sponsor_id)) if sponsor_id is not None else None
+        if sponsor is None or not SPONSOR_LAYOUT.contains(self.file_buffer, int(sponsor_id)):
+            return
+        current = sponsor_intimacy(self.file_buffer, SPONSOR_LAYOUT, int(sponsor_id))
+        value = self.ask_bounded_integer(ui('ui_0691'), ui('ui_0692', sponsor['name']), current, SPONSOR_INTIMACY_MIN, SPONSOR_INTIMACY_MAX)
+        if value is None:
+            return 'break'
+        write_sponsor_intimacy(self.file_buffer, SPONSOR_LAYOUT, int(sponsor_id), value)
+        tree.item(row, values=(values[0], values[1], value))
+        self._update_player_restore_state()
+        self.lbl_status.config(text=ui('ui_0693', sponsor['name'], value))
+        return 'break'
+
+    def _edit_person_basic_value(self, event=None):
+        """기본 정보 표의 종류에 따라 더블클릭 편집기를 연다."""
+        if self._person_active_type in self._crew_profiles:
+            return self._edit_person_current_city(event)
+        if self._person_active_type == 'sponsor':
+            return self._edit_sponsor_intimacy(event)
 
     def _hide_sponsor_fame_tooltip(self, _event=None):
         tooltip = getattr(self, '_sponsor_fame_tooltip', None)
@@ -6585,6 +6598,29 @@ class CDS3SaveEditorApp:
         """세이브 인물 레코드의 성·이름 필드를 읽고 비어 있으면 기본명을 반환한다."""
         return read_character_name(record, record_offset, fallback)
 
+    def _character_age_for_current_game_year(self, record, record_offset):
+        """레코드 저장 연도와 편집 중인 현재 연도의 차이를 인물 나이에 반영한다."""
+        saved_age = struct.unpack_from('<i', record, record_offset + 92)[0]
+        saved_year = struct.unpack_from('<H', record, 21)[0]
+        try:
+            current_year = int(self.spn_game_y.get())
+        except (ValueError, tk.TclError):
+            current_year = saved_year
+        return saved_age + (current_year - saved_year) if saved_year > 0 else saved_age
+
+    def _shift_character_ages_to_game_year(self, target_year):
+        """현재 연도를 저장하기 전에 일반 인물 205명의 저장 나이를 함께 이동한다."""
+        if not self.file_buffer or CHARACTER_LAYOUT.end_offset > len(self.file_buffer):
+            return
+        saved_year = struct.unpack_from('<H', self.file_buffer, 21)[0]
+        year_delta = int(target_year) - saved_year
+        if saved_year <= 0 or year_delta == 0:
+            return
+        for character_id in range(CHARACTER_LAYOUT.record_count):
+            age_offset = CHARACTER_LAYOUT.offset(character_id) + 92
+            saved_age = struct.unpack_from('<i', self.file_buffer, age_offset)[0]
+            struct.pack_into('<i', self.file_buffer, age_offset, saved_age + year_delta)
+
     def _populate_person_snapshot_details(self, character_id, include_hire_state=True):
         """통합 인물 상세 탭을 마지막 저장/로드 스냅샷으로 채운다."""
         snapshot = getattr(self, 'person_display_buffer', None)
@@ -6593,21 +6629,14 @@ class CDS3SaveEditorApp:
         if not snapshot or character_id < 0 or record_offset + 144 > len(snapshot):
             return
         record = snapshot
-        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
+        name = character.get('name') or self._character_record_name(record, record_offset, UI_EMPTY_VALUE)
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
-        saved_age = struct.unpack_from('<i', record, record_offset + 92)[0]
-        saved_year = struct.unpack_from('<H', record, 21)[0]
-        try:
-            current_year = int(self.spn_game_y.get())
-        except (ValueError, tk.TclError):
-            current_year = saved_year
-        age = saved_age + (current_year - saved_year) if saved_year > 0 else saved_age
-        blood_id = record[record_offset + 100]
-        city_id = record[record_offset + 46]
-        building_id = record[record_offset + 48]
-        raw_hire_state = record[record_offset + 98]
-        hire_state = 3 if character_id in self._active_role_character_ids(snapshot) else raw_hire_state
+        age = self._character_age_for_current_game_year(record, record_offset)
+        blood_id = int(character.get('blood_id', record[record_offset + 100]))
+        city_id = int(character.get('city_id', -1))
+        building_id = int(character.get('building_id', -1))
+        hire_state = self._character_hire_state(character_id, character, assigned_ids=self._active_role_character_ids(snapshot))
         city_name = ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
         building_name = FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
         blood_name = BLOOD_NAMES[blood_id] if 0 <= blood_id < len(BLOOD_NAMES) else UI_EMPTY_VALUE
@@ -6620,7 +6649,7 @@ class CDS3SaveEditorApp:
             basic_rows.append((ui('ui_0495'), hire_text))
         show_current_city = self._person_active_type != 'unhireable'
         if show_current_city:
-            current_city, city_editable = self._person_current_city_state(character_id)
+            current_city, _city_editable = self._person_current_city_state(character_id)
             basic_rows.insert(7, (ui('ui_0542').rstrip(UI_LABEL_SUFFIX), current_city))
         for index, row in enumerate(basic_rows):
             item = self._person_detail_trees[0].insert('', tk.END, values=(index,) + tuple(row))
@@ -6629,11 +6658,10 @@ class CDS3SaveEditorApp:
         if show_current_city:
             self._person_current_city_id = character_id
             self.cbo_person_current_city.set(current_city)
-            self.cbo_person_current_city.configure(state='readonly' if city_editable else 'disabled')
-            self.root.after_idle(self._position_person_city_cell)
+            self.cbo_person_current_city.configure(state='disabled')
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
-            maximum = CHARACTER_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else 255
+            maximum = PERSON_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX
             self._person_detail_trees[1].insert('', tk.END, values=(index,) + tuple(row) + (maximum,))
         self._person_detail_trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
         self._person_detail_trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
@@ -6642,6 +6670,98 @@ class CDS3SaveEditorApp:
             target.insert('', tk.END, values=(row, skill_name, record[record_offset + 11 + index]))
         self._schedule_treeview_autofit(*self._person_detail_trees)
 
+    @staticmethod
+    def _disable_tree_keyboard_navigation(tree):
+        """읽기 전용 기본 정보 표는 탐색 대상에서 제외하되 자식 콤보는 유지한다."""
+        tree.configure(takefocus=False)
+        for key in ('Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Prior', 'Next', 'space', 'Return'):
+            tree.bind('<{0}>'.format(key), lambda _event: 'break')
+
+    def _person_current_city_state(self, character_id):
+        """이동 필드를 도시 없음(-1)보다 우선 판정한다. 위치 편집은 최신 버퍼 기준."""
+        if character_id not in CHARACTER_BY_ID or not self.file_buffer:
+            return (UI_EMPTY_VALUE, False)
+        offset = CHARACTER_LAYOUT.offset(character_id)
+        if offset + CHARACTER_SAVE_RECORD_SIZE > len(self.file_buffer):
+            return (UI_EMPTY_VALUE, False)
+        city = struct.unpack_from('<h', self.file_buffer, offset + 46)[0]
+        destination = struct.unpack_from('<h', self.file_buffer, offset + 114)[0]
+        progress = struct.unpack_from('<i', self.file_buffer, offset + 116)[0]
+        start_x, start_y, target_x, target_y = struct.unpack_from('<4i', self.file_buffer, offset + 128)
+        moving = city == -1 and progress >= 0 and (start_x >= 0) and (start_y >= 0) and (destination in CITY_NAME_BY_ID or (target_x >= 0 and target_y >= 0))
+        if moving:
+            return (ui('ui_0544'), False)
+        if city == -1:
+            return (UI_EMPTY_VALUE, False)
+        return (CITY_NAME_BY_ID.get(city, UI_EMPTY_VALUE), city in CITY_NAME_BY_ID)
+
+    def _position_person_city_cell(self):
+        tree = self.tree_person_details
+        combo = self.cbo_person_current_city
+        row = self._person_current_city_row
+        if not self._person_current_city_editing:
+            combo.close_list()
+            combo.place_forget()
+            return
+        bounds = tree.bbox(row, 'value') if row and tree.exists(row) and tree.winfo_ismapped() else ()
+        if not bounds:
+            combo.close_list()
+            combo.place_forget()
+            return
+        x, y, width, height = bounds
+        width = min(width, tree.winfo_width() - x - 1)
+        if width <= 0:
+            combo.close_list()
+            combo.place_forget()
+            return
+        geometry = (x, y, width, height)
+        if getattr(combo, '_cell_geometry', None) != geometry:
+            combo.close_list()
+            combo._cell_geometry = geometry
+        combo.place(x=x, y=y, width=width, height=height)
+        combo.lift()
+
+    def _edit_person_current_city(self, event=None):
+        """부관~통역의 현재 도시 행을 더블클릭했을 때만 콤보 편집을 시작한다."""
+        if self._person_active_type not in self._crew_profiles or not self.file_buffer:
+            return
+        tree = self.tree_person_details
+        row = tree.identify_row(event.y) if event is not None else ''
+        if not row or row != self._person_current_city_row:
+            return
+        current_city, editable = self._person_current_city_state(self._person_current_city_id)
+        if not editable:
+            return 'break'
+        self.cbo_person_current_city.set(current_city)
+        self.cbo_person_current_city.configure(state='readonly')
+        self._person_current_city_editing = True
+        self._position_person_city_cell()
+        self.cbo_person_current_city.focus_set()
+        self.root.after_idle(self._open_person_current_city_list)
+        return 'break'
+
+    def _open_person_current_city_list(self):
+        if self._person_current_city_editing and self.cbo_person_current_city.winfo_manager():
+            self.cbo_person_current_city._open_list()
+
+    def _cancel_person_current_city_edit(self, _event=None):
+        self._person_current_city_editing = False
+        self.cbo_person_current_city.close_list()
+        self.cbo_person_current_city.configure(state='disabled')
+        self.cbo_person_current_city.place_forget()
+        return 'break'
+
+    def _on_person_current_city_changed(self, _event=None):
+        character_id = self._person_current_city_id
+        _text, editable = self._person_current_city_state(character_id)
+        index = self.cbo_person_current_city.current()
+        if not editable or not 0 <= index < len(self._person_city_ids):
+            return
+        city_id = self._person_city_ids[index]
+        struct.pack_into('<h', self.file_buffer, CHARACTER_LAYOUT.offset(character_id) + 46, city_id)
+        self.tree_person_details.set(self._person_current_city_row, 'value', CITY_NAME_BY_ID[city_id])
+        self._set_person_assignment_buttons_visible()
+        self._cancel_person_current_city_edit()
     def _on_person_detail_motion(self, event):
         """능력치 탭의 고용비 계수 항목에서만 계산식 툴팁을 표시한다."""
         tree = self.tree_person_stats
@@ -6700,7 +6820,7 @@ class CDS3SaveEditorApp:
             if not 0 <= row_index < len(stat_offsets):
                 return 'break' if event is not None else None
             is_special_stat = row_index == len(stat_offsets) - 1
-            maximum = CHARACTER_SPECIAL_STAT_MAX if is_special_stat else 255
+            maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
             current = struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0] if is_special_stat else self.file_buffer[record_offset + stat_offsets[row_index]]
             value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0033', field_name), current, 0, maximum)
             if value is not None:
@@ -6714,7 +6834,7 @@ class CDS3SaveEditorApp:
             if not 0 <= row_index < len(fame_offsets):
                 return 'break' if event is not None else None
             current = struct.unpack_from('<H', self.file_buffer, record_offset + fame_offsets[row_index])[0]
-            value = self.ask_bounded_integer(ui('ui_0454'), ui('ui_0034', field_name, 65535), current, 0, 65535)
+            value = self.ask_bounded_integer(ui('ui_0454'), ui('ui_0034', field_name, PERSON_REPUTATION_MAX), current, 0, PERSON_REPUTATION_MAX)
             if value is not None:
                 struct.pack_into('<H', self.file_buffer, record_offset + fame_offsets[row_index], value)
                 tree.item(selection[0], values=(row_index, field_name, '{0:,}'.format(value), '{0:,}'.format(PERSON_REPUTATION_MAX)))
@@ -6724,7 +6844,8 @@ class CDS3SaveEditorApp:
                 return 'break' if event is not None else None
             offset = record_offset + 11 + skill_index
             title = ui('ui_0203') if detail_index == 3 else ui('ui_0204')
-            value = self.ask_bounded_integer(title, ui('ui_0035', field_name), self.file_buffer[offset], 0, 3)
+            maximum = PERSON_SKILL_MAX if detail_index == 3 else PERSON_LANGUAGE_MAX
+            value = self.ask_bounded_integer(title, ui('ui_0035', field_name), self.file_buffer[offset], 0, maximum)
             if value is not None:
                 self.file_buffer[offset] = value
                 tree.item(selection[0], values=(row_index, field_name, value))
@@ -6743,7 +6864,7 @@ class CDS3SaveEditorApp:
         record_offset = CHARACTER_LAYOUT.offset(character_id)
         if record_offset + CHARACTER_SAVE_RECORD_SIZE > len(self.file_buffer):
             return
-        limits = {1: 255, 2: PERSON_REPUTATION_MAX, 3: 3, 4: 3}
+        limits = {1: PERSON_ABILITY_MAX, 2: PERSON_REPUTATION_MAX, 3: PERSON_SKILL_MAX, 4: PERSON_LANGUAGE_MAX}
         spinner = self._person_batch_spinners.get(detail_index)
         if spinner is None or detail_index not in limits:
             return
@@ -6765,7 +6886,7 @@ class CDS3SaveEditorApp:
                 item = tree.get_children()[row_index] if row_index < len(tree.get_children()) else None
                 if item:
                     field_name = tree.item(item, 'values')[1]
-                    maximum = CHARACTER_SPECIAL_STAT_MAX if is_special_stat else 255
+                    maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
                     tree.item(item, values=(row_index, field_name, value, maximum))
         elif detail_index == 2:
             for row_index, offset in enumerate((38, 42)):
@@ -6979,17 +7100,17 @@ class CDS3SaveEditorApp:
             profile['tree'].focus(item_id)
             profile['tree'].see(item_id)
         record = self.file_buffer
-        image_path = get_sailer_image_path(character_id)
+        image_path = get_character_face_image_path(character_id)
         if image_path:
             photo = get_cached_photo(image_path)
             if photo:
                 profile['face_photo'] = photo
                 profile['face_label'].config(image=photo)
-        age = struct.unpack_from('<b', record, record_offset + 92)[0]
+        age = self._character_age_for_current_game_year(record, record_offset)
         city_id = record[record_offset + 46]
         building_id = record[record_offset + 48]
         hire_state = self._character_hire_state(character_id, character, record_offset)
-        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
+        name = character.get('name') or self._character_record_name(record, record_offset, UI_EMPTY_VALUE)
         basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0491'), NATION_NAMES[int(character.get('nation_id', -1))] if 0 <= int(character.get('nation_id', -1)) < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[int(character.get('job_id', -1))] if 0 <= int(character.get('job_id', -1)) < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0354'), ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)), (ui('ui_0409'), FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)), (ui('ui_0410'), {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)))
         for index, row in enumerate(basic_rows):
             trees[0].insert('', tk.END, values=(index,) + tuple(row))
@@ -7230,14 +7351,13 @@ class CDS3SaveEditorApp:
             search_tree.see(str(character_id))
         record = self.file_buffer
         character = CHARACTER_BY_ID.get(character_id, {})
-        name = self._character_record_name(record, record_offset, character.get('name', UI_EMPTY_VALUE))
+        name = character.get('name') or self._character_record_name(record, record_offset, UI_EMPTY_VALUE)
         nation_id = int(character.get('nation_id', -1))
         job_id = int(character.get('job_id', -1))
-        age = struct.unpack_from('<b', record, record_offset + 92)[0]
-        is_current_officer = not is_preview and assigned_officer_id == character_id
+        age = self._character_age_for_current_game_year(record, record_offset)
         city_id = record[record_offset + 46]
         building_id = record[record_offset + 48]
-        hire_state = 3 if is_current_officer else record[record_offset + 98]
+        hire_state = self._character_hire_state(character_id, character)
         city_name = ui('ui_0498') if city_id == 255 else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
         building_name = FACILITY_NAME_BY_ID.get(building_id, '')
         hire_text = {1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, UI_EMPTY_VALUE)
@@ -7246,7 +7366,7 @@ class CDS3SaveEditorApp:
         basic_rows = ((ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0354'), city_name), (ui('ui_0409'), building_name or UI_EMPTY_VALUE), (ui('ui_0410'), hire_text))
         for index, (field, value) in enumerate(basic_rows):
             self.tree_officer_basic.insert('', tk.END, values=(index, field, value))
-        image_path = get_sailer_image_path(character_id)
+        image_path = get_character_face_image_path(character_id)
         if image_path:
             photo = get_cached_photo(image_path)
             if photo:
@@ -7310,20 +7430,17 @@ class CDS3SaveEditorApp:
                 self._refresh_person_details(selection[0])
 
     def _refresh_role_age_rows(self, key):
-        """날짜 변경 시 변하는 나이·등장 행만 갱신해 역할 탭 전체 재생성을 피한다."""
+        """날짜 변경 시 변하는 나이 행만 갱신해 역할 탭 전체 재생성을 피한다."""
         profile = self._crew_profiles.get(key)
         if profile is None or not self.file_buffer:
             return
         character_id = read_role_character_id(self.file_buffer, profile['offset'])
         if character_id is None:
             return
-        character = CHARACTER_BY_ID.get(character_id)
-        if character is None:
+        record_offset = CHARACTER_LAYOUT.offset(character_id)
+        if record_offset + CHARACTER_SAVE_RECORD_SIZE > len(self.file_buffer):
             return
-        try:
-            age = int(character['age_at_1480']) + (int(self.spn_game_y.get()) - 1480)
-        except (KeyError, TypeError, ValueError, tk.TclError):
-            return
+        age = self._character_age_for_current_game_year(self.file_buffer, record_offset)
         if key == 'officer':
             tree = getattr(self, 'tree_officer_basic', None)
         else:
@@ -7331,11 +7448,10 @@ class CDS3SaveEditorApp:
         if tree is None:
             return
         rows = tree.get_children()
-        if len(rows) < 8:
+        if len(rows) < 2:
             self._refresh_role_display(key)
             return
         tree.item(rows[1], values=(1, ui('ui_0493'), ui('ui_0502', age) if age >= 0 else ui('ui_0466')))
-        tree.item(rows[7], values=(7, ui('ui_0411'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0411')))
 
     def _refresh_birth_zodiac(self):
         """주인공 생일 입력값에 맞춰 별자리 표시를 갱신한다."""
@@ -7502,7 +7618,7 @@ class CDS3SaveEditorApp:
                     else:
                         self.lbl_wife_compat.config(text=UI_EMPTY_VALUE, fg='gray')
                 self._refresh_wife_languages(b)
-                img_p = get_barmaid_image_path(b['id'])
+                img_p = get_barmaid_face_image_path(b)
                 if img_p and os.path.exists(img_p):
                     photo = get_cached_photo(img_p)
                     if photo:
@@ -7680,7 +7796,7 @@ class CDS3SaveEditorApp:
         if contract is None:
             return
         try:
-            days = max(0, min(65535, int(self.sponsor_remaining_days_var.get())))
+            days = max(0, min(SPONSOR_REMAINING_DAYS_MAX, int(self.sponsor_remaining_days_var.get())))
         except (TypeError, ValueError, tk.TclError):
             self._refresh_sponsor_contract_display()
             return
@@ -7782,12 +7898,13 @@ class CDS3SaveEditorApp:
         balance = debt - debt // 2
         cash = struct.unpack_from('<I', self.file_buffer, 153)[0]
         sponsor_money = struct.unpack_from('<I', self.file_buffer, sponsor_offset + 4)[0]
-        struct.pack_into('<I', self.file_buffer, 153, min(4294967295, cash + balance))
+        cash_after_payment = min(game_limit('player.cash'), cash + balance)
+        struct.pack_into('<I', self.file_buffer, 153, cash_after_payment)
         struct.pack_into('<I', self.file_buffer, 161, 0)
         struct.pack_into('<I', self.file_buffer, sponsor_offset + 4, max(0, sponsor_money - balance))
         clear_contract_fields(self.file_buffer, SPONSOR_LAYOUT, sponsor_id, SPONSOR_CONTRACT_CANCELLED_STATE)
         if hasattr(self, 'money_values') and len(self.money_values) >= 3:
-            self.money_values[0] = min(4294967295, cash + balance)
+            self.money_values[0] = cash_after_payment
             self.money_values[2] = 0
             self.refresh_money_table()
         self._refresh_sponsor_contract_display()
@@ -7809,14 +7926,14 @@ class CDS3SaveEditorApp:
         self.lbl_status.config(text=ui('ui_0460'))
 
     def _validate_sponsor_remaining_days(self, proposed):
-        """남은 일수는 0~65,535까지만 입력되고, 초과값은 즉시 상한으로 보정한다."""
+        """남은 일수는 프로필 상한까지만 입력되고, 초과값은 즉시 보정한다."""
         if not proposed:
             return True
         if not proposed.isdigit():
             return False
-        if int(proposed) <= 65535:
+        if int(proposed) <= SPONSOR_REMAINING_DAYS_MAX:
             return True
-        self.root.after_idle(lambda: self.sponsor_remaining_days_var.set(str(65535)))
+        self.root.after_idle(lambda: self.sponsor_remaining_days_var.set(str(SPONSOR_REMAINING_DAYS_MAX)))
         return False
 
     def _update_player_restore_state(self):
@@ -7832,11 +7949,11 @@ class CDS3SaveEditorApp:
         def read_text(offset, length):
             return original[offset:offset + length].split(b'\x00')[0].decode('cp949', errors='ignore').strip()
         try:
-            changed = self.txt_first_name.get().strip() != read_text(95, 18) or self.txt_last_name.get().strip() != read_text(114, 18) or (int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get())) != (struct.unpack_from('<H', original, 21)[0], original[25], original[26]) or ((int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get())) != (struct.unpack_from('<H', original, 149)[0], original[151], original[152])) or (self.cbo_job.current() != struct.unpack_from('<H', original, 137)[0]) or (self.cbo_blood.current() != struct.unpack_from('<H', original, 141)[0]) or (self.cbo_nation.current() != struct.unpack_from('<H', original, 139)[0]) or (self._selected_player_city_id() != struct.unpack_from('<H', original, 91)[0]) or (self._selected_player_building_id() != struct.unpack_from('<H', original, 93)[0]) or (self.player_face_id != struct.unpack_from('<H', original, 133)[0]) or (self.stat_values != list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]) or (self.money_values != list([min(99999999, struct.unpack_from('<I', original, offset)[0]) for offset in (153, 157, 161)]) + list([struct.unpack_from('<I', original, offset)[0] for offset in (83, 87)])) or (self.skill_levels != [min(3, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))])
+            changed = self.txt_first_name.get().strip() != read_text(95, 18) or self.txt_last_name.get().strip() != read_text(114, 18) or (int(self.spn_game_y.get()), int(self.spn_game_m.get()), int(self.spn_game_d.get())) != (struct.unpack_from('<H', original, 21)[0], original[25], original[26]) or ((int(self.spn_birth_y.get()), int(self.spn_birth_m.get()), int(self.spn_birth_d.get())) != (struct.unpack_from('<H', original, 149)[0], original[151], original[152])) or (self.cbo_job.current() != struct.unpack_from('<H', original, 137)[0]) or (self.cbo_blood.current() != struct.unpack_from('<H', original, 141)[0]) or (self.cbo_nation.current() != struct.unpack_from('<H', original, 139)[0]) or (self._selected_player_city_id() != struct.unpack_from('<H', original, 91)[0]) or (self._selected_player_building_id() != struct.unpack_from('<H', original, 93)[0]) or (self.player_face_id != struct.unpack_from('<H', original, 133)[0]) or (self.stat_values != list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]) or (self.money_values != [min(int(EDITOR_MAPPINGS['money_definitions'][index][1]), struct.unpack_from('<I', original, offset)[0]) for index, offset in enumerate((153, 157, 161, 83, 87))]) or (self.skill_levels != [min(PLAYER_SKILL_MAX if i < 13 else PLAYER_LANGUAGE_MAX, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))])
             if not changed:
                 for sponsor_id in SPONSOR_BY_ID:
                     offset = SPONSOR_LAYOUT.offset(sponsor_id)
-                    if offset + 24 <= len(self.file_buffer) and offset + 24 <= len(original) and (self.file_buffer[offset + 4:offset + 24] != original[offset + 4:offset + 24]):
+                    if offset + 24 <= len(self.file_buffer) and offset + 24 <= len(original) and (self.file_buffer[offset:offset + 24] != original[offset:offset + 24]):
                         changed = True
                         break
             if not changed:
@@ -7863,7 +7980,7 @@ class CDS3SaveEditorApp:
         for sponsor_id in SPONSOR_BY_ID:
             offset = SPONSOR_LAYOUT.offset(sponsor_id)
             if offset + 24 <= len(self.file_buffer) and offset + 24 <= len(original):
-                self.file_buffer[offset + 4:offset + 24] = original[offset + 4:offset + 24]
+                self.file_buffer[offset:offset + 24] = original[offset:offset + 24]
         for hint_offset, original_state in self._sponsor_contract_hint_resets.items():
             if 0 <= hint_offset < len(self.file_buffer):
                 self.file_buffer[hint_offset] = original_state
@@ -7893,8 +8010,8 @@ class CDS3SaveEditorApp:
         self.player_face_id = face_id if 0 <= face_id < 410 else 13
         self.update_player_face_display()
         self.stat_values = list(original[45:51]) + [struct.unpack_from('<I', original, 51)[0]]
-        self.money_values = [min(99999999, struct.unpack_from('<I', original, offset)[0]) for offset in (153, 157, 161)] + [struct.unpack_from('<I', original, offset)[0] for offset in (83, 87)]
-        self.skill_levels = [min(3, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))]
+        self.money_values = [min(int(EDITOR_MAPPINGS['money_definitions'][index][1]), struct.unpack_from('<I', original, offset)[0]) for index, offset in enumerate((153, 157, 161, 83, 87))]
+        self.skill_levels = [min(PLAYER_SKILL_MAX if i < 13 else PLAYER_LANGUAGE_MAX, max(0, original[56 + i])) for i in range(len(SKILLS_DATA))]
         self.refresh_stats_table()
         self.refresh_money_table()
         self.refresh_skills_table()
@@ -7910,7 +8027,7 @@ class CDS3SaveEditorApp:
         stat_defs = EDITOR_MAPPINGS['profile_stat_definitions']
         for i, (name, desc) in enumerate(stat_defs):
             val = self.stat_values[i] if self.file_buffer else UI_EMPTY_VALUE
-            maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else 255
+            maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else PLAYER_ABILITY_MAX
             self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, '{0:,}'.format(maximum)))
         self._schedule_treeview_autofit(self.tree_stats)
         self._update_player_restore_state()
@@ -8005,7 +8122,7 @@ class CDS3SaveEditorApp:
             if sel:
                 idx = int(sel[0])
                 stat_names = [definition[0] for definition in EDITOR_MAPPINGS['profile_stat_definitions']]
-                max_value = CHARACTER_SPECIAL_STAT_MAX if idx == 6 else 255
+                max_value = CHARACTER_SPECIAL_STAT_MAX if idx == 6 else PLAYER_ABILITY_MAX
                 prompt = ui('ui_0034', stat_names[idx], max_value) if idx == 6 else ui('ui_0033', stat_names[idx])
                 new_v = self.ask_bounded_integer(ui('ui_0201'), prompt, self.stat_values[idx], 0, max_value)
                 if new_v is not None:
@@ -8039,9 +8156,9 @@ class CDS3SaveEditorApp:
         if not self.file_buffer:
             return
         try:
-            target_v = min(255, max(0, int(self.spn_batch_stats.get())))
+            target_v = min(PLAYER_ABILITY_MAX, max(0, int(self.spn_batch_stats.get())))
         except (TypeError, ValueError):
-            target_v = 255
+            target_v = PLAYER_ABILITY_MAX
         for i in range(6):
             self.stat_values[i] = target_v
         self.stat_values[6] = min(CHARACTER_SPECIAL_STAT_MAX, self.stat_values[0] * 20)
@@ -8050,10 +8167,11 @@ class CDS3SaveEditorApp:
     def apply_batch_money(self):
         if not self.file_buffer:
             return
+        maximum = min((int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions'][:3]))
         try:
-            target_v = min(99999999, max(0, int(self.spn_batch_money.get())))
+            target_v = min(maximum, max(0, int(self.spn_batch_money.get())))
         except (TypeError, ValueError):
-            target_v = 99999999
+            target_v = maximum
         for i in range(3):
             self.money_values[i] = target_v
         self.refresh_money_table()
@@ -8061,10 +8179,11 @@ class CDS3SaveEditorApp:
     def apply_batch_reputation(self):
         if not self.file_buffer:
             return
+        maximum = min((int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions'][3:5]))
         try:
-            target_v = min(PLAYER_REPUTATION_MAX, max(0, int(self.spn_batch_reputation.get())))
+            target_v = min(maximum, max(0, int(self.spn_batch_reputation.get())))
         except (TypeError, ValueError):
-            target_v = PLAYER_REPUTATION_MAX
+            target_v = maximum
         for i in range(3, 5):
             self.money_values[i] = target_v
         self.refresh_money_table()
@@ -8084,8 +8203,8 @@ class CDS3SaveEditorApp:
         f_tech_top = tk.Frame(f_tech)
         f_tech_top.pack(side=tk.TOP, fill=tk.X, pady=2)
         tk.Label(f_tech_top, text=ui('ui_0247'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_tech = SPINBOX_WIDGET(f_tech_top, from_=0, to=3, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
-        self.spn_batch_tech.set('3')
+        self.spn_batch_tech = SPINBOX_WIDGET(f_tech_top, from_=0, to=PLAYER_SKILL_MAX, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
+        self.spn_batch_tech.set(str(PLAYER_SKILL_MAX))
         self.spn_batch_tech.pack(side=tk.LEFT, padx=4)
         EditorButton(f_tech_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_tech).pack(side=tk.LEFT, padx=4)
         cols = ('index', 'field', 'level')
@@ -8106,8 +8225,8 @@ class CDS3SaveEditorApp:
         f_lang_top = tk.Frame(f_lang)
         f_lang_top.pack(side=tk.TOP, fill=tk.X, pady=2)
         tk.Label(f_lang_top, text=ui('ui_0247'), font=(APP_FONT_FAMILY, 9)).pack(side=tk.LEFT, padx=2)
-        self.spn_batch_lang = SPINBOX_WIDGET(f_lang_top, from_=0, to=3, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
-        self.spn_batch_lang.set('3')
+        self.spn_batch_lang = SPINBOX_WIDGET(f_lang_top, from_=0, to=PLAYER_LANGUAGE_MAX, width=4, justify='center', font=(APP_FONT_FAMILY, 9))
+        self.spn_batch_lang.set(str(PLAYER_LANGUAGE_MAX))
         self.spn_batch_lang.pack(side=tk.LEFT, padx=4)
         EditorButton(f_lang_top, text=ui('ui_0243'), bg='#E6F4EA', fg='#137333', font=(APP_FONT_FAMILY, 9), command=self.apply_batch_lang).pack(side=tk.LEFT, padx=4)
         cols_lang = ('index', 'field', 'level')
@@ -8177,7 +8296,7 @@ class CDS3SaveEditorApp:
             if sel:
                 idx = int(sel[0])
                 name, off, desc = SKILLS_DATA[idx]
-                new_v = self.ask_bounded_integer(ui('ui_0203'), ui('ui_0035', name), self.skill_levels[idx], 0, 3)
+                new_v = self.ask_bounded_integer(ui('ui_0203'), ui('ui_0035', name), self.skill_levels[idx], 0, PLAYER_SKILL_MAX)
                 if new_v is not None:
                     self.skill_levels[idx] = new_v
                     self.refresh_skills_table()
@@ -8191,7 +8310,7 @@ class CDS3SaveEditorApp:
             if sel:
                 idx = int(sel[0])
                 name, off, desc = SKILLS_DATA[idx]
-                new_v = self.ask_bounded_integer(ui('ui_0204'), ui('ui_0035', name), self.skill_levels[idx], 0, 3)
+                new_v = self.ask_bounded_integer(ui('ui_0204'), ui('ui_0035', name), self.skill_levels[idx], 0, PLAYER_LANGUAGE_MAX)
                 if new_v is not None:
                     self.skill_levels[idx] = new_v
                     self.refresh_skills_table()
@@ -8211,7 +8330,7 @@ class CDS3SaveEditorApp:
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0018', name), state='disabled')
         menu.add_separator()
-        for level in range(4):
+        for level in range(PLAYER_SKILL_MAX + 1):
             menu.add_command(label=ui('ui_0377', level), command=lambda value=level: self.set_tech_level(idx, value))
         menu.tk_popup(x, y)
 
@@ -8229,7 +8348,7 @@ class CDS3SaveEditorApp:
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=ui('ui_0018', name), state='disabled')
         menu.add_separator()
-        for level in range(4):
+        for level in range(PLAYER_LANGUAGE_MAX + 1):
             menu.add_command(label=ui('ui_0377', level), command=lambda value=level: self.set_lang_level(idx, value))
         menu.tk_popup(x, y)
 
@@ -8238,9 +8357,9 @@ class CDS3SaveEditorApp:
             return
         else:
             try:
-                target_lv = min(3, max(0, int(self.spn_batch_tech.get())))
+                target_lv = min(PLAYER_SKILL_MAX, max(0, int(self.spn_batch_tech.get())))
             except:
-                target_lv = 3
+                target_lv = PLAYER_SKILL_MAX
             for i in range(13):
                 self.skill_levels[i] = target_lv
             self.refresh_skills_table()
@@ -8250,9 +8369,9 @@ class CDS3SaveEditorApp:
             return
         else:
             try:
-                target_lv = min(3, max(0, int(self.spn_batch_lang.get())))
+                target_lv = min(PLAYER_LANGUAGE_MAX, max(0, int(self.spn_batch_lang.get())))
             except:
-                target_lv = 3
+                target_lv = PLAYER_LANGUAGE_MAX
             for i in range(13, 27):
                 self.skill_levels[i] = target_lv
             self.refresh_skills_table()
@@ -9250,8 +9369,9 @@ class CDS3SaveEditorApp:
 
     def set_controls_enabled(self, enabled):
         state = tk.NORMAL if enabled else tk.DISABLED
-        self.btn_save.config(state=state)
-        self.chk_backup_widget.config(state=state)
+        self.file_menu.entryconfigure(self._save_menu_index, state=state)
+        self.file_menu.entryconfigure(self._backup_menu_index, state=state)
+        self.file_menu.entryconfigure(self._game_exe_menu_index, state=state)
         tabs = [self.tab_profile, self.tab_skills, self.tab_fleet, self.tab_cities, self.tab_map, self.tab_items, self.tab_discoveries, self.tab_events]
         for tab in tabs:
             self._set_widget_state_recursive(tab, state)
@@ -9289,6 +9409,200 @@ class CDS3SaveEditorApp:
             if picker is not None:
                 picker.refresh()
 
+    def _rebuild_game_data_indexes(self):
+        """Rebuild derived lookups after the active static profile changes."""
+        global SPOUSE_APTITUDE_RECORDS, UNEMPLOYABLE_CHARACTER_IDS, ITEM_STATS_TABLE
+        global PLAYER_ABILITY_MAX, CHARACTER_SPECIAL_STAT_MAX
+        global PLAYER_SKILL_MAX, PLAYER_LANGUAGE_MAX, PLAYER_REPUTATION_MAX
+        global PERSON_ABILITY_MAX, PERSON_SPECIAL_STAT_MAX, PERSON_REPUTATION_MAX
+        global PERSON_SKILL_MAX, PERSON_LANGUAGE_MAX, SPONSOR_REMAINING_DAYS_MAX
+        BARMAID_BY_ID.clear()
+        BARMAID_BY_ID.update(GAME_DATA_PROFILE.barmaid_by_id)
+        BARMAID_BY_NAME.clear()
+        BARMAID_BY_NAME.update(GAME_DATA_PROFILE.barmaid_by_name)
+        CHARACTER_BY_ID.clear()
+        CHARACTER_BY_ID.update(GAME_DATA_PROFILE.character_by_id)
+        SPONSOR_BY_ID.clear()
+        SPONSOR_BY_ID.update(GAME_DATA_PROFILE.sponsor_by_id)
+        CITY_NAME_BY_ID.clear()
+        CITY_NAME_BY_ID.update(GAME_DATA_PROFILE.city_name_by_id)
+        TRADE_GOOD_NAME_BY_ID.clear()
+        TRADE_GOOD_NAME_BY_ID.update(GAME_DATA_PROFILE.trade_good_name_by_id)
+        SPOUSE_APTITUDE_RECORDS = tuple((tuple((int(value) for value in record)) for record in SPOUSE_APTITUDE_DATA['records']))
+        UNEMPLOYABLE_CHARACTER_IDS = tuple(sorted((int(record['id']) for record in CHARACTER_DATA['records'] if int(record.get('hire_state', 0)) in (0, 1))))
+        self._character_hire_state_cache = None
+        for sponsor in SPONSOR_DATA['records']:
+            city_id = int(sponsor['city_id'])
+            nation_id = int(sponsor['nation_id'])
+            job_id = int(sponsor['job_id'])
+            sponsor['city'] = CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
+            sponsor['nation'] = GAME_MASTER_DATA['nation_names'][nation_id] if 0 <= nation_id < len(GAME_MASTER_DATA['nation_names']) else UI_EMPTY_VALUE
+            sponsor['job'] = SPONSOR_JOB_NAME_BY_ID.get(job_id, UI_EMPTY_VALUE)
+            sponsor['wealth'] = int(sponsor['wealth_factor']) * 10000
+        for table_name in ('cannon_types', 'figureheads', 'mast_names'):
+            for code, name in FLEET_DATA[table_name].items():
+                if name is None:
+                    FLEET_DATA[table_name][code] = FLEET_NONE_NAME
+        DISCOVERY_NAME_BY_NO.clear()
+        DISCOVERY_NAME_BY_NO.update({int(discovery_no): name if name is not None else TRADE_GOOD_NAME_BY_ID.get(DISCOVERY_TRADE_GOOD_REFS.get(int(discovery_no)), '') for discovery_no, name, *_ in DISCOVERY_MASTER_DB})
+        ITEM_NAME_BY_ID.clear()
+        ITEM_NAME_BY_ID.update({int(item_id): name if name is not None else DISCOVERY_NAME_BY_NO.get(ITEM_DISCOVERY_NAME_REFS.get(int(item_id)), '') for item_id, name, *_ in ITEM_MASTER_DB})
+        ITEM_STATS_TABLE.clear()
+        ITEM_STATS_TABLE.update({int(item_id): values for item_id, values in GAME_MASTER_DATA['item_stats_table'].items()})
+        for cached_method in (self._fleet_ship_type_name, self._fleet_ship_type_options, self._fleet_figurehead_map):
+            cached_method.cache_clear()
+        PLAYER_ABILITY_MAX = game_limit('player.ability')
+        CHARACTER_SPECIAL_STAT_MAX = game_limit('player.vitality')
+        PLAYER_SKILL_MAX = game_limit('player.skill')
+        PLAYER_LANGUAGE_MAX = game_limit('player.language')
+        PERSON_ABILITY_MAX = game_limit('person.ability')
+        PERSON_SPECIAL_STAT_MAX = game_limit('person.vitality')
+        PERSON_REPUTATION_MAX = game_limit('person.reputation')
+        PERSON_SKILL_MAX = game_limit('person.skill')
+        PERSON_LANGUAGE_MAX = game_limit('person.language')
+        SPONSOR_REMAINING_DAYS_MAX = game_limit('sponsor.remaining_days')
+        raw_money_definitions = resolve_ui_references(GAME_DATA_PROFILE.editor_mappings['money_definitions'])
+        for index, definition in enumerate(raw_money_definitions):
+            if index < len(EDITOR_MAPPINGS['money_definitions']):
+                EDITOR_MAPPINGS['money_definitions'][index][0] = definition[0]
+                EDITOR_MAPPINGS['money_definitions'][index][1] = game_limit(definition[1])
+        PLAYER_REPUTATION_MAX = min((int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions'][3:5]))
+
+    def _refresh_profile_bound_widgets(self):
+        """Refresh static-data views without reloading or changing the save buffer."""
+        preferred_city_id = self._selected_player_city_id()
+        preferred_building_id = self._selected_player_building_id()
+        preferred_wife = self._wife_from_combo_text() if self.file_buffer else None
+        preferred_wife_id = int(preferred_wife['id']) if preferred_wife is not None else None
+        self.CITY_RECORDS = CITY_DATA['records']
+        self.MAP_CITY_POINTS = tuple(MAP_LOCATION_DATA.get('city_points', ()))
+        self.MAP_DISCOVERY_REGIONS = tuple(MAP_LOCATION_DATA.get('discovery_regions', ()))
+        self.TRADE_GOOD_NAMES = dict(TRADE_GOOD_NAME_BY_ID)
+        self.CITY_INLAND_CONNECTIONS = {int(city_id): tuple(city_ids) for city_id, city_ids in CITY_DATA.get('inland_city_connections', {}).items()}
+        self.CITY_SHIP_CANDIDATE_MASKS = tuple((int(mask) for mask, count in CITY_DATA['ship_candidate_mask_runs'] for _ in range(int(count))))
+        self.CITY_COMMON_TRADE_GOODS = build_city_common_trade_goods(CITY_DATA)
+        self.item_db = load_item_database()
+        self.discovery_db = load_discovery_database()
+        self.event_db = load_event_database()
+        self._item_search_index = [(item, item['name'].casefold()) for item in self.item_db]
+        self._discovery_search_index = [(index, discovery, '{0}\n{1}'.format(discovery['name'], discovery['category']).casefold()) for index, discovery in enumerate(self.discovery_db)]
+        self._character_search_index = [(int(character['id']), character.get('name') or UI_EMPTY_VALUE, (character.get('name') or UI_EMPTY_VALUE).casefold()) for character in CHARACTER_DATA['records']]
+        self._wife_name_options = [barmaid['name'] for barmaid in BARMAID_DATABASE]
+        self.city_good_options = [(ui('ui_0319'), -1)] + [(item['name'], item['id']) for item in self.item_db]
+        self.city_good_values = [text for text, _item_id in self.city_good_options]
+        self.city_good_text_by_id = {item_id: text for text, item_id in self.city_good_options}
+        self.city_good_id_by_text = {text: item_id for text, item_id in self.city_good_options}
+        self.city_good_ids_by_casefold = {}
+        for text_value, item_id in self.city_good_options:
+            if item_id >= 0:
+                self.city_good_ids_by_casefold.setdefault(text_value.casefold(), []).append(item_id)
+        money_limits = [int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions']]
+        money_batch_max = min(money_limits[:3])
+        reputation_batch_max = min(money_limits[3:5])
+        self.lbl_batch_stats_limit.config(text=ui('ui_0390', PLAYER_ABILITY_MAX))
+        self.spn_batch_stats.configure(to=PLAYER_ABILITY_MAX)
+        self.spn_batch_stats.set(str(PLAYER_ABILITY_MAX))
+        self.lbl_batch_money_limit.config(text=ui('ui_0390', '{0:,}'.format(money_batch_max)))
+        self.spn_batch_money.configure(to=money_batch_max)
+        self._configure_bounded_spinbox(self.spn_batch_money, 0, money_batch_max)
+        self.spn_batch_money.set(str(money_batch_max))
+        self.lbl_batch_reputation_limit.config(text=ui('ui_0390', '{0:,}'.format(reputation_batch_max)))
+        self.spn_batch_reputation.configure(to=reputation_batch_max)
+        self._configure_bounded_spinbox(self.spn_batch_reputation, 0, reputation_batch_max)
+        self.spn_batch_reputation.set(str(reputation_batch_max))
+        self.spn_batch_tech.configure(to=PLAYER_SKILL_MAX)
+        self._configure_bounded_spinbox(self.spn_batch_tech, 0, PLAYER_SKILL_MAX)
+        self.spn_batch_tech.set(str(PLAYER_SKILL_MAX))
+        self.spn_batch_lang.configure(to=PLAYER_LANGUAGE_MAX)
+        self._configure_bounded_spinbox(self.spn_batch_lang, 0, PLAYER_LANGUAGE_MAX)
+        self.spn_batch_lang.set(str(PLAYER_LANGUAGE_MAX))
+        self.spn_sponsor_remaining_days.configure(to=SPONSOR_REMAINING_DAYS_MAX)
+        self.fleet_ship_type_combo.configure(values=self._fleet_ship_type_options())
+        self.fleet_figurehead_combo.configure(values=self._fleet_figurehead_options())
+        self._update_fleet_figurehead_effects()
+        for code, checkbox in enumerate(getattr(self, 'city_ship_checks', ())):
+            checkbox.configure(text=self._fleet_ship_type_name(code))
+        person_limits = {1: (PERSON_ABILITY_MAX, ui('ui_0390', PERSON_ABILITY_MAX)), 2: (PERSON_REPUTATION_MAX, ui('ui_0390', '{0:,}'.format(PERSON_REPUTATION_MAX))), 3: (PERSON_SKILL_MAX, ui('ui_0247')), 4: (PERSON_LANGUAGE_MAX, ui('ui_0247'))}
+        for detail_index, (maximum, label_text) in person_limits.items():
+            spinner = self._person_batch_spinners[detail_index]
+            spinner.configure(to=maximum)
+            spinner.set(str(maximum))
+            self._person_batch_labels[detail_index].configure(text=label_text)
+        self.cbo_job.configure(values=JOB_NAMES)
+        self.cbo_blood.configure(values=BLOOD_NAMES)
+        self.cbo_city_nation.configure(values=NATION_NAMES)
+        self.cbo_nation.configure(values=NATION_NAMES if self.chk_all_nations.get() else BASIC_NATIONS)
+        self.cbo_player_city.configure(values=[ui('ui_0544')] + list([record['name'] for record in self.CITY_RECORDS]))
+        self.update_wife_combo_options()
+        if self.file_buffer:
+            self._set_wife_combo(preferred_wife_id)
+            if getattr(self, '_player_location_is_city', False) and preferred_city_id is not None and (0 <= preferred_city_id < len(self.CITY_RECORDS)):
+                self._player_city_codes = list(range(len(self.CITY_RECORDS)))
+                self.cbo_player_city.configure(values=[record['name'] for record in self.CITY_RECORDS], state='readonly')
+                self.cbo_player_city.current(preferred_city_id)
+                self._refresh_player_building_options(preferred_building_id, keep_unavailable=True)
+            else:
+                self._set_player_location_from_buffer(self.file_buffer)
+        self.update_wife_display()
+        self._refresh_wife_search_results()
+        self._refresh_officer_search_results()
+        self._refresh_all_crew_profiles(reset_filters=False, refresh_lists=True)
+        self._refresh_person_browser()
+        self._refresh_sponsor_contract_display()
+        self.refresh_money_table()
+        self.refresh_stats_table()
+        self.refresh_skills_table()
+        self.refresh_pocket_list()
+        self.refresh_storage_list()
+        self.refresh_fleet_list()
+        self._city_list_filter_cache = object()
+        self.refresh_cities_list()
+        self.on_city_select()
+        self.refresh_discoveries_table()
+        self.refresh_events_table()
+        self._schedule_navigation_map_refresh()
+        self._schedule_all_treeview_autofit()
+
+    def _activate_game_data_profile(self, profile):
+        GAME_DATA_PROFILE.apply_from(profile)
+        self.game_data_profile = GAME_DATA_PROFILE
+        self._sponsor_exe_preference_flags = {}
+        self._rebuild_game_data_indexes()
+        self._refresh_profile_bound_widgets()
+
+    def on_open_game_executable(self):
+        """Select a game EXE and activate every statically verified field."""
+        initial_directory = os.path.dirname(self.file_path) if self.file_path else os.path.dirname(self.game_executable_path) if self.game_executable_path else ''
+        path = filedialog.askopenfilename(parent=self.root, title=ui('ui_0682'), initialdir=initial_directory or None, filetypes=[(ui('ui_0683'), '*.EXE;*.exe'), (ui('ui_0266'), '*.*')])
+        if not path:
+            return
+        try:
+            fallback = GameDataProfile.from_builtin()
+            result = load_executable_profile(path, fallback)
+            self._activate_game_data_profile(result.profile)
+        except (OSError, ExecutableFormatError, ValueError, KeyError, struct.error) as error:
+            messagebox.showerror(APP_TITLE, ui('ui_0686', error))
+            return
+        self.game_executable_path = os.path.abspath(path)
+        self.file_menu.entryconfigure(self._builtin_profile_menu_index, state=tk.NORMAL)
+        applied = UI_LIST_SEPARATOR.join(result.loaded_sections)
+        warning_text = ui('ui_0685', '\n'.join(result.warnings)) if result.warnings else ''
+        limit_summary = UI_LIST_SEPARATOR.join(('{0} {1:,}'.format(EDITOR_MAPPINGS['money_definitions'][index][0], EDITOR_MAPPINGS['money_definitions'][index][1]) for index in (0, 1, 3, 4))) if result.limits else ''
+        limit_text = ui('ui_0689', limit_summary) if limit_summary else ''
+        self.lbl_status.config(text=ui('ui_0687', os.path.basename(path)))
+        messagebox.showinfo(APP_TITLE, ui('ui_0684', os.path.basename(path), applied) + limit_text + warning_text)
+
+    def use_builtin_game_data(self):
+        """Discard the selected EXE profile and restore bundled static data."""
+        try:
+            self._activate_game_data_profile(GameDataProfile.from_builtin())
+        except (OSError, ValueError, KeyError) as error:
+            messagebox.showerror(APP_TITLE, ui('ui_0686', error))
+            return
+        self.game_executable_path = None
+        self.file_menu.entryconfigure(self._builtin_profile_menu_index, state=tk.DISABLED)
+        self.lbl_status.config(text=ui('ui_0688'))
+
     def on_open_file(self):
         file_path = filedialog.askopenfilename(title=ui('ui_0187'), filetypes=[(ui('ui_0265'), '*.CDS;*.SAV;*.cds;*.sav'), (ui('ui_0266'), '*.*')])
         if file_path:
@@ -9306,7 +9620,7 @@ class CDS3SaveEditorApp:
             self._navigation_map_reveal_backup = None
             self._navigation_map_preserve_view_on_refresh = False
             self._sponsor_contract_hint_resets.clear()
-            self._sponsor_exe_preference_flags = read_sponsor_preferences_from_game_exe(os.path.dirname(file_path)) or {}
+            self._sponsor_exe_preference_flags = {}
             self._officer_preview_id = None
             self._officer_selected_id = None
             self._wife_selected_id = None
@@ -9360,9 +9674,9 @@ class CDS3SaveEditorApp:
             self._refresh_all_crew_profiles(reset_filters=True, refresh_lists=True)
             self.stat_values = list(self.file_buffer[45:51]) + [struct.unpack_from('<I', self.file_buffer, 51)[0]]
             self.refresh_stats_table()
-            self.money_values = [min(99999999, struct.unpack_from('<I', self.file_buffer, offset)[0]) for offset in (153, 157, 161)] + [struct.unpack_from('<I', self.file_buffer, offset)[0] for offset in (83, 87)]
+            self.money_values = [min(int(EDITOR_MAPPINGS['money_definitions'][index][1]), struct.unpack_from('<I', self.file_buffer, offset)[0]) for index, offset in enumerate((153, 157, 161, 83, 87))]
             self.refresh_money_table()
-            self.skill_levels = [min(3, max(0, self.file_buffer[56 + i])) for i in range(len(SKILLS_DATA))]
+            self.skill_levels = [min(PLAYER_SKILL_MAX if i < 13 else PLAYER_LANGUAGE_MAX, max(0, self.file_buffer[56 + i])) for i in range(len(SKILLS_DATA))]
             self.refresh_skills_table()
             self.pocket_ids = read_item_slots(self.file_buffer, POCKET_SLOT_OFFSET, POCKET_SLOT_CAPACITY)
             self.storage_ids = read_item_slots(self.file_buffer, STORAGE_SLOT_OFFSET, STORAGE_SLOT_CAPACITY)
@@ -9449,7 +9763,9 @@ class CDS3SaveEditorApp:
             self.file_buffer[114:132] = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
             self.file_buffer[95:95 + min(len(first_bytes), 18)] = first_bytes[:18]
             self.file_buffer[114:114 + min(len(last_bytes), 18)] = last_bytes[:18]
-            struct.pack_into('<H', self.file_buffer, 21, int(self.spn_game_y.get()))
+            target_game_year = int(self.spn_game_y.get())
+            self._shift_character_ages_to_game_year(target_game_year)
+            struct.pack_into('<H', self.file_buffer, 21, target_game_year)
             self.file_buffer[25] = int(self.spn_game_m.get())
             self.file_buffer[26] = int(self.spn_game_d.get())
             struct.pack_into('<H', self.file_buffer, 149, int(self.spn_birth_y.get()))
@@ -9473,13 +9789,14 @@ class CDS3SaveEditorApp:
                 else:
                     write_spouse_barmaid_id(self.file_buffer, wife_data['id'])
             for i in range(6):
-                self.file_buffer[45 + i] = min(255, max(0, self.stat_values[i]))
+                self.file_buffer[45 + i] = min(PLAYER_ABILITY_MAX, max(0, self.stat_values[i]))
             struct.pack_into('<I', self.file_buffer, 51, min(CHARACTER_SPECIAL_STAT_MAX, max(0, self.stat_values[6])))
-            struct.pack_into('<I', self.file_buffer, 153, min(99999999, max(0, self.money_values[0])))
-            struct.pack_into('<I', self.file_buffer, 157, min(99999999, max(0, self.money_values[1])))
-            struct.pack_into('<I', self.file_buffer, 161, min(99999999, max(0, self.money_values[2])))
-            struct.pack_into('<I', self.file_buffer, 83, min(PLAYER_REPUTATION_MAX, max(0, self.money_values[3])))
-            struct.pack_into('<I', self.file_buffer, 87, min(PLAYER_REPUTATION_MAX, max(0, self.money_values[4])))
+            money_limits = [int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions']]
+            struct.pack_into('<I', self.file_buffer, 153, min(money_limits[0], max(0, self.money_values[0])))
+            struct.pack_into('<I', self.file_buffer, 157, min(money_limits[1], max(0, self.money_values[1])))
+            struct.pack_into('<I', self.file_buffer, 161, min(money_limits[2], max(0, self.money_values[2])))
+            struct.pack_into('<I', self.file_buffer, 83, min(money_limits[3], max(0, self.money_values[3])))
+            struct.pack_into('<I', self.file_buffer, 87, min(money_limits[4], max(0, self.money_values[4])))
             for i in range(len(SKILLS_DATA)):
                 self.file_buffer[56 + i] = self.skill_levels[i]
             write_item_slots(self.file_buffer, POCKET_SLOT_OFFSET, POCKET_SLOT_CAPACITY, self.pocket_ids)
@@ -9488,8 +9805,6 @@ class CDS3SaveEditorApp:
             for i, ev in enumerate(self.event_db):
                 e_off = ev['save_offset']
                 if e_off + EVENT_RECORD_PAYLOAD_SIZE <= len(self.file_buffer):
-                    # 이벤트와 무관한 항목만 편집한 경우 게임이 기록한 마커와
-                    # 미확정 payload를 그대로 보존한다.
                     sync_event_completion(self.file_buffer, e_off, self.event_state[i], p_name_bytes)
             for i, (m_off, m_desc, m_didx) in enumerate(SEA_MONSTERS):
                 if m_off < len(self.file_buffer):
@@ -9507,8 +9822,6 @@ class CDS3SaveEditorApp:
                 if d_off + 164 <= len(self.file_buffer):
                     st = self.discovery_state[i]
                     marker_off = d_off - 1
-                    # 실제 상태를 바꾸지 않았다면 게임 원본의 마커, 날짜와
-                    # 아직 해석하지 못한 payload를 그대로 보존한다.
                     if st == state_from_marker(self.file_buffer[marker_off]):
                         continue
                     if st == 0:
@@ -9544,7 +9857,6 @@ class CDS3SaveEditorApp:
                         struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
                     else:
                         self.file_buffer[marker_off] = marker_for_state(st)
-                        # d_off + 163은 다음 발견물의 상태 마커다.
                         self.file_buffer[d_off:d_off + 163] = b'\x00' * 163
                         self.file_buffer[d_off + 40:d_off + 48] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
                         self.file_buffer[d_off + 134:d_off + 142] = b'\xff\xff\xff\xff\xff\xff\xff\xff'
@@ -9568,8 +9880,6 @@ class CDS3SaveEditorApp:
         if hasattr(self, 'cbo_wife'):
             self._set_wife_combo(current_id)
         self.update_wife_display()
-
-
     CITY_COMMON_TRADE_GOODS = {city_index: tuple(((int(good_id), int(base_price)) for good_id, base_price in zip(region['goods'], region['base_prices']))) for region in CITY_DATA.get('trade_regions', ()) for city_index in range(int(region['city_start']), int(region['city_end']) + 1)}
 
     def _on_city_common_price_motion(self, event, display_index):

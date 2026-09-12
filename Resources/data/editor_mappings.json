@@ -113,23 +113,23 @@
   "money_definitions": [
     [
       "ui_0634",
-      99999999
+      "player.cash"
     ],
     [
       "ui_0635",
-      99999999
+      "player.deposit"
     ],
     [
       "ui_0636",
-      99999999
+      "player.contract"
     ],
     [
       "ui_0637",
-      9999999
+      "player.fame"
     ],
     [
       "ui_0638",
-      9999999
+      "player.infamy"
     ]
   ],
   "event_batch_status_options": [

@@ -23,12 +23,17 @@ python -m pip install "pyinstaller==3.3.1" "Pillow==5.4.1" "python-vlc==3.0.1111
 python -m PyInstaller --noconfirm --clean CDS_SaveEditor_xp.spec
 ```
 
-The resulting `dist\CDS_SaveEditor_XP_v1.3` directory must be copied or zipped
+The resulting `dist\CDS_SaveEditor_XP_v1.4` directory must be copied or zipped
 as a whole and smoke-tested on a real XP SP3 installation.  Building the
 executable on a newer Windows system does not substitute for that test.
 
-## Version 1.3 port
+## Version 1.4 port
 
+- Adds optional game-EXE profiles for character, barmaid, sponsor, city,
+  trade-good, ship, item, figurehead-effect, map-coordinate, and limit data.
+- Uses gender and face codes for the unified male/female portrait archive.
+- Adds sponsor intimacy editing, power grades, dynamic value limits, and
+  double-click current-city editing.
 - Includes the spouse aptitude tab and the six child-aptitude modifiers tied
   to each barmaid face code.
 - Preserves untouched event/discovery records byte-for-byte and prevents a
