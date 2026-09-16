@@ -19,6 +19,7 @@
 !/editor_core/resources.py
 !/tests/
 !/tests/test_xp_122.py
+!/tests/test_treeview.py
 
 # 실행과 빌드에 필요한 모든 리소스
 !/Resources/

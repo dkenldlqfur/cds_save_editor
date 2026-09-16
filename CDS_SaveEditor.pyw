@@ -166,6 +166,38 @@ def _dpi_px(value):
         return type(value)((_dpi_px(item) for item in value))
     return value
 
+def center_toplevel_on_parent(window, parent, width=None, height=None):
+    """Place a modal Toplevel at the visual center of its owning tool window."""
+    owner = parent.winfo_toplevel()
+    owner.update_idletasks()
+    window.update_idletasks()
+    popup_width = int(width if width is not None else window.winfo_reqwidth())
+    popup_height = int(height if height is not None else window.winfo_reqheight())
+    x = owner.winfo_rootx() + (owner.winfo_width() - popup_width) // 2
+    y = owner.winfo_rooty() + (owner.winfo_height() - popup_height) // 2
+    window.geometry('{0}x{1}{2:+d}{3:+d}'.format(popup_width, popup_height, x, y))
+
+def install_default_dialog_parent(parent):
+    """Keep standard Tk dialogs centered on the editor unless a child owns them."""
+    if getattr(messagebox, '_cds_default_parent_installed', False):
+        return
+
+    def wrap(original):
+        def wrapped(*args, **kwargs):
+            kwargs.setdefault('parent', parent)
+            return original(*args, **kwargs)
+        return wrapped
+
+    for name in ('showinfo', 'showwarning', 'showerror', 'askquestion',
+                 'askokcancel', 'askyesno', 'askyesnocancel', 'askretrycancel'):
+        if hasattr(messagebox, name):
+            setattr(messagebox, name, wrap(getattr(messagebox, name)))
+    for name in ('askopenfilename', 'askopenfilenames', 'asksaveasfilename',
+                 'askdirectory'):
+        if hasattr(filedialog, name):
+            setattr(filedialog, name, wrap(getattr(filedialog, name)))
+    messagebox._cds_default_parent_installed = True
+
 def _dpi_options(options, names):
     copied = dict(options)
     for name in names:
@@ -247,7 +279,7 @@ from editor_core.spouse_slots import SPOUSE_SLOT_OFFSET, read_spouse_barmaid_id,
 from editor_core.item_slots import POCKET_SLOT_CAPACITY, POCKET_SLOT_OFFSET, STORAGE_SLOT_CAPACITY, STORAGE_SLOT_OFFSET, read_item_slots, write_item_slots
 from editor_core.event_records import EVENT_RECORD_PAYLOAD_SIZE, event_is_completed, sync_event_completion
 from editor_core.tab_layout import configure_equal_columns
-from editor_core.treeview import clear_rows
+from editor_core.treeview import EDITABLE_ROW_TAG, READONLY_ROW_TAG, clear_rows, mixed_editability_tags
 from editor_core.resources import load_json_resource
 from editor_core.game_data_profile import GameDataProfile
 from editor_core.game_executable import ExecutableFormatError, load_executable_profile
@@ -745,10 +777,7 @@ class CalendarDatePicker(tk.Frame):
         self._calendar_footer = tk.Frame(popup, padx=7, pady=6, relief='groove', bd=1)
         self._calendar_footer.pack(fill=tk.X)
         EditorButton(self._calendar_footer, text=ui('ui_0382'), width=8, command=self._confirm_date, bg='#E6F4EA', fg='#137333', activebackground='#C8E6C9', activeforeground='#0B5D2A').pack(side=tk.RIGHT)
-        popup.update_idletasks()
-        x = self.winfo_rootx()
-        y = self.winfo_rooty() + self.winfo_height() + 2
-        popup.geometry('+{0}+{1}'.format(x, y))
+        center_toplevel_on_parent(popup, self.winfo_toplevel())
         popup.grab_set()
 
     def _close_popup(self):
@@ -1405,14 +1434,10 @@ class FacePickerModal(tk.Toplevel):
         else:
             EditorButton(top_bar, text=ui('ui_0098'), font=(APP_FONT_FAMILY, 9), bg='#E6F4EA', fg='#137333', padx=12, pady=6, command=self.apply_selection).pack(side=tk.RIGHT, padx=8)
         self.select_face(self.selected_face_id)
-        if self._compact_grid:
-            self.update_idletasks()
-            popup_w = self.winfo_reqwidth()
-            popup_h = self.winfo_reqheight()
-            parent.update_idletasks()
-            popup_x = parent.winfo_rootx() + (parent.winfo_width() - popup_w) // 2
-            popup_y = parent.winfo_rooty() + (parent.winfo_height() - popup_h) // 2
-            self.geometry('{0}x{1}+{2}+{3}'.format(popup_w, popup_h, max(0, popup_x), max(0, popup_y)))
+        self.update_idletasks()
+        popup_w = self.winfo_reqwidth() if self._compact_grid else _dpi_px(640)
+        popup_h = self.winfo_reqheight() if self._compact_grid else _dpi_px(540)
+        center_toplevel_on_parent(self, parent, popup_w, popup_h)
 
     def _on_mousewheel(self, event):
         try:
@@ -1584,13 +1609,7 @@ class InfoModalBase(tk.Toplevel):
         self._focus_restored = False
         self.resizable(False, False)
         self.transient(parent)
-        try:
-            x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
-            y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-        except Exception:
-            x = (self.winfo_screenwidth() - width) // 2
-            y = (self.winfo_screenheight() - height) // 2
-        self.geometry('{0}x{1}+{2}+{3}'.format(width, height, x, y))
+        center_toplevel_on_parent(self, parent, width, height)
 
     def initialize_navigation(self):
         """팝업 내부 컨트롤에 탐색 키보드 포커스를 고정한다."""
@@ -2444,6 +2463,7 @@ class CDS3SaveEditorApp:
 
     def __init__(self, root):
         self.root = root
+        install_default_dialog_parent(root)
         self.game_data_profile = GAME_DATA_PROFILE
         self.game_executable_path = None
         global _dpi_layout_scale
@@ -2691,15 +2711,12 @@ class CDS3SaveEditorApp:
 
     def _show_update_history_dialog(self, updated_version, history_text):
         """업데이트 완료 후 전체 릴리즈 이력을 스크롤 가능한 창으로 표시한다."""
-        self.root.update_idletasks()
         dialog = tk.Toplevel(self.root)
         dialog.title(APP_TITLE)
         dialog.transient(self.root)
         dialog.resizable(True, True)
         width, height = (620, 460)
-        x = self.root.winfo_x() + max(0, (self.root.winfo_width() - width) // 2)
-        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - height) // 2)
-        dialog.geometry('{0}x{1}+{2}+{3}'.format(width, height, x, y))
+        center_toplevel_on_parent(dialog, self.root, width, height)
         dialog.minsize(440, 260)
         tk.Label(dialog, text=ui('ui_0510', updated_version), font=(APP_FONT_FAMILY, 10, 'bold')).pack(anchor='w', padx=12, pady=(12, 6))
         body = tk.Frame(dialog)
@@ -2974,19 +2991,26 @@ class CDS3SaveEditorApp:
         configure_treeviews(self.root)
 
     def _enable_tree_zebra(self):
-        """Apply alternating row colors to every Treeview, including future inserts."""
+        """Apply zebra colors and read-only row colors to every Treeview."""
+
+        def editability_tags(tags):
+            tags = tuple(tags)
+            if EDITABLE_ROW_TAG in tags:
+                return tuple((tag for tag in tags if tag != READONLY_ROW_TAG))
+            return tuple((tag for tag in tags if tag != READONLY_ROW_TAG)) + (READONLY_ROW_TAG,)
 
         def walk(widget):
             for child in widget.winfo_children():
                 if isinstance(child, ttk.Treeview):
                     child.tag_configure('zebra_odd', background='#FFFFFF')
                     child.tag_configure('zebra_even', background='#F0F0F0')
+                    child.tag_configure(READONLY_ROW_TAG, foreground='#B3261E')
                     original_insert = child.insert
                     original_delete = child.delete
                     child._zebra_next_index = 0
 
                     def striped_insert(*args, _tree=child, _insert=original_insert, **kwargs):
-                        custom_tags = tuple(kwargs.pop('tags', ()))
+                        custom_tags = editability_tags(kwargs.pop('tags', ()))
                         row_index = _tree._zebra_next_index
                         zebra_tag = 'zebra_odd' if row_index % 2 == 0 else 'zebra_even'
                         kwargs['tags'] = (zebra_tag,) + tuple(custom_tags)
@@ -3049,6 +3073,10 @@ class CDS3SaveEditorApp:
     def _refresh_tree_zebra(tree):
         for index, item in enumerate(tree.get_children('')):
             custom_tags = tuple((tag for tag in tree.item(item, 'tags') if tag not in ('zebra_odd', 'zebra_even')))
+            if EDITABLE_ROW_TAG in custom_tags:
+                custom_tags = tuple((tag for tag in custom_tags if tag != READONLY_ROW_TAG))
+            else:
+                custom_tags = tuple((tag for tag in custom_tags if tag != READONLY_ROW_TAG)) + (READONLY_ROW_TAG,)
             zebra_tag = 'zebra_odd' if index % 2 == 0 else 'zebra_even'
             tree.item(item, tags=(zebra_tag,) + tuple(custom_tags))
 
@@ -3251,10 +3279,7 @@ class CDS3SaveEditorApp:
         EditorButton(buttons, text=ui('ui_0098'), width=8, command=confirm).pack(side=tk.LEFT)
         dialog.bind('<Return>', lambda _event: confirm())
         dialog.bind('<Escape>', lambda _event: dialog.destroy())
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry('+{0}+{1}'.format(max(0, x), max(0, y)))
+        center_toplevel_on_parent(dialog, self.root)
         dialog.deiconify()
         dialog.grab_set()
         entry.focus_set()
@@ -3763,7 +3788,7 @@ class CDS3SaveEditorApp:
         if tuple(self.lst_fleet.get_children()) != slot_ids:
             self.lst_fleet.delete(*self.lst_fleet.get_children())
             for index in range(8):
-                self.lst_fleet.insert('', tk.END, iid=str(index), values=(index, ''))
+                self.lst_fleet.insert('', tk.END, iid=str(index), values=(index, ''), tags=(EDITABLE_ROW_TAG,))
         self.fleet_active_indices = self._fleet_active_ship_indices()
         for position in range(8):
             name = ''
@@ -4056,10 +4081,7 @@ class CDS3SaveEditorApp:
         EditorButton(buttons, text=ui('ui_0102'), width=8, command=dialog.destroy).pack(side=tk.LEFT, padx=(4, 0))
         dialog.bind('<Return>', lambda _event: confirm())
         dialog.bind('<Escape>', lambda _event: dialog.destroy())
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry('+{0}+{1}'.format(max(0, x), max(0, y)))
+        center_toplevel_on_parent(dialog, self.root)
         dialog.deiconify()
         dialog.grab_set()
         name_entry.focus_set()
@@ -6206,6 +6228,7 @@ class CDS3SaveEditorApp:
             self._person_batch_spinners[detail_index] = spinner
             self._person_batch_labels[detail_index] = label
         basic_tree = self._make_officer_tree(self._person_detail_bodies[0], ('index', 'field', 'value'), ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8, frame_padx=0, frame_pady=0, pack_pady=2)
+        basic_tree.tag_configure(READONLY_ROW_TAG, foreground='#B3261E')
         stats_tree = self._make_officer_tree(self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False), (TREE_COLUMN_TITLES['stats']['maximum'], 115, 'center', True)), 7, frame_padx=0, frame_pady=0, pack_pady=2)
         fame_tree = self._make_officer_tree(self._person_detail_bodies[2], ('index', 'field', 'value', 'maximum'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 145, 'center', False), (ui('ui_0350'), 135, 'e', False), (TREE_COLUMN_TITLES['money']['maximum'], 115, 'center', True)), 5, frame_padx=0, frame_pady=0, pack_pady=2)
         skill_tree = self._make_officer_tree(self._person_detail_bodies[3], ('index', 'field', 'value'), ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 190, 'w', True), (ui('ui_0490'), 150, 'center', False)), 13, frame_padx=0, frame_pady=0, pack_pady=2)
@@ -6450,6 +6473,7 @@ class CDS3SaveEditorApp:
         self._person_face_photo = None
         self._person_face_label.config(image='', bg='#222222')
         rows, image_path = ([], None)
+        editable_basic_fields = set()
         if kind == 'spouse' and item_id not in ('', None, '__none__'):
             barmaid = BARMAID_BY_ID.get(int(item_id))
             if barmaid:
@@ -6470,14 +6494,20 @@ class CDS3SaveEditorApp:
                 intimacy = sponsor_intimacy(self.file_buffer, SPONSOR_LAYOUT, int(sponsor['id'])) if self.file_buffer and SPONSOR_LAYOUT.contains(self.file_buffer, int(sponsor['id'])) else None
                 power = int(sponsor['power'])
                 rows = ((ui('ui_0062'), sponsor['name']), (ui('ui_0354'), sponsor['city']), (ui('ui_0491'), sponsor['nation']), (ui('ui_0492'), sponsor['job']), (ui('ui_0432'), '{0}{1}'.format(sponsor['appearance_year'], ui('ui_0233'))), (ui('ui_0433'), '{0}{1}'.format(retire, ui('ui_0233')) if retire else UI_EMPTY_VALUE), (ui('ui_0434'), str(int(sponsor['wealth_factor']))), (ui('ui_0464'), ui('ui_0694', power, sponsor_power_grade(power))), (ui('ui_0690'), str(intimacy) if intimacy is not None else UI_EMPTY_VALUE), (ui('ui_0647'), str(int(sponsor['appraisal']))), (ui('ui_0431'), preferences))
+                if intimacy is not None:
+                    editable_basic_fields.add(ui('ui_0690'))
                 image_path = get_sponsor_face_image_path(sponsor)
         elif role_mode and item_id not in ('', None, '__none__'):
             self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
             image_path = get_character_face_image_path(int(item_id))
         if not role_mode:
-            for index, (field, value) in enumerate(rows):
-                tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
-                tree.insert('', tk.END, values=(index, field, value), tags=tags)
+            editability_tags = mixed_editability_tags((
+                field in editable_basic_fields for field, _value in rows))
+            for index, ((field, value), tags) in enumerate(zip(rows, editability_tags)):
+                tags = list(tags)
+                if field == ui('ui_0061') and value == ui('ui_0272'):
+                    tags.append('fortune_spouse')
+                tree.insert('', tk.END, values=(index, field, value), tags=tuple(tags))
         if image_path:
             photo = get_cached_photo(image_path)
             if photo:
@@ -6649,10 +6679,17 @@ class CDS3SaveEditorApp:
             basic_rows.append((ui('ui_0495'), hire_text))
         show_current_city = self._person_active_type != 'unhireable'
         if show_current_city:
-            current_city, _city_editable = self._person_current_city_state(character_id)
+            current_city, city_editable = self._person_current_city_state(character_id)
             basic_rows.insert(7, (ui('ui_0542').rstrip(UI_LABEL_SUFFIX), current_city))
-        for index, row in enumerate(basic_rows):
-            item = self._person_detail_trees[0].insert('', tk.END, values=(index,) + tuple(row))
+        else:
+            city_editable = False
+        editable_flags = [False] * len(basic_rows)
+        if show_current_city and city_editable:
+            editable_flags[7] = True
+        editability_tags = mixed_editability_tags(editable_flags)
+        for index, (row, tags) in enumerate(zip(basic_rows, editability_tags)):
+            item = self._person_detail_trees[0].insert(
+                '', tk.END, values=(index,) + tuple(row), tags=tags)
             if show_current_city and index == 7:
                 self._person_current_city_row = item
         if show_current_city:
@@ -6662,12 +6699,12 @@ class CDS3SaveEditorApp:
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
             maximum = PERSON_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX
-            self._person_detail_trees[1].insert('', tk.END, values=(index,) + tuple(row) + (maximum,))
-        self._person_detail_trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
-        self._person_detail_trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)))
+            self._person_detail_trees[1].insert('', tk.END, values=(index,) + tuple(row) + (maximum,), tags=(EDITABLE_ROW_TAG,))
+        self._person_detail_trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)), tags=(EDITABLE_ROW_TAG,))
+        self._person_detail_trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)), tags=(EDITABLE_ROW_TAG,))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (self._person_detail_trees[3], index) if index < 13 else (self._person_detail_trees[4], index - 13)
-            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 11 + index]))
+            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 11 + index]), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(*self._person_detail_trees)
 
     @staticmethod
@@ -8028,7 +8065,7 @@ class CDS3SaveEditorApp:
         for i, (name, desc) in enumerate(stat_defs):
             val = self.stat_values[i] if self.file_buffer else UI_EMPTY_VALUE
             maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else PLAYER_ABILITY_MAX
-            self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, '{0:,}'.format(maximum)))
+            self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, '{0:,}'.format(maximum)), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_stats)
         self._update_player_restore_state()
 
@@ -8098,13 +8135,13 @@ class CDS3SaveEditorApp:
         money_defs = EDITOR_MAPPINGS['money_definitions']
         for i, (name, max_v) in enumerate(money_defs[:3]):
             val_str = '{0:,}'.format(self.money_values[i]) if self.file_buffer else UI_EMPTY_VALUE
-            self.tree_money.insert('', tk.END, iid=str(i), values=(i, name, val_str, '{0:,}'.format(max_v)))
+            self.tree_money.insert('', tk.END, iid=str(i), values=(i, name, val_str, '{0:,}'.format(max_v)), tags=(EDITABLE_ROW_TAG,))
         if hasattr(self, 'tree_reputation'):
             self.tree_reputation.delete(*self.tree_reputation.get_children())
             for row, i in enumerate(range(3, len(money_defs))):
                 name, max_v = money_defs[i]
                 val_str = '{0:,}'.format(self.money_values[i]) if self.file_buffer else UI_EMPTY_VALUE
-                self.tree_reputation.insert('', tk.END, iid=str(i), values=(row, name, val_str, '{0:,}'.format(max_v)))
+                self.tree_reputation.insert('', tk.END, iid=str(i), values=(row, name, val_str, '{0:,}'.format(max_v)), tags=(EDITABLE_ROW_TAG,))
             self._schedule_treeview_autofit(self.tree_money, self.tree_reputation)
         else:
             self._schedule_treeview_autofit(self.tree_money)
@@ -8259,7 +8296,7 @@ class CDS3SaveEditorApp:
                 lvl_str = str(lvl)
             else:
                 lvl_str = UI_EMPTY_VALUE
-            self.tree_tech.insert('', tk.END, iid=str(i), values=(i, name, lvl_str))
+            self.tree_tech.insert('', tk.END, iid=str(i), values=(i, name, lvl_str), tags=(EDITABLE_ROW_TAG,))
         self.tree_lang.delete(*self.tree_lang.get_children())
         for i in range(13, 27):
             name, off, desc = SKILLS_DATA[i]
@@ -8268,7 +8305,7 @@ class CDS3SaveEditorApp:
                 lvl_str = str(lvl)
             else:
                 lvl_str = UI_EMPTY_VALUE
-            self.tree_lang.insert('', tk.END, iid=str(i), values=(i - 13, name, lvl_str))
+            self.tree_lang.insert('', tk.END, iid=str(i), values=(i - 13, name, lvl_str), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_tech, self.tree_lang)
         self._update_player_restore_state()
 
@@ -8512,7 +8549,7 @@ class CDS3SaveEditorApp:
         self.tree_pocket.delete(*self.tree_pocket.get_children())
         for i, item_id in enumerate(self.pocket_ids):
             info = self.get_item_info(item_id)
-            self.tree_pocket.insert('', tk.END, values=(i, item_id, info['name'], info['category']))
+            self.tree_pocket.insert('', tk.END, values=(i, item_id, info['name'], info['category']), tags=(EDITABLE_ROW_TAG,))
         cnt = len(self.pocket_ids)
         self.lbl_pocket_count.config(text=inventory_text('ui_0283', 'ui_0281', cnt, 16), fg='#D93025' if cnt >= 16 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_pocket)
@@ -8521,7 +8558,7 @@ class CDS3SaveEditorApp:
         self.tree_storage.delete(*self.tree_storage.get_children())
         for i, item_id in enumerate(self.storage_ids):
             info = self.get_item_info(item_id)
-            self.tree_storage.insert('', tk.END, values=(i, item_id, info['name'], info['category']))
+            self.tree_storage.insert('', tk.END, values=(i, item_id, info['name'], info['category']), tags=(EDITABLE_ROW_TAG,))
         cnt = len(self.storage_ids)
         self.lbl_storage_count.config(text=inventory_text('ui_0283', 'ui_0282', cnt, 99), fg='#D93025' if cnt >= 99 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_storage)
@@ -9065,7 +9102,7 @@ class CDS3SaveEditorApp:
                 disc_d = UI_EMPTY_VALUE
                 rep_d = UI_EMPTY_VALUE
             difficulty_text = d['difficulty'] if d['difficulty'] is not None else UI_EMPTY_VALUE
-            self.tree_disc.insert('', tk.END, iid=str(i), values=(d['index'], d['disc_id'], d['category'], difficulty_text, d['name'], hint_text, st_text, disc_d, rep_d, d_name))
+            self.tree_disc.insert('', tk.END, iid=str(i), values=(d['index'], d['disc_id'], d['category'], difficulty_text, d['name'], hint_text, st_text, disc_d, rep_d, d_name), tags=(EDITABLE_ROW_TAG,))
         total = len(self.discovery_db)
         if self.file_buffer:
             pct = (rep_cnt + disc_cnt) / total * 100.0 if total > 0 else 0
@@ -9302,7 +9339,7 @@ class CDS3SaveEditorApp:
                 st_str = event_state_text(st)
             else:
                 st_str = UI_EMPTY_VALUE
-            self.tree_events.insert('', tk.END, iid=str(i), values=('{0:03d}'.format(ev['disc_id']), ev['name'], st_str))
+            self.tree_events.insert('', tk.END, iid=str(i), values=('{0:03d}'.format(ev['disc_id']), ev['name'], st_str), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_events)
 
     def set_event_single_state(self, idx, target_st):

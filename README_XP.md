@@ -23,7 +23,7 @@ python -m pip install "pyinstaller==3.3.1" "Pillow==5.4.1" "python-vlc==3.0.1111
 python -m PyInstaller --noconfirm --clean CDS_SaveEditor_xp.spec
 ```
 
-The resulting `dist\CDS_SaveEditor_XP_v1.4.1` directory must be copied or zipped
+The resulting `dist\CDS_SaveEditor_XP_v1.4.2` directory must be copied or zipped
 as a whole and smoke-tested on a real XP SP3 installation.  Building the
 executable on a newer Windows system does not substitute for that test.
 

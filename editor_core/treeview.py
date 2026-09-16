@@ -5,3 +5,14 @@ def clear_rows(*trees):
     for tree in trees:
         if tree is not None:
             tree.delete(*tree.get_children())
+
+
+READONLY_ROW_TAG = 'readonly_row'
+EDITABLE_ROW_TAG = 'editable_row'
+
+
+def mixed_editability_tags(editable_flags):
+    """Return an explicit editability tag for every row."""
+    flags = tuple((bool(flag) for flag in editable_flags))
+    return tuple(((EDITABLE_ROW_TAG,) if editable else (READONLY_ROW_TAG,)
+                  for editable in flags))
