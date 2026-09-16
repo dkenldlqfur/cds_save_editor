@@ -90,6 +90,18 @@ def _dpi_px(value):
     return value
 
 
+def center_toplevel_on_parent(window, parent, width=None, height=None):
+    """Place a modal Toplevel at the visual center of its owning tool window."""
+    owner = parent.winfo_toplevel()
+    owner.update_idletasks()
+    window.update_idletasks()
+    popup_width = int(width if width is not None else window.winfo_reqwidth())
+    popup_height = int(height if height is not None else window.winfo_reqheight())
+    x = owner.winfo_rootx() + (owner.winfo_width() - popup_width) // 2
+    y = owner.winfo_rooty() + (owner.winfo_height() - popup_height) // 2
+    window.geometry(f'{popup_width}x{popup_height}{x:+d}{y:+d}')
+
+
 def _dpi_options(options, names):
     copied = dict(options)
     for name in names:
@@ -245,7 +257,7 @@ from editor_core.event_records import (
     sync_event_completion,
 )
 from editor_core.tab_layout import configure_equal_columns
-from editor_core.treeview import clear_rows
+from editor_core.treeview import EDITABLE_ROW_TAG, READONLY_ROW_TAG, clear_rows, mixed_editability_tags
 from editor_core.resources import load_json_resource
 from editor_core.game_data_profile import GameDataProfile
 from editor_core.game_executable import ExecutableFormatError, load_executable_profile
@@ -936,10 +948,7 @@ class CalendarDatePicker(tk.Frame):
             command=self._confirm_date, bg='#E6F4EA', fg='#137333',
             activebackground='#C8E6C9', activeforeground='#0B5D2A',
         ).pack(side=tk.RIGHT)
-        popup.update_idletasks()
-        x = self.winfo_rootx()
-        y = self.winfo_rooty() + self.winfo_height() + 2
-        popup.geometry(f'+{x}+{y}')
+        center_toplevel_on_parent(popup, self.winfo_toplevel())
         popup.grab_set()
 
     def _close_popup(self):
@@ -1716,14 +1725,10 @@ class FacePickerModal(tk.Toplevel):
                 command=self.apply_selection,
             ).pack(side=tk.RIGHT, padx=8)
         self.select_face(self.selected_face_id)
-        if self._compact_grid:
-            self.update_idletasks()
-            popup_w = self.winfo_reqwidth()
-            popup_h = self.winfo_reqheight()
-            parent.update_idletasks()
-            popup_x = parent.winfo_rootx() + (parent.winfo_width() - popup_w) // 2
-            popup_y = parent.winfo_rooty() + (parent.winfo_height() - popup_h) // 2
-            self.geometry(f'{popup_w}x{popup_h}+{max(0, popup_x)}+{max(0, popup_y)}')
+        self.update_idletasks()
+        popup_w = self.winfo_reqwidth() if self._compact_grid else _dpi_px(640)
+        popup_h = self.winfo_reqheight() if self._compact_grid else _dpi_px(540)
+        center_toplevel_on_parent(self, parent, popup_w, popup_h)
     def _on_mousewheel(self, event):
         try:
             self.canvas.yview_scroll(int((-1) * (event.delta / 120)), 'units')
@@ -1924,13 +1929,7 @@ class InfoModalBase(tk.Toplevel):
         self._focus_restored = False
         self.resizable(False, False)
         self.transient(parent)
-        try:
-            x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
-            y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-        except Exception:
-            x = (self.winfo_screenwidth() - width) // 2
-            y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f'{width}x{height}+{x}+{y}')
+        center_toplevel_on_parent(self, parent, width, height)
 
     def initialize_navigation(self):
         """팝업 내부 컨트롤에 탐색 키보드 포커스를 고정한다."""
@@ -2961,6 +2960,7 @@ class CDS3SaveEditorApp:
         self._img_cache = {}
         self._update_check_in_progress = False
         self._update_download_in_progress = False
+        self._update_menu_index = None
         self._update_notice = self._consume_update_notice()
         self.theme_names = tuple(ttk.Style(self.root).theme_names())
         default_theme = self.theme_names[0] if self.theme_names else 'clam'
@@ -2987,7 +2987,7 @@ class CDS3SaveEditorApp:
         if self._update_notice is not None:
             self.root.after(400, self._show_update_notice)
         # 개발용 .pyw 실행에서는 네트워크 확인을 생략하고, 배포 EXE에서만 시작 시
-        # 최신 릴리즈를 조용히 확인한다. 새 버전이 있을 때만 버튼을 표시한다.
+        # 최신 릴리즈를 조용히 확인한다. 새 버전이 있을 때만 메뉴 항목을 표시한다.
         if getattr(sys, 'frozen', False):
             self.root.after(1500, lambda: self.check_for_updates(automatic=True))
 
@@ -3094,17 +3094,12 @@ class CDS3SaveEditorApp:
         """업데이트 완료 후 전체 릴리즈 이력을 스크롤 가능한 창으로 표시한다."""
         # 자동 업데이트 직후에는 메인 창이 아직 최초 배치를 끝내지 않았을 수 있다.
         # 좌표를 읽기 전에 레이아웃을 확정해야 팝업이 에디터 중앙에 배치된다.
-        self.root.update_idletasks()
         dialog = tk.Toplevel(self.root)
         dialog.title(APP_TITLE)
         dialog.transient(self.root)
         dialog.resizable(True, True)
         width, height = 620, 460
-        # geometry() 좌표계는 winfo_rootx/y()가 아니라 창 외곽의 winfo_x/y()와
-        # 같은 기준이다. 후자를 써야 Windows 제목 표시줄/테두리만큼 치우치지 않는다.
-        x = self.root.winfo_x() + max(0, (self.root.winfo_width() - width) // 2)
-        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - height) // 2)
-        dialog.geometry(f'{width}x{height}+{x}+{y}')
+        center_toplevel_on_parent(dialog, self.root, width, height)
         dialog.minsize(440, 260)
 
         tk.Label(dialog, text=ui('ui_0510', updated_version), font=(APP_FONT_FAMILY, 10, 'bold')).pack(
@@ -3153,20 +3148,23 @@ class CDS3SaveEditorApp:
 
         threading.Thread(target=worker, name='update-history', daemon=True).start()
 
-    def _set_update_button_state(self, state):
+    def _set_update_menu_state(self, state):
         try:
-            self.btn_check_update.config(state=state)
+            if self._update_menu_index is not None:
+                self.menu_bar.entryconfigure(self._update_menu_index, state=state)
         except (AttributeError, tk.TclError):
             pass
 
-    def _show_update_button(self, visible):
-        """새 버전이 확인된 경우에만 상단의 업데이트 버튼을 노출한다."""
+    def _show_update_menu_item(self, visible):
+        """새 버전이 확인된 경우에만 메뉴바에 업데이트 명령을 노출한다."""
         try:
-            if visible:
-                if not self.btn_check_update.winfo_manager():
-                    self.btn_check_update.pack(side=tk.RIGHT, padx=4)
-            else:
-                self.btn_check_update.pack_forget()
+            if visible and self._update_menu_index is None:
+                self.menu_bar.add_command(
+                    label=ui('ui_0695'), command=self.check_for_updates)
+                self._update_menu_index = self.menu_bar.index(tk.END)
+            elif not visible and self._update_menu_index is not None:
+                self.menu_bar.delete(self._update_menu_index)
+                self._update_menu_index = None
         except (AttributeError, tk.TclError):
             pass
 
@@ -3175,7 +3173,7 @@ class CDS3SaveEditorApp:
         if self._update_check_in_progress or self._update_download_in_progress or not UPDATE_LATEST_URL:
             return
         self._update_check_in_progress = True
-        self._set_update_button_state(tk.DISABLED)
+        self._set_update_menu_state(tk.DISABLED)
         if not automatic:
             self.lbl_status.config(text=ui('ui_0418'))
 
@@ -3198,34 +3196,38 @@ class CDS3SaveEditorApp:
 
     def _handle_update_error(self, error, automatic):
         self._update_check_in_progress = False
-        self._set_update_button_state(tk.NORMAL)
+        self._set_update_menu_state(tk.NORMAL)
         if not automatic:
             self.lbl_status.config(text=ui('ui_0117'))
-            messagebox.showwarning(APP_TITLE, ui('ui_0423', str(error)))
+            messagebox.showwarning(APP_TITLE, ui('ui_0423', str(error)), parent=self.root)
 
     def _handle_update_release(self, release, automatic):
         self._update_check_in_progress = False
-        self._set_update_button_state(tk.NORMAL)
+        self._set_update_menu_state(tk.NORMAL)
         remote_tag = str(release.get('tag_name', '')).strip()
         local_version = parse_release_version(APP_VERSION)
         remote_version = parse_release_version(remote_tag)
         if not remote_version or not local_version or remote_version <= local_version:
+            self._show_update_menu_item(False)
             if not automatic:
                 self.lbl_status.config(text=ui('ui_0117'))
-                messagebox.showinfo(APP_TITLE, ui('ui_0419', APP_VERSION))
+                messagebox.showinfo(APP_TITLE, ui('ui_0419', APP_VERSION), parent=self.root)
             return
         asset = self._release_asset(release)
         if not asset or not asset.get('browser_download_url'):
+            self._show_update_menu_item(False)
             if not automatic:
                 self.lbl_status.config(text=ui('ui_0117'))
-                messagebox.showwarning(APP_TITLE, ui('ui_0426'))
+                messagebox.showwarning(APP_TITLE, ui('ui_0426'), parent=self.root)
             return
         if automatic:
-            # 시작 시에는 확인 창을 띄우지 않는다. 새 버전이 있을 때만 사용자가
-            # 원할 때 다시 확인·설치를 진행할 수 있도록 버튼을 보여 준다.
-            self._show_update_button(True)
-            return
-        if messagebox.askyesno(APP_TITLE, ui('ui_0420', remote_tag.lstrip('vV'), APP_VERSION)):
+            # 나중에 다시 설치할 수 있도록 메뉴 항목을 남겨 두고, 도구 창 중앙에
+            # 예/아니오 확인 창을 즉시 표시한다.
+            self._show_update_menu_item(True)
+        if messagebox.askyesno(
+                APP_TITLE,
+                ui('ui_0420', remote_tag.lstrip('vV'), APP_VERSION),
+                parent=self.root):
             self.download_and_install_update(asset, release)
         elif not automatic:
             self.lbl_status.config(text=ui('ui_0117'))
@@ -3236,10 +3238,10 @@ class CDS3SaveEditorApp:
             return
         if not getattr(sys, 'frozen', False):
             self.lbl_status.config(text=ui('ui_0117'))
-            messagebox.showinfo(APP_TITLE, ui('ui_0425'))
+            messagebox.showinfo(APP_TITLE, ui('ui_0425'), parent=self.root)
             return
         self._update_download_in_progress = True
-        self._set_update_button_state(tk.DISABLED)
+        self._set_update_menu_state(tk.DISABLED)
         self.lbl_status.config(text=ui('ui_0421'))
 
         def worker():
@@ -3288,9 +3290,9 @@ class CDS3SaveEditorApp:
 
     def _handle_update_download_error(self, error):
         self._update_download_in_progress = False
-        self._set_update_button_state(tk.NORMAL)
+        self._set_update_menu_state(tk.NORMAL)
         self.lbl_status.config(text=ui('ui_0117'))
-        messagebox.showerror(APP_TITLE, ui('ui_0424', str(error)))
+        messagebox.showerror(APP_TITLE, ui('ui_0424', str(error)), parent=self.root)
 
     def _launch_update_replacer(self, download_path, release):
         """현재 EXE가 끝난 뒤 파일을 바꾸고 새 버전을 시작하는 작은 배치 파일을 실행한다."""
@@ -3412,18 +3414,26 @@ class CDS3SaveEditorApp:
         self._schedule_treeview_autofit(*trees)
 
     def _enable_tree_zebra(self):
-        """Apply alternating row colors to every Treeview, including future inserts."""
+        """Apply zebra colors and read-only row colors to every Treeview."""
+        def editability_tags(tags):
+            """Keep explicit editable rows normal and default every other row to read-only."""
+            tags = tuple(tags)
+            if EDITABLE_ROW_TAG in tags:
+                return tuple(tag for tag in tags if tag != READONLY_ROW_TAG)
+            return (*tuple(tag for tag in tags if tag != READONLY_ROW_TAG), READONLY_ROW_TAG)
+
         def walk(widget):
             for child in widget.winfo_children():
                 if isinstance(child, ttk.Treeview):
                     child.tag_configure('zebra_odd', background='#FFFFFF')
                     child.tag_configure('zebra_even', background='#F0F0F0')
+                    child.tag_configure(READONLY_ROW_TAG, foreground='#B3261E')
                     original_insert = child.insert
                     original_delete = child.delete
                     child._zebra_next_index = 0
 
                     def striped_insert(*args, _tree=child, _insert=original_insert, **kwargs):
-                        custom_tags = tuple(kwargs.pop('tags', ()))
+                        custom_tags = editability_tags(kwargs.pop('tags', ()))
                         row_index = _tree._zebra_next_index
                         zebra_tag = 'zebra_odd' if row_index % 2 == 0 else 'zebra_even'
                         # 사용자 지정 강조 태그는 얼룩무늬 태그 뒤에 유지해 배경색을
@@ -3490,6 +3500,11 @@ class CDS3SaveEditorApp:
         for index, item in enumerate(tree.get_children('')):
             custom_tags = tuple(tag for tag in tree.item(item, 'tags')
                                 if tag not in ('zebra_odd', 'zebra_even'))
+            if EDITABLE_ROW_TAG in custom_tags:
+                custom_tags = tuple(tag for tag in custom_tags if tag != READONLY_ROW_TAG)
+            else:
+                custom_tags = (*tuple(tag for tag in custom_tags if tag != READONLY_ROW_TAG),
+                               READONLY_ROW_TAG)
             zebra_tag = 'zebra_odd' if index % 2 == 0 else 'zebra_even'
             tree.item(item, tags=(zebra_tag, *custom_tags))
 
@@ -3583,7 +3598,6 @@ class CDS3SaveEditorApp:
 
         top_bar = tk.Frame(self.root, height=40, bg='#F0F0F0', padx=8, pady=6)
         top_bar.pack(side=tk.TOP, fill=tk.X)
-        self.btn_check_update = EditorButton(top_bar, text=ui('ui_0417'), font=(APP_FONT_FAMILY, 9), command=self.check_for_updates, padx=8)
         self.lbl_status = tk.Label(
             top_bar, text=ui('ui_0117'), font=(APP_FONT_FAMILY, 9),
             fg='#5F6368', anchor='w')
@@ -3738,10 +3752,7 @@ class CDS3SaveEditorApp:
         EditorButton(buttons, text=ui('ui_0098'), width=8, command=confirm).pack(side=tk.LEFT)
         dialog.bind('<Return>', lambda _event: confirm())
         dialog.bind('<Escape>', lambda _event: dialog.destroy())
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f'+{max(0, x)}+{max(0, y)}')
+        center_toplevel_on_parent(dialog, self.root)
         dialog.deiconify()
         dialog.grab_set()
         entry.focus_set()
@@ -4375,7 +4386,8 @@ class CDS3SaveEditorApp:
         if tuple(self.lst_fleet.get_children()) != slot_ids:
             self.lst_fleet.delete(*self.lst_fleet.get_children())
             for index in range(8):
-                self.lst_fleet.insert('', tk.END, iid=str(index), values=(index, ''))
+                self.lst_fleet.insert(
+                    '', tk.END, iid=str(index), values=(index, ''), tags=(EDITABLE_ROW_TAG,))
         self.fleet_active_indices = self._fleet_active_ship_indices()
         for position in range(8):
             name = ''
@@ -4642,7 +4654,7 @@ class CDS3SaveEditorApp:
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
         if (not self.file_buffer or not selected or not selected[0].isdigit()
                 or not getattr(self, 'fleet_active_indices', [])):
-            messagebox.showwarning(ui('ui_0151'), ui('ui_0152'))
+            messagebox.showwarning(ui('ui_0151'), ui('ui_0152'), parent=self.root)
             return
         position = int(selected[0])
         if not 0 <= position < len(self.fleet_active_indices):
@@ -4727,10 +4739,7 @@ class CDS3SaveEditorApp:
         EditorButton(buttons, text=ui('ui_0102'), width=8, command=dialog.destroy).pack(side=tk.LEFT, padx=(4, 0))
         dialog.bind('<Return>', lambda _event: confirm())
         dialog.bind('<Escape>', lambda _event: dialog.destroy())
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f'+{max(0, x)}+{max(0, y)}')
+        center_toplevel_on_parent(dialog, self.root)
         dialog.deiconify()
         dialog.grab_set()
         name_entry.focus_set()
@@ -4752,15 +4761,15 @@ class CDS3SaveEditorApp:
     def add_fleet_ship(self):
         """Create a table-default ship record and append it to the active fleet."""
         if not self.file_buffer:
-            messagebox.showwarning(ui('ui_0151'), ui('ui_0117'))
+            messagebox.showwarning(ui('ui_0151'), ui('ui_0117'), parent=self.root)
             return
         active_indices = self._fleet_active_ship_indices()
         if len(active_indices) >= 8:
-            messagebox.showwarning(ui('ui_0338'), ui('ui_0340'))
+            messagebox.showwarning(ui('ui_0338'), ui('ui_0340'), parent=self.root)
             return
         ship_index = self._find_free_fleet_pool_slot()
         if ship_index is None:
-            messagebox.showwarning(ui('ui_0338'), ui('ui_0341'))
+            messagebox.showwarning(ui('ui_0338'), ui('ui_0341'), parent=self.root)
             return
         selection = self._ask_new_fleet_ship()
         if selection is None:
@@ -4768,7 +4777,7 @@ class CDS3SaveEditorApp:
         ship_code, name = selection
         record = self._fleet_ship_raw_table_values(ship_code)
         if record is None:
-            messagebox.showerror(ui('ui_0338'), ui('ui_0075'))
+            messagebox.showerror(ui('ui_0338'), ui('ui_0075'), parent=self.root)
             return
 
         base = self._fleet_slot_offset(ship_index)
@@ -4808,7 +4817,7 @@ class CDS3SaveEditorApp:
         """Write the edit pane back to the selected active ship record in memory."""
         selected = self.lst_fleet.selection() if hasattr(self, 'lst_fleet') else ()
         if not self.file_buffer or not selected or not selected[0].isdigit():
-            messagebox.showwarning(ui('ui_0151'), ui('ui_0152'))
+            messagebox.showwarning(ui('ui_0151'), ui('ui_0152'), parent=self.root)
             return
         position = int(selected[0])
         if position >= len(getattr(self, 'fleet_active_indices', [])):
@@ -4819,10 +4828,10 @@ class CDS3SaveEditorApp:
         try:
             name_bytes = self.fleet_edit_vars['name'].get().strip().encode('cp949')
         except UnicodeEncodeError:
-            messagebox.showerror(ui('ui_0151'), ui('ui_0197'))
+            messagebox.showerror(ui('ui_0151'), ui('ui_0197'), parent=self.root)
             return
         if not name_bytes or len(name_bytes) > 36:
-            messagebox.showerror(ui('ui_0151'), ui('ui_0153'))
+            messagebox.showerror(ui('ui_0151'), ui('ui_0153'), parent=self.root)
             return
 
         def decimal(key, label, minimum=0, maximum=0xFFFFFFFF):
@@ -4863,7 +4872,7 @@ class CDS3SaveEditorApp:
                 if values[current_key] > values[maximum_key]:
                     raise ValueError(ui('ui_0052', label))
         except ValueError as exc:
-            messagebox.showerror(ui('ui_0151'), str(exc))
+            messagebox.showerror(ui('ui_0151'), str(exc), parent=self.root)
             return
 
         old_mast = self.file_buffer[base + 0x63]
@@ -4873,22 +4882,23 @@ class CDS3SaveEditorApp:
         if new_mast_count < base_mast_count:
             messagebox.showerror(
                 ui('ui_0154'),
-                ui('ui_0015', self._fleet_ship_type_name(values['ship_type']), base_mast_count))
+                ui('ui_0015', self._fleet_ship_type_name(values['ship_type']), base_mast_count),
+                parent=self.root)
             return
         if new_mast_count > max_mast_count:
-            messagebox.showerror(ui('ui_0154'), ui('ui_0016', max_mast_count))
+            messagebox.showerror(ui('ui_0154'), ui('ui_0016', max_mast_count), parent=self.root)
             return
         mast_delta = new_mast_count - self._fleet_mast_count(old_mast)
         if mast_delta:
             adjusted_capacity = values['max_capacity'] - mast_delta * 25
             if adjusted_capacity < 0:
-                messagebox.showerror(ui('ui_0154'), ui('ui_0198'))
+                messagebox.showerror(ui('ui_0154'), ui('ui_0198'), parent=self.root)
                 return
             values['max_capacity'] = adjusted_capacity
             current_min_crew = struct.unpack_from('<I', self.file_buffer, base + 0x31)[0]
             adjusted_min_crew = current_min_crew + mast_delta * 2
             if adjusted_min_crew < 0:
-                messagebox.showerror(ui('ui_0154'), ui('ui_0199'))
+                messagebox.showerror(ui('ui_0154'), ui('ui_0199'), parent=self.root)
                 return
         else:
             adjusted_min_crew = None
@@ -4921,7 +4931,7 @@ class CDS3SaveEditorApp:
         self.lbl_status.config(text=ui('ui_0017', self.fleet_edit_vars['name'].get().strip()))
         if save_after:
             if not self.file_path:
-                messagebox.showerror(ui('ui_0154'), ui('ui_0200'))
+                messagebox.showerror(ui('ui_0154'), ui('ui_0200'), parent=self.root)
                 return
             self.save_to_path(self.file_path)
     # 도시 레코드는 0x5B5부터 0x4C 바이트 단위로 226개가 이어진다.
@@ -5898,7 +5908,8 @@ class CDS3SaveEditorApp:
         base = self._city_record_offset(city_index)
         nation_code = self.cbo_city_nation.current()
         if nation_code < 0:
-            messagebox.showerror(ui('ui_0154'), ui('ui_0051', ui('ui_0300')))
+            messagebox.showerror(
+                ui('ui_0154'), ui('ui_0051', ui('ui_0300')), parent=self.root)
             return False
         self._city_write(self.file_buffer, base, 'i16', nation_code)
         city_size_definition = self._city_definition('shipyard_level')
@@ -5925,7 +5936,9 @@ class CDS3SaveEditorApp:
             try:
                 value = int(variable.get())
             except ValueError:
-                messagebox.showerror(ui('ui_0154'), ui('ui_0051', self._city_field_label(definition)))
+                messagebox.showerror(
+                    ui('ui_0154'), ui('ui_0051', self._city_field_label(definition)),
+                    parent=self.root)
                 return False
             self._city_write(self.file_buffer, base + relative_offset, kind, value)
         flags_definition = self._city_definition('flags')
@@ -5938,20 +5951,28 @@ class CDS3SaveEditorApp:
         self._city_write(self.file_buffer, base + flags_definition[2], flags_definition[3], flags)
         culture_code = self.city_culture_codes_by_name.get(self.city_culture_var.get())
         if culture_code is None:
-            messagebox.showerror(ui('ui_0154'), ui('ui_0051', self._city_field_label(self._city_definition('link_value'))))
+            messagebox.showerror(
+                ui('ui_0154'),
+                ui('ui_0051', self._city_field_label(self._city_definition('link_value'))),
+                parent=self.root)
             return False
         culture_definition = self._city_definition('link_value')
         self._city_write(self.file_buffer, base + culture_definition[2], culture_definition[3], culture_code)
         status_code = self.city_status_codes_by_option.get(self.city_status_var.get())
         if status_code is None:
-            messagebox.showerror(ui('ui_0154'), ui('ui_0051', self._city_field_label(self._city_definition('city_status'))))
+            messagebox.showerror(
+                ui('ui_0154'),
+                ui('ui_0051', self._city_field_label(self._city_definition('city_status'))),
+                parent=self.root)
             return False
         status_definition = self._city_definition('city_status')
         self._city_write(self.file_buffer, base + status_definition[2], status_definition[3], status_code)
         for number, combo in enumerate(self.city_goods_combos):
             item_id = self._city_good_id_from_text(combo.get())
             if item_id is None:
-                messagebox.showerror(ui('ui_0154'), ui('ui_0051', ui('ui_0309', number + 1)))
+                messagebox.showerror(
+                    ui('ui_0154'), ui('ui_0051', ui('ui_0309', number + 1)),
+                    parent=self.root)
                 return False
             self._city_write(self.file_buffer, base + 0x14 + number * 4, 'i32', item_id)
         mask = sum((1 << code) for code, variable in enumerate(self.city_ship_vars) if variable.get())
@@ -7675,6 +7696,7 @@ class CDS3SaveEditorApp:
             self._person_detail_bodies[0], ('index', 'field', 'value'),
             ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True), (ui('ui_0378'), 170, 'w', True)), 8,
             frame_padx=0, frame_pady=0, pack_pady=2)
+        basic_tree.tag_configure(READONLY_ROW_TAG, foreground='#B3261E')
         stats_tree = self._make_officer_tree(
             self._person_detail_bodies[1], ('index', 'field', 'value', 'maximum'),
             ((ui('ui_0346'), 35, 'center', False), (ui('ui_0348'), 115, 'center', False), (ui('ui_0350'), 90, 'center', False),
@@ -7994,6 +8016,7 @@ class CDS3SaveEditorApp:
         self._person_face_photo = None
         self._person_face_label.config(image='', bg='#222222')
         rows, image_path = [], None
+        editable_basic_fields = set()
         if kind == 'spouse' and item_id not in ('', None, '__none__'):
             barmaid = BARMAID_BY_ID.get(int(item_id))
             if barmaid:
@@ -8031,6 +8054,8 @@ class CDS3SaveEditorApp:
                         (ui('ui_0690'), str(intimacy) if intimacy is not None else UI_EMPTY_VALUE),
                         (ui('ui_0647'), str(int(sponsor['appraisal']))),
                         (ui('ui_0431'), preferences))
+                if intimacy is not None:
+                    editable_basic_fields.add(ui('ui_0690'))
                 image_path = get_sponsor_face_image_path(sponsor)
         elif role_mode and item_id not in ('', None, '__none__'):
             # 통합 인물 화면은 편집 버퍼가 아닌 마지막 저장/로드 시점의 별도
@@ -8040,9 +8065,13 @@ class CDS3SaveEditorApp:
             self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
             image_path = get_character_face_image_path(int(item_id))
         if not role_mode:
-            for index, (field, value) in enumerate(rows):
-                tags = ('fortune_spouse',) if field == ui('ui_0061') and value == ui('ui_0272') else ()
-                tree.insert('', tk.END, values=(index, field, value), tags=tags)
+            editability_tags = mixed_editability_tags(
+                field in editable_basic_fields for field, _value in rows)
+            for index, ((field, value), tags) in enumerate(zip(rows, editability_tags)):
+                tags = list(tags)
+                if field == ui('ui_0061') and value == ui('ui_0272'):
+                    tags.append('fortune_spouse')
+                tree.insert('', tk.END, values=(index, field, value), tags=tuple(tags))
         if image_path:
             photo = get_cached_photo(image_path)
             if photo:
@@ -8255,10 +8284,17 @@ class CDS3SaveEditorApp:
             basic_rows.append((ui('ui_0495'), hire_text))
         show_current_city = self._person_active_type != 'unhireable'
         if show_current_city:
-            current_city, _city_editable = self._person_current_city_state(character_id)
+            current_city, city_editable = self._person_current_city_state(character_id)
             basic_rows.insert(7, (ui('ui_0542').rstrip(UI_LABEL_SUFFIX), current_city))
-        for index, row in enumerate(basic_rows):
-            item = self._person_detail_trees[0].insert('', tk.END, values=(index, *row))
+        else:
+            city_editable = False
+        editable_flags = [False] * len(basic_rows)
+        if show_current_city and city_editable:
+            editable_flags[7] = True
+        editability_tags = mixed_editability_tags(editable_flags)
+        for index, (row, tags) in enumerate(zip(basic_rows, editability_tags)):
+            item = self._person_detail_trees[0].insert(
+                '', tk.END, values=(index, *row), tags=tags)
             if show_current_city and index == 7:
                 self._person_current_city_row = item
         if show_current_city:
@@ -8270,14 +8306,19 @@ class CDS3SaveEditorApp:
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
             maximum = PERSON_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX
-            self._person_detail_trees[1].insert('', tk.END, values=(index, *row, maximum))
+            self._person_detail_trees[1].insert(
+                '', tk.END, values=(index, *row, maximum), tags=(EDITABLE_ROW_TAG,))
         self._person_detail_trees[2].insert('', tk.END, values=(
-            0, ui('ui_0387'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
+            0, ui('ui_0387'), f"{struct.unpack_from('<H', record, record_offset + 0x26)[0]:,}",
+            f'{PERSON_REPUTATION_MAX:,}'), tags=(EDITABLE_ROW_TAG,))
         self._person_detail_trees[2].insert('', tk.END, values=(
-            1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}", f'{PERSON_REPUTATION_MAX:,}'))
+            1, ui('ui_0497'), f"{struct.unpack_from('<H', record, record_offset + 0x2A)[0]:,}",
+            f'{PERSON_REPUTATION_MAX:,}'), tags=(EDITABLE_ROW_TAG,))
         for index, (skill_name, _offset, _description) in enumerate(SKILLS_DATA):
             target, row = (self._person_detail_trees[3], index) if index < 13 else (self._person_detail_trees[4], index - 13)
-            target.insert('', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]))
+            target.insert(
+                '', tk.END, values=(row, skill_name, record[record_offset + 0x0B + index]),
+                tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(*self._person_detail_trees)
 
     @staticmethod
@@ -9492,7 +9533,7 @@ class CDS3SaveEditorApp:
     def open_player_personality_html(self):
         """현재 주인공 값을 넘겨 웹 성격 진단서를 연다."""
         if not self.file_buffer:
-            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'))
+            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'), parent=self.root)
             return
         try:
             from functools import partial
@@ -9518,7 +9559,7 @@ class CDS3SaveEditorApp:
             ]
             target_path = next((path for path in candidates if path and os.path.exists(path)), None)
             if target_path is None:
-                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'))
+                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'), parent=self.root)
                 return
             resource_root = os.path.dirname(target_path)
             server = getattr(self, '_barmaid_web_server', None)
@@ -9538,12 +9579,12 @@ class CDS3SaveEditorApp:
             filename = quote(os.path.basename(target_path))
             webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?{query}')
         except Exception as exc:
-            messagebox.showerror(ui('ui_0211'), ui('ui_0043', exc))
+            messagebox.showerror(ui('ui_0211'), ui('ui_0043', exc), parent=self.root)
 
     def open_player_face_picker(self):
         # ***<module>.CDS3SaveEditorApp.open_player_face_picker: Failure: Different bytecode
         if not self.file_buffer:
-            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'))
+            messagebox.showinfo(ui('ui_0103'), ui('ui_0117'), parent=self.root)
             return
         else:
             def on_pick(fid):
@@ -9908,7 +9949,9 @@ class CDS3SaveEditorApp:
         for i, (name, desc) in enumerate(stat_defs):
             val = self.stat_values[i] if self.file_buffer else UI_EMPTY_VALUE
             maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else PLAYER_ABILITY_MAX
-            self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, f'{maximum:,}'))
+            self.tree_stats.insert(
+                '', tk.END, iid=str(i), values=(i, name, val, f'{maximum:,}'),
+                tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_stats)
         self._update_player_restore_state()
 
@@ -9983,13 +10026,17 @@ class CDS3SaveEditorApp:
         money_defs = EDITOR_MAPPINGS['money_definitions']
         for i, (name, max_v) in enumerate(money_defs[:3]):
             val_str = f'{self.money_values[i]:,}' if self.file_buffer else UI_EMPTY_VALUE
-            self.tree_money.insert('', tk.END, iid=str(i), values=(i, name, val_str, f'{max_v:,}'))
+            self.tree_money.insert(
+                '', tk.END, iid=str(i), values=(i, name, val_str, f'{max_v:,}'),
+                tags=(EDITABLE_ROW_TAG,))
         if hasattr(self, 'tree_reputation'):
             self.tree_reputation.delete(*self.tree_reputation.get_children())
             for row, i in enumerate(range(3, len(money_defs))):
                 name, max_v = money_defs[i]
                 val_str = f'{self.money_values[i]:,}' if self.file_buffer else UI_EMPTY_VALUE
-                self.tree_reputation.insert('', tk.END, iid=str(i), values=(row, name, val_str, f'{max_v:,}'))
+                self.tree_reputation.insert(
+                    '', tk.END, iid=str(i), values=(row, name, val_str, f'{max_v:,}'),
+                    tags=(EDITABLE_ROW_TAG,))
             self._schedule_treeview_autofit(self.tree_money, self.tree_reputation)
         else:
             self._schedule_treeview_autofit(self.tree_money)
@@ -10146,7 +10193,8 @@ class CDS3SaveEditorApp:
                 lvl_str = str(lvl)
             else:
                 lvl_str = UI_EMPTY_VALUE
-            self.tree_tech.insert('', tk.END, iid=str(i), values=(i, name, lvl_str))
+            self.tree_tech.insert(
+                '', tk.END, iid=str(i), values=(i, name, lvl_str), tags=(EDITABLE_ROW_TAG,))
         self.tree_lang.delete(*self.tree_lang.get_children())
         for i in range(13, 27):
             name, off, desc = SKILLS_DATA[i]
@@ -10155,7 +10203,8 @@ class CDS3SaveEditorApp:
                 lvl_str = str(lvl)
             else:
                 lvl_str = UI_EMPTY_VALUE
-            self.tree_lang.insert('', tk.END, iid=str(i), values=(i - 13, name, lvl_str))
+            self.tree_lang.insert(
+                '', tk.END, iid=str(i), values=(i - 13, name, lvl_str), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_tech, self.tree_lang)
         self._update_player_restore_state()
     def set_tech_level(self, idx, level):
@@ -10406,7 +10455,9 @@ class CDS3SaveEditorApp:
         self.tree_pocket.delete(*self.tree_pocket.get_children())
         for i, item_id in enumerate(self.pocket_ids):
             info = self.get_item_info(item_id)
-            self.tree_pocket.insert('', tk.END, values=(i, item_id, info['name'], info['category']))
+            self.tree_pocket.insert(
+                '', tk.END, values=(i, item_id, info['name'], info['category']),
+                tags=(EDITABLE_ROW_TAG,))
         cnt = len(self.pocket_ids)
         self.lbl_pocket_count.config(text=inventory_text('ui_0283', 'ui_0281', cnt, 16), fg='#D93025' if cnt >= 16 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_pocket)
@@ -10414,7 +10465,9 @@ class CDS3SaveEditorApp:
         self.tree_storage.delete(*self.tree_storage.get_children())
         for i, item_id in enumerate(self.storage_ids):
             info = self.get_item_info(item_id)
-            self.tree_storage.insert('', tk.END, values=(i, item_id, info['name'], info['category']))
+            self.tree_storage.insert(
+                '', tk.END, values=(i, item_id, info['name'], info['category']),
+                tags=(EDITABLE_ROW_TAG,))
         cnt = len(self.storage_ids)
         self.lbl_storage_count.config(text=inventory_text('ui_0283', 'ui_0282', cnt, 99), fg='#D93025' if cnt >= 99 else '#1A73E8')
         self._schedule_treeview_autofit(self.tree_storage)
@@ -10589,7 +10642,8 @@ class CDS3SaveEditorApp:
                 idx = self.tree_pocket.index(sel[0])
                 if 0 <= idx < len(self.pocket_ids):
                     if len(self.storage_ids) >= STORAGE_SLOT_CAPACITY:
-                        messagebox.showwarning(*inventory_full_message('ui_0282', 99))
+                        messagebox.showwarning(
+                            *inventory_full_message('ui_0282', 99), parent=self.root)
                         return
                     else:
                         item_id = self.pocket_ids.pop(idx)
@@ -10614,7 +10668,8 @@ class CDS3SaveEditorApp:
                 idx = self.tree_storage.index(sel[0])
                 if 0 <= idx < len(self.storage_ids):
                     if len(self.pocket_ids) >= POCKET_SLOT_CAPACITY:
-                        messagebox.showwarning(*inventory_full_message('ui_0281', 16))
+                        messagebox.showwarning(
+                            *inventory_full_message('ui_0281', 16), parent=self.root)
                         return
                     else:
                         item_id = self.storage_ids.pop(idx)
@@ -10638,7 +10693,8 @@ class CDS3SaveEditorApp:
             else:
                 item_id = int(sel[0])
                 if len(self.pocket_ids) >= POCKET_SLOT_CAPACITY:
-                    messagebox.showwarning(*inventory_full_message('ui_0281', 16))
+                    messagebox.showwarning(
+                        *inventory_full_message('ui_0281', 16), parent=self.root)
                     return
                 else:
                     self.pocket_ids.append(item_id)
@@ -10660,7 +10716,8 @@ class CDS3SaveEditorApp:
             else:
                 item_id = int(sel[0])
                 if len(self.storage_ids) >= STORAGE_SLOT_CAPACITY:
-                    messagebox.showwarning(*inventory_full_message('ui_0282', 99))
+                    messagebox.showwarning(
+                        *inventory_full_message('ui_0282', 99), parent=self.root)
                     return
                 else:
                     self.storage_ids.append(item_id)
@@ -10684,7 +10741,9 @@ class CDS3SaveEditorApp:
                 if 0 <= idx < len(self.pocket_ids):
                     item_id = self.pocket_ids[idx]
                     info = self.get_item_info(item_id)
-                    if not messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0284', 'ui_0281', info['name'])):
+                    if not messagebox.askyesno(
+                            ui('ui_0098'), inventory_text('ui_0284', 'ui_0281', info['name']),
+                            parent=self.root):
                         return
                     else:
                         self.pocket_ids.pop(idx)
@@ -10707,7 +10766,9 @@ class CDS3SaveEditorApp:
                 if 0 <= idx < len(self.storage_ids):
                     item_id = self.storage_ids[idx]
                     info = self.get_item_info(item_id)
-                    if not messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0284', 'ui_0282', info['name'])):
+                    if not messagebox.askyesno(
+                            ui('ui_0098'), inventory_text('ui_0284', 'ui_0282', info['name']),
+                            parent=self.root):
                         return
                     else:
                         self.storage_ids.pop(idx)
@@ -10778,7 +10839,8 @@ class CDS3SaveEditorApp:
         if not self.file_buffer:
             return
         else:
-            if messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0281')):
+            if messagebox.askyesno(
+                    ui('ui_0098'), inventory_text('ui_0286', 'ui_0281'), parent=self.root):
                 self.pocket_ids.clear()
                 self.refresh_pocket_list()
     def clear_storage(self):
@@ -10786,7 +10848,8 @@ class CDS3SaveEditorApp:
         if not self.file_buffer:
             return
         else:
-            if messagebox.askyesno(ui('ui_0098'), inventory_text('ui_0286', 'ui_0282')):
+            if messagebox.askyesno(
+                    ui('ui_0098'), inventory_text('ui_0286', 'ui_0282'), parent=self.root):
                 self.storage_ids.clear()
                 self.refresh_storage_list()
     def build_discoveries_tab(self):
@@ -10981,7 +11044,11 @@ class CDS3SaveEditorApp:
                 disc_d = UI_EMPTY_VALUE
                 rep_d = UI_EMPTY_VALUE
             difficulty_text = d['difficulty'] if d['difficulty'] is not None else UI_EMPTY_VALUE
-            self.tree_disc.insert('', tk.END, iid=str(i), values=(d['index'], d['disc_id'], d['category'], difficulty_text, d['name'], hint_text, st_text, disc_d, rep_d, d_name))
+            self.tree_disc.insert(
+                '', tk.END, iid=str(i),
+                values=(d['index'], d['disc_id'], d['category'], difficulty_text, d['name'],
+                        hint_text, st_text, disc_d, rep_d, d_name),
+                tags=(EDITABLE_ROW_TAG,))
         total = len(self.discovery_db)
         if self.file_buffer:
             pct = (rep_cnt + disc_cnt) / total * 100.0 if total > 0 else 0
@@ -11221,7 +11288,9 @@ class CDS3SaveEditorApp:
                 st_str = event_state_text(st)
             else:
                 st_str = UI_EMPTY_VALUE
-            self.tree_events.insert('', tk.END, iid=str(i), values=(f'{ev['disc_id']:03d}', ev['name'], st_str))
+            self.tree_events.insert(
+                '', tk.END, iid=str(i), values=(f'{ev['disc_id']:03d}', ev['name'], st_str),
+                tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_events)
     def set_event_single_state(self, idx, target_st):
         if not self.file_buffer:
@@ -11570,7 +11639,7 @@ class CDS3SaveEditorApp:
             result = load_executable_profile(path, fallback)
             self._activate_game_data_profile(result.profile)
         except (OSError, ExecutableFormatError, ValueError, KeyError, struct.error) as error:
-            messagebox.showerror(APP_TITLE, ui('ui_0686', error))
+            messagebox.showerror(APP_TITLE, ui('ui_0686', error), parent=self.root)
             return
         self.game_executable_path = os.path.abspath(path)
         self.file_menu.entryconfigure(self._builtin_profile_menu_index, state=tk.NORMAL)
@@ -11586,6 +11655,7 @@ class CDS3SaveEditorApp:
         messagebox.showinfo(
             APP_TITLE,
             ui('ui_0684', os.path.basename(path), applied) + limit_text + warning_text,
+            parent=self.root,
         )
 
     def use_builtin_game_data(self):
@@ -11593,7 +11663,7 @@ class CDS3SaveEditorApp:
         try:
             self._activate_game_data_profile(GameDataProfile.from_builtin())
         except (OSError, ValueError, KeyError) as error:
-            messagebox.showerror(APP_TITLE, ui('ui_0686', error))
+            messagebox.showerror(APP_TITLE, ui('ui_0686', error), parent=self.root)
             return
         self.game_executable_path = None
         self.file_menu.entryconfigure(self._builtin_profile_menu_index, state=tk.DISABLED)
@@ -11601,7 +11671,10 @@ class CDS3SaveEditorApp:
 
     def on_open_file(self):
         # ***<module>.CDS3SaveEditorApp.on_open_file: Failure: Different bytecode
-        file_path = filedialog.askopenfilename(title=ui('ui_0187'), filetypes=[(ui('ui_0265'), '*.CDS;*.SAV;*.cds;*.sav'), (ui('ui_0266'), '*.*')])
+        file_path = filedialog.askopenfilename(
+            parent=self.root, title=ui('ui_0187'),
+            filetypes=[(ui('ui_0265'), '*.CDS;*.SAV;*.cds;*.sav'),
+                       (ui('ui_0266'), '*.*')])
         if file_path:
             self.load_save_file(file_path)
 
@@ -11747,7 +11820,7 @@ class CDS3SaveEditorApp:
             self.lbl_status.config(text=ui('ui_0366', os.path.basename(file_path)))
             self.root.title(ui('ui_0589', APP_TITLE, os.path.basename(file_path)))
         except Exception as exc:
-            messagebox.showerror(ui('ui_0367'), ui('ui_0368', exc))
+            messagebox.showerror(ui('ui_0367'), ui('ui_0368', exc), parent=self.root)
         finally:
             self._is_loading_save = False
             self._suspend_tree_autofit = False
@@ -11913,10 +11986,12 @@ class CDS3SaveEditorApp:
             self.person_display_buffer = bytes(self.file_buffer)
             if hasattr(self, 'tree_person_list'):
                 self._refresh_person_browser()
-            messagebox.showinfo(ui('ui_0369'), ui('ui_0370', target_path, bak_msg))
+            messagebox.showinfo(
+                ui('ui_0369'), ui('ui_0370', target_path, bak_msg), parent=self.root)
             self.lbl_status.config(text=ui('ui_0041', os.path.basename(target_path)))
         except Exception as e:
-            messagebox.showerror(ui('ui_0211'), ui('ui_0042', str(e)))
+            messagebox.showerror(
+                ui('ui_0211'), ui('ui_0042', str(e)), parent=self.root)
     def open_barmaid_guide_html(self):
         """JSON과 초상화 경로를 제공하는 로컬 웹 서버로 여급 도감을 연다."""
         try:
@@ -11962,9 +12037,9 @@ class CDS3SaveEditorApp:
                 filename = quote(os.path.basename(target_path))
                 webbrowser.open(f'http://127.0.0.1:{server.server_port}/{filename}?face={face_code}&age={age}')
             else:
-                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'))
+                messagebox.showinfo(ui('ui_0103'), ui('ui_0210'), parent=self.root)
         except Exception as e:
-            messagebox.showerror(ui('ui_0211'), ui('ui_0043', e))
+            messagebox.showerror(ui('ui_0211'), ui('ui_0043', e), parent=self.root)
     def update_wife_combo_options(self):
         # irreducible cflow, using cdg fallback
         """아내 콤보박스 항목 갱신"""
