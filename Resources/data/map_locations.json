@@ -2254,6 +2254,12 @@
     null,
     null,
     null,
-    null
+    {
+      "id": 230,
+      "min_x": 2144,
+      "min_y": 375,
+      "max_x": 2145,
+      "max_y": 375
+    }
   ]
 }

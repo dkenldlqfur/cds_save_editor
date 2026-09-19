@@ -101,13 +101,13 @@ def read_character_name(
 def read_character_stat_values(
     buffer: bytes | bytearray,
     record_offset: int,
-    special_stat_offset: int,
+    vitality_offset: int,
 ) -> tuple[int, ...]:
-    """인물 공통 능력치 8개를 저장 순서대로 반환한다."""
+    """인물의 여섯 기본 능력, 생명력, 고용비 계수를 표시 순서대로 읽는다."""
     return (
         buffer[record_offset + 0x00], buffer[record_offset + 0x01],
         buffer[record_offset + 0x02], buffer[record_offset + 0x03],
         buffer[record_offset + 0x04], buffer[record_offset + 0x05],
+        struct.unpack_from('<I', buffer, record_offset + vitality_offset)[0],
         buffer[record_offset + 0x66],
-        struct.unpack_from('<I', buffer, record_offset + special_stat_offset)[0],
     )

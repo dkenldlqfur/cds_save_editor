@@ -15,8 +15,9 @@ STATE_MARKERS = {
     DISCOVERY_REPORTED: 0xCC,
 }
 
-# 힌트의 bit0은 획득, bit2는 계약 연결이며 둘을 함께 다룬다.
+# 힌트의 bit0은 획득, bit1은 발견 완료, bit2는 계약 연결이다.
 HINT_ACQUIRED_AND_CONTRACT_BITS = 0x05
+HINT_COMPLETED_BIT = 0x02
 
 
 def state_from_marker(marker: int) -> int:
@@ -40,6 +41,6 @@ def hint_is_acquired_and_contract_linked(value: int) -> bool:
 
 
 def set_hint_acquired(value: int, acquired: bool) -> int:
-    """발견 완료 비트 등 다른 힌트 상태는 보존하고 획득/계약 비트만 설정한다."""
-    return (int(value) | HINT_ACQUIRED_AND_CONTRACT_BITS if acquired
-            else int(value) & ~HINT_ACQUIRED_AND_CONTRACT_BITS)
+    """명시적으로 힌트를 변경할 때 완료 상태를 해제하고 획득 여부를 설정한다."""
+    state = int(value) & ~(HINT_ACQUIRED_AND_CONTRACT_BITS | HINT_COMPLETED_BIT)
+    return state | HINT_ACQUIRED_AND_CONTRACT_BITS if acquired else state

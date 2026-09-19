@@ -341,8 +341,13 @@ def load_navigation_map_marker_settings():
             settings = json.load(settings_file)
         marker_size = normalize_navigation_map_marker_size(
             settings.get('navigation_map_marker_size', 1))
-        zoom_limit = normalize_navigation_map_zoom_limit(
-            settings.get('navigation_map_zoom_limit', NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT))
+        stored_zoom_limit = settings.get(
+            'navigation_map_zoom_limit', NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT)
+        # 이전 버전은 배율(예: 3.0)을 퍼센트로 잘못 저장해 1.0으로 축소했다.
+        # 100 미만의 저장값은 유효한 퍼센트가 아니므로 기본 300%로 복구한다.
+        if isinstance(stored_zoom_limit, (int, float)) and stored_zoom_limit < 100:
+            stored_zoom_limit = NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT
+        zoom_limit = normalize_navigation_map_zoom_limit(stored_zoom_limit)
         saved_colors = settings.get('navigation_map_marker_colors', {})
         saved_visibility = settings.get('navigation_map_marker_visibility', {})
         colors = {}
@@ -381,7 +386,9 @@ def save_navigation_map_marker_settings(
         except (OSError, ValueError, TypeError):
             pass
         data['navigation_map_marker_size'] = normalize_navigation_map_marker_size(marker_size)
-        data['navigation_map_zoom_limit'] = normalize_navigation_map_zoom_limit(zoom_limit)
+        # 호출자는 배율(3.0)을 전달한다. 설정 파일에는 퍼센트(300)를 저장한다.
+        data['navigation_map_zoom_limit'] = round(
+            normalize_navigation_map_zoom_limit(zoom_limit * 100) * 100)
         data['navigation_map_marker_colors'] = {
             'city': dict(city_colors), 'discovery': dict(discovery_colors),
         }
@@ -698,7 +705,8 @@ ROLE_SLOT_BY_KEY = {'officer': 0xA5, 'navigator': 0xA7, 'surveyor': 0xA9, 'inter
 CHARACTER_LAYOUT = RecordTableLayout(0x924A, 0x90, max(CHARACTER_BY_ID, default=-1) + 1)
 CHARACTER_SAVE_TABLE_OFFSET = CHARACTER_LAYOUT.base_offset
 CHARACTER_SAVE_RECORD_SIZE = CHARACTER_LAYOUT.record_size
-CHARACTER_SPECIAL_STAT_OFFSET = 0x06
+PERSON_VITALITY_OFFSET = 0x06
+PERSON_HIRE_COST_OFFSET = 0x66
 # 편집 상한은 한 프로필에서 관리한다. 선택한 EXE에서 읽은 상한은
 # GAME_LIMITS에 반영되고, 나머지는 게임 규칙/세이브 필드 폭의 기본값을 쓴다.
 PLAYER_ABILITY_MAX = int(GAME_LIMITS['player']['ability'])
@@ -706,7 +714,11 @@ CHARACTER_SPECIAL_STAT_MAX = int(GAME_LIMITS['player']['vitality'])
 PLAYER_SKILL_MAX = int(GAME_LIMITS['player']['skill'])
 PLAYER_LANGUAGE_MAX = int(GAME_LIMITS['player']['language'])
 PERSON_ABILITY_MAX = int(GAME_LIMITS['person']['ability'])
-PERSON_SPECIAL_STAT_MAX = int(GAME_LIMITS['person']['vitality'])
+PERSON_VITALITY_MAX = int(GAME_LIMITS['person']['vitality'])
+PERSON_HIRE_COST_MAX = 0xFF
+PERSON_VITALITY_STAT_INDEX = 6
+PERSON_STAT_OFFSETS = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+                       PERSON_VITALITY_OFFSET, PERSON_HIRE_COST_OFFSET)
 PERSON_REPUTATION_MAX = int(GAME_LIMITS['person']['reputation'])
 PERSON_SKILL_MAX = int(GAME_LIMITS['person']['skill'])
 PERSON_LANGUAGE_MAX = int(GAME_LIMITS['person']['language'])
@@ -774,7 +786,7 @@ for _discovery_no, _item_id in DISCOVERY_REWARD_ITEM_IDS.items():
 JOB_NAMES = GAME_MASTER_DATA['job_names']
 NATION_NAMES = GAME_MASTER_DATA['nation_names']
 PERSON_STAT_NAMES = tuple(name for name, _description in EDITOR_MAPPINGS['profile_stat_definitions']) + (
-    ui('ui_0496'), ui('ui_0508'))
+    ui('ui_0496'),)
 PERSON_TAB_TITLES = (ui('ui_0406'), ui('ui_0385'), ui('ui_0387'), ui('ui_0388'), ui('ui_0389'))
 PERSON_BASIC_COLUMNS = ((ui('ui_0346'), 38, 'center', False), (ui('ui_0348'), 120, 'w', True),
                         (ui('ui_0378'), 170, 'w', True))
@@ -6610,11 +6622,26 @@ class CDS3SaveEditorApp:
 
     @classmethod
     def _navigation_map_range_text(cls, min_x, min_y, max_x, max_y):
+        latitudes = [
+            (90.0 - float(y) * 180.0 / cls.WORLD_MAP_HEIGHT, y)
+            for y in (min_y, max_y)
+        ]
+        longitudes = [
+            (float(x) * 360.0 / cls.WORLD_MAP_WIDTH - 180.0, x)
+            for x in (min_x, max_x)
+        ]
+        # 툴팁은 북위→남위, 서경→동경을 우선하고 같은 반구 안에서는 낮은 도수부터 표시한다.
+        latitudes.sort(key=lambda endpoint: (
+            0 if endpoint[0] > 0 else 1 if endpoint[0] == 0 else 2,
+            abs(endpoint[0])))
+        longitudes.sort(key=lambda endpoint: (
+            0 if endpoint[0] < 0 else 1 if endpoint[0] == 0 else 2,
+            abs(endpoint[0])))
         return ui(
-            'ui_0572', cls._navigation_map_latitude_text(min_y),
-            cls._navigation_map_latitude_text(max_y),
-            cls._navigation_map_longitude_text(min_x),
-            cls._navigation_map_longitude_text(max_x))
+            'ui_0572', cls._navigation_map_latitude_text(latitudes[0][1]),
+            cls._navigation_map_latitude_text(latitudes[1][1]),
+            cls._navigation_map_longitude_text(longitudes[0][1]),
+            cls._navigation_map_longitude_text(longitudes[1][1]))
 
     def _collect_navigation_map_markers(self, image):
         """배경과 별도로 그릴 도시·발견물 마커의 원본 좌표를 수집한다."""
@@ -6626,6 +6653,8 @@ class CDS3SaveEditorApp:
         marker_radius = marker_diameter / 2.0
         range_line_width = max(1, int(round(marker_size * render_scale / 2.0)))
 
+        # 지도 좌표표의 id는 게임 내부 발견물 ID가 아니라 마스터 목록 번호다.
+        # 예: 불국사는 목록 번호 230, 내부 ID 527, 세이브 오프셋 0x2597B.
         discovery_state_by_id = {
             int(discovery['index']): self.discovery_state[index]
             for index, discovery in enumerate(self.discovery_db)
@@ -6636,6 +6665,11 @@ class CDS3SaveEditorApp:
             if not region:
                 continue
             discovery_id = int(region['id'])
+            min_x, min_y = int(region['min_x']), int(region['min_y'])
+            max_x, max_y = int(region['max_x']), int(region['max_y'])
+            # EXE는 좌표가 없는 발견물도 -1 네 개를 가진 레코드로 반환한다.
+            if min(min_x, min_y, max_x, max_y) < 0 or max_x < min_x or max_y < min_y:
+                continue
             state = int(discovery_state_by_id.get(discovery_id, 0))
             state_key = {
                 0: 'unspawned',
@@ -6643,31 +6677,29 @@ class CDS3SaveEditorApp:
                 2: 'discovered',
                 3: 'reported',
             }.get(state, 'unspawned')
-            min_x, min_y = int(region['min_x']), int(region['min_y'])
-            max_x, max_y = int(region['max_x']), int(region['max_y'])
-            center_x = int(round((min_x + max_x) * render_scale / 8.0))
-            center_y = int(round((min_y + max_y) * render_scale / 8.0))
-            # 세계 좌표 8칸(축소 지도 2픽셀) 이상인 판정 구역은 중심점으로
-            # 뭉개지 않고 EXE의 최소/최대 좌표 범위를 사각형으로 표시한다.
-            is_range = max_x - min_x + 1 >= 8 or max_y - min_y + 1 >= 8
+            # EXE의 최대 좌표도 범위에 포함된다. 원래 경계는 툴팁에 보존하고,
+            # 화면에서는 매우 좁은 범위만 마커 크기까지 넓혀 사각형을 유지한다.
+            world_to_image = render_scale / 4.0
+            left, top = min_x * world_to_image, min_y * world_to_image
+            right = (max_x + 1) * world_to_image
+            bottom = (max_y + 1) * world_to_image
+            center_x, center_y = (left + right) / 2.0, (top + bottom) / 2.0
+            half_width = max(right - left, marker_diameter) / 2.0
+            half_height = max(bottom - top, marker_diameter) / 2.0
             marker = {
                 'x': center_x, 'y': center_y, 'kind': ui('ui_0570'),
                 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)),
-                'state': discovery_state_text(state), 'hit_radius': marker_radius,
+                'state': discovery_state_text(state),
+                'hit_radius': range_line_width / 2.0,
                 'group': 'discovery', 'state_key': state_key,
                 'marker_flags': self.MAP_DISCOVERY_STATE_FLAGS[state_key],
+                'bounds': (center_x - half_width, center_y - half_height,
+                           center_x + half_width, center_y + half_height),
+                'world_bounds': (min_x, min_y, max_x, max_y),
+                'line_width': range_line_width,
+                'coordinate': self._navigation_map_range_text(
+                    min_x, min_y, max_x, max_y),
             }
-            if is_range:
-                bounds = tuple(int(round(value * render_scale / 4.0)) for value in (
-                    min_x, min_y, max_x, max_y))
-                marker['bounds'] = bounds
-                marker['hit_radius'] = range_line_width / 2.0
-                marker['line_width'] = range_line_width
-                marker['coordinate'] = self._navigation_map_range_text(
-                    min_x, min_y, max_x, max_y)
-            else:
-                marker['coordinate'] = self._navigation_map_coordinate_text(
-                    (min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
             marker_records.append(marker)
             discovery_count += 1
 
@@ -7117,8 +7149,8 @@ class CDS3SaveEditorApp:
             # 여러 범위가 겹치면 더 구체적인 작은 구역을 우선한다.
             return dx * dx + dy * dy, max(1, right - left + 1) * max(1, bottom - top + 1)
 
-        # 신대륙처럼 매우 넓은 범위 안에서도 도시와 점형 발견물이 먼저
-        # 선택되어야 한다. 가까운 점이 없을 때만 포함 범위 중 가장 작은 것을 쓴다.
+        # 신대륙처럼 매우 넓은 범위 안에서도 도시 마커를 먼저 선택한다.
+        # 가까운 도시가 없을 때만 포함 범위 중 가장 작은 것을 쓴다.
         point_markers = [marker for marker in markers if 'bounds' not in marker]
         nearest = min(
             reversed(point_markers),
@@ -7877,7 +7909,7 @@ class CDS3SaveEditorApp:
         for offset in ROLE_SLOT_OFFSETS:
             self.file_buffer[offset:offset + 2] = original[offset:offset + 2]
         CHARACTER_LAYOUT.reset(self.file_buffer, original)
-        # 상세 목록도 원본 인물 스냅샷을 다시 기준으로 삼는다.
+        # 고용 불가 인물 상세의 표시 스냅샷도 원본으로 복원한다.
         self.person_display_buffer = bytes(original)
         self._wife_selected_id = read_spouse_barmaid_id(original)
         self.update_wife_display()
@@ -8058,11 +8090,9 @@ class CDS3SaveEditorApp:
                     editable_basic_fields.add(ui('ui_0690'))
                 image_path = get_sponsor_face_image_path(sponsor)
         elif role_mode and item_id not in ('', None, '__none__'):
-            # 통합 인물 화면은 편집 버퍼가 아닌 마지막 저장/로드 시점의 별도
-            # 스냅샷만 읽는다. 따라서 역할 지정은 file_buffer에 즉시 반영되어도
-            # 여기의 기본 정보·능력치 등은 저장하기 전까지 바뀌지 않는다.
-            # 단, 편집 컨트롤인 '현재 도시'는 최신 file_buffer를 표시한다.
-            self._populate_person_snapshot_details(int(item_id), include_hire_state=True)
+            # 부관~통역사는 편집 중인 값을 즉시 표시한다. 고용 불가 인물은
+            # 기존처럼 마지막 저장/로드 시점의 표시 스냅샷을 사용한다.
+            self._populate_person_details(int(item_id), include_hire_state=True)
             image_path = get_character_face_image_path(int(item_id))
         if not role_mode:
             editability_tags = mixed_editability_tags(
@@ -8199,7 +8229,7 @@ class CDS3SaveEditorApp:
     @staticmethod
     def _character_stat_rows(record, record_offset):
         """인물 레코드의 공통 능력치 필드를 화면 표시 순서로 읽는다."""
-        values = read_character_stat_values(record, record_offset, CHARACTER_SPECIAL_STAT_OFFSET)
+        values = read_character_stat_values(record, record_offset, PERSON_VITALITY_OFFSET)
         return tuple(zip(PERSON_STAT_NAMES, values))
 
     @staticmethod
@@ -8230,18 +8260,18 @@ class CDS3SaveEditorApp:
             saved_age = struct.unpack_from('<i', self.file_buffer, age_offset)[0]
             struct.pack_into('<i', self.file_buffer, age_offset, saved_age + year_delta)
 
-    def _populate_person_snapshot_details(self, character_id, include_hire_state=True):
-        """통합 인물 상세 탭을 마지막 저장/로드 스냅샷으로 채운다."""
-        snapshot = getattr(self, 'person_display_buffer', None)
+    def _populate_person_details(self, character_id, include_hire_state=True):
+        """역할 인물은 편집 버퍼, 고용 불가 인물은 표시 스냅샷으로 채운다."""
+        record = (self.file_buffer if self._person_active_type in self._crew_profiles
+                  else getattr(self, 'person_display_buffer', None))
         character = CHARACTER_BY_ID.get(character_id, {})
         record_offset = CHARACTER_LAYOUT.offset(character_id)
-        if (not snapshot or character_id < 0 or
-                record_offset + 0x90 > len(snapshot)):
+        if (not record or character_id < 0 or
+                record_offset + 0x90 > len(record)):
             return
 
-        record = snapshot
         # 이름, 혈액형, 출현 위치와 기본 고용 상태는 선택한 EXE의 인물
-        # 마스터를 따른다. 나이, 현재 위치와 능력치는 진행 중 변하므로 세이브를 쓴다.
+        # 마스터를 따른다. 나이와 능력치는 선택한 세이브 버퍼에서 읽는다.
         name = character.get('name') or self._character_record_name(
             record, record_offset, UI_EMPTY_VALUE)
         nation_id = int(character.get('nation_id', -1))
@@ -8254,7 +8284,7 @@ class CDS3SaveEditorApp:
         building_id = int(character.get('building_id', -1))
         # 고용 중 여부만 세이브의 실제 역할 슬롯으로 덮어쓴다.
         hire_state = self._character_hire_state(
-            character_id, character, assigned_ids=self._active_role_character_ids(snapshot))
+            character_id, character, assigned_ids=self._active_role_character_ids(record))
         city_name = ui('ui_0498') if city_id == 0xFF else CITY_NAME_BY_ID.get(city_id, UI_EMPTY_VALUE)
         building_name = FACILITY_NAME_BY_ID.get(building_id, UI_EMPTY_VALUE)
         blood_name = BLOOD_NAMES[blood_id] if 0 <= blood_id < len(BLOOD_NAMES) else UI_EMPTY_VALUE
@@ -8271,9 +8301,8 @@ class CDS3SaveEditorApp:
         ]
         if include_hire_state:
             if hire_state == 2:
-                # 게임은 인물의 고용비 계수(vitality)를 원금 계수로 사용한다.
-                # 웅변술 할인이 적용되기 전 가격은 vitality * 10 // 3 이다.
-                base_hire_cost = int(character.get('vitality', 0)) * 10 // 3
+                # 세이브의 1바이트 고용비 계수를 사용한다. EXE 초기값은 +0x3C다.
+                base_hire_cost = int(record[record_offset + PERSON_HIRE_COST_OFFSET]) * 10 // 3
                 basic_rows.append((ui('ui_0442'), ui('ui_0591', base_hire_cost)))
             hire_text = {
                 0: ui('ui_0436'),
@@ -8305,7 +8334,8 @@ class CDS3SaveEditorApp:
 
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
-            maximum = PERSON_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX
+            maximum = PERSON_VITALITY_MAX if index == PERSON_VITALITY_STAT_INDEX else (
+                PERSON_HIRE_COST_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX)
             self._person_detail_trees[1].insert(
                 '', tk.END, values=(index, *row, maximum), tags=(EDITABLE_ROW_TAG,))
         self._person_detail_trees[2].insert('', tk.END, values=(
@@ -8478,17 +8508,18 @@ class CDS3SaveEditorApp:
         field_name = values[1] if len(values) > 1 else ''
 
         if detail_index == 1:
-            stat_offsets = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x66, CHARACTER_SPECIAL_STAT_OFFSET)
+            stat_offsets = PERSON_STAT_OFFSETS
             if not 0 <= row_index < len(stat_offsets):
                 return 'break' if event is not None else None
-            is_special_stat = row_index == len(stat_offsets) - 1
-            maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
+            is_vitality = row_index == PERSON_VITALITY_STAT_INDEX
+            maximum = PERSON_VITALITY_MAX if is_vitality else (
+                PERSON_HIRE_COST_MAX if row_index == len(stat_offsets) - 1 else PERSON_ABILITY_MAX)
             current = (struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0]
-                       if is_special_stat else self.file_buffer[record_offset + stat_offsets[row_index]])
-            value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0033', field_name),
+                       if is_vitality else self.file_buffer[record_offset + stat_offsets[row_index]])
+            value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0034', field_name, maximum),
                                              current, 0, maximum)
             if value is not None:
-                if is_special_stat:
+                if is_vitality:
                     struct.pack_into('<I', self.file_buffer, record_offset + stat_offsets[row_index], value)
                 else:
                     self.file_buffer[record_offset + stat_offsets[row_index]] = value
@@ -8548,17 +8579,18 @@ class CDS3SaveEditorApp:
         spinner.set(str(value))
         tree = self._person_detail_trees[detail_index]
         if detail_index == 1:
-            offsets = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x66, CHARACTER_SPECIAL_STAT_OFFSET)
+            offsets = PERSON_STAT_OFFSETS
             for row_index, offset in enumerate(offsets):
-                is_special_stat = row_index == len(offsets) - 1
-                if is_special_stat:
+                is_vitality = row_index == PERSON_VITALITY_STAT_INDEX
+                if is_vitality:
                     struct.pack_into('<I', self.file_buffer, record_offset + offset, value)
                 else:
                     self.file_buffer[record_offset + offset] = value
                 item = tree.get_children()[row_index] if row_index < len(tree.get_children()) else None
                 if item:
                     field_name = tree.item(item, 'values')[1]
-                    maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
+                    maximum = PERSON_VITALITY_MAX if is_vitality else (
+                        PERSON_HIRE_COST_MAX if row_index == len(offsets) - 1 else PERSON_ABILITY_MAX)
                     tree.item(item, values=(row_index, field_name, value, maximum))
         elif detail_index == 2:
             for row_index, offset in enumerate((0x26, 0x2A)):
@@ -11160,9 +11192,10 @@ class CDS3SaveEditorApp:
             offset = HINT_STATE_OFFSETS[hint_id]
             if not 0 <= offset < len(self.file_buffer):
                 return
-            # 0x08(미획득)↔0x0D(획득)의 차이인 bit0·bit2를 함께 뒤집는다.
-            # 발견 완료 비트(bit1)는 보존한다.
-            self.file_buffer[offset] ^= HINT_ACQUIRED_AND_CONTRACT_BITS
+            # 명시적 힌트 전환은 발견 완료(bit1)도 해제한다.
+            # 0x0B(완료·획득)→0x08(미획득), 0x0F(완료·획득)→0x08 등.
+            before = self.file_buffer[offset]
+            self.file_buffer[offset] = set_hint_acquired(before, not bool(before & 0x01))
             self._discovery_view_revision += 1
             self.refresh_discoveries_table()
         def on_contract_cancel(_d_idx):
@@ -11231,7 +11264,7 @@ class CDS3SaveEditorApp:
             if not 0 <= offset < len(self.file_buffer):
                 continue
             before = self.file_buffer[offset]
-            # bit1(발견 완료)은 유지하고, bit0·bit2만 획득 여부로 맞춘다.
+            # 명시적 일괄 변경이므로 발견 완료(bit1)도 해제한다.
             self.file_buffer[offset] = set_hint_acquired(before, acquired)
             changed = changed or before != self.file_buffer[offset]
         if changed:
@@ -11395,7 +11428,7 @@ class CDS3SaveEditorApp:
         global SPOUSE_APTITUDE_RECORDS, UNEMPLOYABLE_CHARACTER_IDS, ITEM_STATS_TABLE
         global PLAYER_ABILITY_MAX, CHARACTER_SPECIAL_STAT_MAX
         global PLAYER_SKILL_MAX, PLAYER_LANGUAGE_MAX, PLAYER_REPUTATION_MAX
-        global PERSON_ABILITY_MAX, PERSON_SPECIAL_STAT_MAX, PERSON_REPUTATION_MAX
+        global PERSON_ABILITY_MAX, PERSON_VITALITY_MAX, PERSON_REPUTATION_MAX
         global PERSON_SKILL_MAX, PERSON_LANGUAGE_MAX, SPONSOR_REMAINING_DAYS_MAX
 
         BARMAID_BY_ID.clear()
@@ -11471,7 +11504,7 @@ class CDS3SaveEditorApp:
         PLAYER_SKILL_MAX = game_limit('player.skill')
         PLAYER_LANGUAGE_MAX = game_limit('player.language')
         PERSON_ABILITY_MAX = game_limit('person.ability')
-        PERSON_SPECIAL_STAT_MAX = game_limit('person.vitality')
+        PERSON_VITALITY_MAX = game_limit('person.vitality')
         PERSON_REPUTATION_MAX = game_limit('person.reputation')
         PERSON_SKILL_MAX = game_limit('person.skill')
         PERSON_LANGUAGE_MAX = game_limit('person.language')
@@ -11539,6 +11572,7 @@ class CDS3SaveEditorApp:
         reputation_batch_max = min(money_limits[3:5])
         self.lbl_batch_stats_limit.config(text=ui('ui_0390', PLAYER_ABILITY_MAX))
         self.spn_batch_stats.configure(to=PLAYER_ABILITY_MAX)
+        self._configure_bounded_spinbox(self.spn_batch_stats, 0, PLAYER_ABILITY_MAX)
         self.spn_batch_stats.set(str(PLAYER_ABILITY_MAX))
         self.lbl_batch_money_limit.config(text=ui('ui_0390', f'{money_batch_max:,}'))
         self.spn_batch_money.configure(to=money_batch_max)
@@ -11570,6 +11604,7 @@ class CDS3SaveEditorApp:
         for detail_index, (maximum, label_text) in person_limits.items():
             spinner = self._person_batch_spinners[detail_index]
             spinner.configure(to=maximum)
+            self._configure_bounded_spinbox(spinner, 0, maximum)
             spinner.set(str(maximum))
             self._person_batch_labels[detail_index].configure(text=label_text)
 
@@ -11649,7 +11684,7 @@ class CDS3SaveEditorApp:
             f'{EDITOR_MAPPINGS["money_definitions"][index][0]} '
             f'{EDITOR_MAPPINGS["money_definitions"][index][1]:,}'
             for index in (0, 1, 3, 4)
-        ) if result.limits else ''
+        ) if any(key in result.limits for key in ('cash', 'deposit', 'fame', 'infamy')) else ''
         limit_text = ui('ui_0689', limit_summary) if limit_summary else ''
         self.lbl_status.config(text=ui('ui_0687', os.path.basename(path)))
         messagebox.showinfo(
@@ -11706,7 +11741,7 @@ class CDS3SaveEditorApp:
             self.fleet_original_buffer = bytes(self.file_buffer)
             self.city_original_buffer = bytes(self.file_buffer)
             self.person_original_buffer = bytes(self.file_buffer)
-            # 통합 인물 목록은 로드한 세이브 원본을 별도 보관해 표시한다.
+            # 고용 불가 인물 상세용으로 로드한 세이브 원본을 별도 보관한다.
             self.person_display_buffer = bytes(self.file_buffer)
             self.set_controls_enabled(True)
 
@@ -11981,8 +12016,7 @@ class CDS3SaveEditorApp:
                             struct.pack_into('<H', self.file_buffer, d_off + 84, 0)
             with open(target_path, 'wb') as f:
                 f.write(self.file_buffer)
-            # 저장에 성공한 뒤에만 통합 인물 화면의 표시 스냅샷을 편집 버퍼로
-            # 갱신한다. 저장 전 역할/인물 편집은 목록 상세에 반영되지 않는다.
+            # 저장에 성공한 뒤 고용 불가 인물 상세의 표시 스냅샷을 갱신한다.
             self.person_display_buffer = bytes(self.file_buffer)
             if hasattr(self, 'tree_person_list'):
                 self._refresh_person_browser()

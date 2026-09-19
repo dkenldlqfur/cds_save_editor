@@ -18,6 +18,7 @@ class GameDataProfileTests(unittest.TestCase):
         self.assertEqual(70, len(profile.trade_good_name_by_id))
         self.assertEqual(99_999_999, profile.limits['player']['cash'])
         self.assertEqual(99_999_999, profile.limits['player']['fame'])
+        self.assertEqual(4_294_967_295, profile.limits['player']['contract'])
         self.assertEqual(2_000, profile.limits['player']['vitality'])
         self.assertEqual(65_535, profile.limits['person']['reputation'])
 
@@ -82,7 +83,7 @@ class GameDataProfileTests(unittest.TestCase):
 
         self.assertEqual(1_000_000, executable.limits['player']['cash'])
         self.assertEqual(99_999, executable.limits['player']['fame'])
-        self.assertEqual(99_999_999, executable.limits['player']['contract'])
+        self.assertEqual(4_294_967_295, executable.limits['player']['contract'])
         self.assertEqual(2_000, executable.limits['person']['vitality'])
 
 

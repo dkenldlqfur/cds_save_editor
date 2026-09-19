@@ -36,6 +36,8 @@ CITY_SPECIALTY_ID_MAX = 69
 DISCOVERY_TABLE_VA = 0x51C584
 DISCOVERY_RECORD_SIZE = 0x5C
 DISCOVERY_RECORD_COUNT = 231
+DISCOVERY_CONTIGUOUS_RECORD_COUNT = 230
+DISCOVERY_FINAL_COORDINATE_RECORD_VA = 0x5227A0
 
 TRADE_GOOD_TABLE_VA = 0x4DCBBC
 TRADE_GOOD_RECORD_SIZE = 0x88
@@ -105,9 +107,34 @@ LIMIT_OPERANDS = {
         (0x460ACB, b'\x81\xFF'), (0x460AD4, b'\xB8'),
         (0x47CC08, b'\x68'),
     ),
-    'fame': ((0x474188, b'\x68'),),
-    'infamy': ((0x4741C8, b'\x68'),),
 }
+
+# Fame and infamy share a clamp at 0x4800E0; the operand at 0x474188 is the
+# voyage-food limit, not a reputation limit.  The patcher optionally replaces
+# the shared PUSH with a verified per-field wrapper in its .patch section.
+PLAYER_FAME_LIMIT_HOOK_VA = 0x4800E5
+PLAYER_FAME_LIMIT_HOOK_END_VA = PLAYER_FAME_LIMIT_HOOK_VA + 5
+PLAYER_FAME_LIMIT_CODE_OFFSET = 0x20
+PLAYER_FAME_LIMIT_SLOT_SIZE = 0x100
+PLAYER_FAME_LIMIT_MAGIC = b'FAMELIM1'
+FAME_INFAMY_LIMIT_MIN = 1
+FAME_INFAMY_LIMIT_MAX = 99_999_999
+
+# ``cds_exe_patcher`` replaces the shared six-ability clamp when its value is
+# changed.  These signatures accept both the original executable and that
+# verified replacement, so the save editor follows the exact gameplay cap.
+PERSON_ABILITY_LIMIT_VA = 0x432C50
+PERSON_ABILITY_LIMIT_BLOCK_SIZE = 0x30
+PERSON_VITALITY_LIMIT_VA = 0x432C87
+PERSON_ABILITY_MAX = 255
+PERSON_VITALITY_MAX = 9999
+PERSON_ABILITY_ORIGINAL_CODE = bytes.fromhex(
+    '8b 44 24 04 56 6a 64 6a 01 8d 34 81 8b 4c 24 14 51 '
+    '8b 06 40 50 e8 f6 b8 06 00 83 c4 10 48 89 06 5e c2 08 00'
+).ljust(PERSON_ABILITY_LIMIT_BLOCK_SIZE, b'\xCC')
+PERSON_VITALITY_ORIGINAL_PREFIX = bytes.fromhex('8b 44 24 04 56 8b f1 68')
+PERSON_VITALITY_ORIGINAL_SUFFIX = bytes.fromhex(
+    '6a 00 50 8b 4e 18 51 e8 c8 b8 06 00 83 c4 10 89 46 18 5e c2 04 00')
 
 
 class ExecutableFormatError(ValueError):
@@ -226,10 +253,10 @@ def _read_characters(image: PEImage) -> list[dict]:
             'city_id': signed(12),
             'building_id': signed(13),
             'blood_id': signed(14),
-            'vitality': raw[15],
+            'hire_cost_coefficient': raw[15],
             'abilities': raw[16:21],
             'faith': raw[21],
-            'liquor_capacity': raw[22],
+            'vitality': raw[22],
             'appearance_state': raw[23],
             'skills': raw[24:51],
             'raw_dwords': raw,
@@ -594,9 +621,13 @@ def _read_map_locations(image: PEImage) -> tuple[list[dict], list[dict]]:
         cities.append({'id': identifier, 'world_x': world_x, 'world_y': world_y})
 
     discovery_offset = image.va_to_offset(DISCOVERY_TABLE_VA)
+    final_discovery_offset = image.va_to_offset(DISCOVERY_FINAL_COORDINATE_RECORD_VA)
     discoveries = []
     for identifier in range(DISCOVERY_RECORD_COUNT):
-        offset = discovery_offset + identifier * DISCOVERY_RECORD_SIZE
+        # 마지막 항목(불국사, 게임 ID 527)은 연속 좌표표 바깥의 별도 행이다.
+        offset = (discovery_offset + identifier * DISCOVERY_RECORD_SIZE
+                  if identifier < DISCOVERY_CONTIGUOUS_RECORD_COUNT
+                  else final_discovery_offset)
         min_x, min_y, max_x, max_y = struct.unpack_from('<iiii', data, offset)
         if not all(-1 <= value <= 2500 for value in (min_x, max_x)) or not all(
                 -1 <= value <= 1250 for value in (min_y, max_y)):
@@ -634,6 +665,88 @@ def _read_limits(image: PEImage) -> tuple[dict[str, int], list[str]]:
             continue
         limits[name] = values[0]
     return limits, warnings
+
+
+def _player_fame_limit_payload(slot_va: int, fame_limit: int, infamy_limit: int) -> bytes:
+    """Return the exact independent-limit wrapper written by the patcher."""
+    payload = bytearray(PLAYER_FAME_LIMIT_SLOT_SIZE)
+    payload[:len(PLAYER_FAME_LIMIT_MAGIC)] = PLAYER_FAME_LIMIT_MAGIC
+    struct.pack_into('<II', payload, 8, fame_limit, infamy_limit)
+    code_va = slot_va + PLAYER_FAME_LIMIT_CODE_OFFSET
+    code = bytearray(b'\x85\xC0\x75\x07\x68')
+    code += struct.pack('<I', fame_limit)
+    code += b'\xEB\x05\x68' + struct.pack('<I', infamy_limit)
+    code += b'\xE9' + struct.pack('<i', PLAYER_FAME_LIMIT_HOOK_END_VA - (code_va + 21))
+    payload[PLAYER_FAME_LIMIT_CODE_OFFSET:PLAYER_FAME_LIMIT_CODE_OFFSET + len(code)] = code
+    return bytes(payload)
+
+
+def _read_player_fame_limits(image: PEImage) -> tuple[int, int]:
+    """Read the common or patcher-split player fame/infamy cap."""
+    hook_offset = image.va_to_offset(PLAYER_FAME_LIMIT_HOOK_VA)
+    if (image.data[hook_offset - 5:hook_offset] != b'\x8B\x44\x24\x04\x56'
+            or image.data[hook_offset + 5:hook_offset + 14]
+            != b'\x6A\x00\x8D\xB4\x81\xAC\x00\x00\x00'):
+        raise ExecutableFormatError('주인공 명성·악명 상한 함수 위치를 검증하지 못했습니다.')
+    hook = bytes(image.data[hook_offset:hook_offset + 5])
+    if hook[0] == 0x68:
+        fame_limit = infamy_limit = struct.unpack_from('<I', hook, 1)[0]
+    elif hook[0] == 0xE9:
+        code_va = PLAYER_FAME_LIMIT_HOOK_END_VA + struct.unpack_from('<i', hook, 1)[0]
+        slot_va = code_va - PLAYER_FAME_LIMIT_CODE_OFFSET
+        slot_offset = image.va_to_offset(slot_va)
+        payload = bytes(image.data[slot_offset:slot_offset + PLAYER_FAME_LIMIT_SLOT_SIZE])
+        if payload[:len(PLAYER_FAME_LIMIT_MAGIC)] != PLAYER_FAME_LIMIT_MAGIC:
+            raise ExecutableFormatError('명성·악명 분기 코드의 식별자를 검증하지 못했습니다.')
+        fame_limit, infamy_limit = struct.unpack_from('<II', payload, 8)
+        expected_hook = b'\xE9' + struct.pack(
+            '<i', code_va - PLAYER_FAME_LIMIT_HOOK_END_VA)
+        if (hook != expected_hook
+                or payload != _player_fame_limit_payload(slot_va, fame_limit, infamy_limit)):
+            raise ExecutableFormatError('명성·악명 분기 코드가 검증한 형식과 다릅니다.')
+    else:
+        raise ExecutableFormatError('주인공 명성·악명 상한 명령이 예상한 형식이 아닙니다.')
+    if not (FAME_INFAMY_LIMIT_MIN <= fame_limit <= FAME_INFAMY_LIMIT_MAX
+            and FAME_INFAMY_LIMIT_MIN <= infamy_limit <= FAME_INFAMY_LIMIT_MAX):
+        raise ExecutableFormatError('주인공 명성·악명 상한값이 올바르지 않습니다.')
+    return fame_limit, infamy_limit
+
+
+def _person_ability_limit_code(limit: int) -> bytes:
+    """Return the patcher's verified replacement for the shared ability cap."""
+    code = bytearray(bytes.fromhex('8b 44 24 04 56 68'))
+    code += struct.pack('<I', limit)
+    code += bytes.fromhex('6a 00 8d 34 81 8b 4c 24 14 51 8b 06 40 50')
+    call_va = PERSON_ABILITY_LIMIT_VA + len(code)
+    code += b'\xE8' + struct.pack('<i', 0x49E560 - (call_va + 5))
+    code += bytes.fromhex('83 c4 10 48 89 06 5e c2 08 00')
+    return bytes(code).ljust(PERSON_ABILITY_LIMIT_BLOCK_SIZE, b'\xCC')
+
+
+def _read_person_stat_limits(image: PEImage) -> tuple[int, int]:
+    """Read the shared player/NPC ability and vitality clamps from the EXE."""
+    ability_offset = image.va_to_offset(PERSON_ABILITY_LIMIT_VA)
+    ability_code = bytes(image.data[
+        ability_offset:ability_offset + PERSON_ABILITY_LIMIT_BLOCK_SIZE])
+    if ability_code == PERSON_ABILITY_ORIGINAL_CODE:
+        ability_limit = 100
+    elif ability_code[:6] == bytes.fromhex('8b 44 24 04 56 68'):
+        ability_limit = struct.unpack_from('<I', ability_code, 6)[0]
+        if (ability_limit > PERSON_ABILITY_MAX
+                or ability_code != _person_ability_limit_code(ability_limit)):
+            raise ExecutableFormatError('능력치 상한 함수의 코드를 검증하지 못했습니다.')
+    else:
+        raise ExecutableFormatError('능력치 상한 함수의 코드를 검증하지 못했습니다.')
+
+    vitality_offset = image.va_to_offset(PERSON_VITALITY_LIMIT_VA)
+    if (image.data[vitality_offset - 7:vitality_offset + 1] != PERSON_VITALITY_ORIGINAL_PREFIX
+            or image.data[vitality_offset + 5:vitality_offset + 5 + len(PERSON_VITALITY_ORIGINAL_SUFFIX)]
+            != PERSON_VITALITY_ORIGINAL_SUFFIX):
+        raise ExecutableFormatError('생명력 상한 함수의 코드를 검증하지 못했습니다.')
+    vitality_limit = struct.unpack_from('<I', image.data, vitality_offset + 1)[0]
+    if vitality_limit > PERSON_VITALITY_MAX:
+        raise ExecutableFormatError('생명력 상한값이 0~9999 범위를 벗어납니다.')
+    return ability_limit, vitality_limit
 
 
 def load_executable_profile(path: str | Path, fallback: GameDataProfile) -> ExecutableProfileResult:
@@ -697,16 +810,43 @@ def load_executable_profile(path: str | Path, fallback: GameDataProfile) -> Exec
             'discovery_regions': discovery_regions,
         }, str(target))
 
-    def game_limits() -> None:
+    def money_limits() -> None:
         nonlocal limits
         limits, limit_warnings = _read_limits(image)
-        warnings.extend(f'자금·명성 상한: {warning}' for warning in limit_warnings)
+        warnings.extend(f'자금 상한: {warning}' for warning in limit_warnings)
         if not limits:
-            raise ExecutableFormatError('검증된 자금·명성 상한이 없습니다.')
+            raise ExecutableFormatError('검증된 자금 상한이 없습니다.')
         profile.overlay_mapping('limits', {
             'player': {
                 **profile.limits['player'],
                 **{key: min(99_999_999, value) for key, value in limits.items()},
+            },
+        }, str(target))
+
+    def player_reputation_limits() -> None:
+        fame_limit, infamy_limit = _read_player_fame_limits(image)
+        limits.update({'fame': fame_limit, 'infamy': infamy_limit})
+        profile.overlay_mapping('limits', {
+            'player': {
+                **profile.limits['player'],
+                'fame': fame_limit,
+                'infamy': infamy_limit,
+            },
+        }, str(target))
+
+    def person_stat_limits() -> None:
+        ability_limit, vitality_limit = _read_person_stat_limits(image)
+        limits.update({'ability': ability_limit, 'vitality': vitality_limit})
+        profile.overlay_mapping('limits', {
+            'player': {
+                **profile.limits['player'],
+                'ability': ability_limit,
+                'vitality': vitality_limit,
+            },
+            'person': {
+                **profile.limits['person'],
+                'ability': ability_limit,
+                'vitality': vitality_limit,
             },
         }, str(target))
 
@@ -720,7 +860,9 @@ def load_executable_profile(path: str | Path, fallback: GameDataProfile) -> Exec
     attempt('선수상 효과', figurehead_effects)
     attempt('도시 기본정보', cities)
     attempt('도시·발견물 좌표', map_locations)
-    attempt('자금·명성 상한', game_limits)
+    attempt('자금 상한', money_limits)
+    attempt('명성·악명 상한', player_reputation_limits)
+    attempt('인물 능력치·생명력 상한', person_stat_limits)
     if not loaded:
         detail = warnings[0] if warnings else '지원되는 정적 테이블이 없습니다.'
         raise ExecutableFormatError(f'CDS III 실행 파일로 확인하지 못했습니다. {detail}')
