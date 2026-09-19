@@ -22,7 +22,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         69,
         72,
@@ -31,7 +31,7 @@
         61
       ],
       "faith": 54,
-      "liquor_capacity": 53,
+      "vitality": 53,
       "appearance_state": 3,
       "skills": [
         3,
@@ -134,7 +134,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         66,
@@ -143,7 +143,7 @@
         86
       ],
       "faith": 61,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 1,
       "skills": [
         3,
@@ -246,7 +246,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         86,
         62,
@@ -255,7 +255,7 @@
         47
       ],
       "faith": 65,
-      "liquor_capacity": 61,
+      "vitality": 61,
       "appearance_state": 1,
       "skills": [
         3,
@@ -358,7 +358,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         78,
         80,
@@ -367,7 +367,7 @@
         75
       ],
       "faith": 70,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 2,
       "skills": [
         3,
@@ -470,7 +470,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         85,
         72,
@@ -479,7 +479,7 @@
         55
       ],
       "faith": 65,
-      "liquor_capacity": 80,
+      "vitality": 80,
       "appearance_state": 1,
       "skills": [
         1,
@@ -582,7 +582,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         76,
         86,
@@ -591,7 +591,7 @@
         89
       ],
       "faith": 63,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 2,
       "skills": [
         3,
@@ -694,7 +694,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         60,
         88,
@@ -703,7 +703,7 @@
         65
       ],
       "faith": 41,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 0,
       "skills": [
         2,
@@ -806,7 +806,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         86,
         56,
@@ -815,7 +815,7 @@
         95
       ],
       "faith": 64,
-      "liquor_capacity": 83,
+      "vitality": 83,
       "appearance_state": 3,
       "skills": [
         2,
@@ -918,7 +918,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         71,
         94,
@@ -927,7 +927,7 @@
         66
       ],
       "faith": 56,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 1,
       "skills": [
         3,
@@ -1030,7 +1030,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         89,
         62,
@@ -1039,7 +1039,7 @@
         78
       ],
       "faith": 65,
-      "liquor_capacity": 85,
+      "vitality": 85,
       "appearance_state": 2,
       "skills": [
         1,
@@ -1142,7 +1142,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         77,
         59,
@@ -1151,7 +1151,7 @@
         61
       ],
       "faith": 46,
-      "liquor_capacity": 66,
+      "vitality": 66,
       "appearance_state": 2,
       "skills": [
         3,
@@ -1254,7 +1254,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         58,
         69,
@@ -1263,7 +1263,7 @@
         66
       ],
       "faith": 49,
-      "liquor_capacity": 38,
+      "vitality": 38,
       "appearance_state": 2,
       "skills": [
         3,
@@ -1366,7 +1366,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         65,
         66,
@@ -1375,7 +1375,7 @@
         65
       ],
       "faith": 45,
-      "liquor_capacity": 52,
+      "vitality": 52,
       "appearance_state": 2,
       "skills": [
         3,
@@ -1478,7 +1478,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         68,
         81,
@@ -1487,7 +1487,7 @@
         64
       ],
       "faith": 76,
-      "liquor_capacity": 68,
+      "vitality": 68,
       "appearance_state": 2,
       "skills": [
         0,
@@ -1590,7 +1590,7 @@
       "city_id": 89,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         58,
         68,
@@ -1599,7 +1599,7 @@
         60
       ],
       "faith": 52,
-      "liquor_capacity": 41,
+      "vitality": 41,
       "appearance_state": 0,
       "skills": [
         2,
@@ -1702,7 +1702,7 @@
       "city_id": 91,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         66,
         58,
@@ -1711,7 +1711,7 @@
         58
       ],
       "faith": 55,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 1,
       "skills": [
         2,
@@ -1814,7 +1814,7 @@
       "city_id": 84,
       "building_id": 5,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         61,
         59,
@@ -1823,7 +1823,7 @@
         51
       ],
       "faith": 69,
-      "liquor_capacity": 49,
+      "vitality": 49,
       "appearance_state": 1,
       "skills": [
         1,
@@ -1926,7 +1926,7 @@
       "city_id": 91,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         59,
         56,
@@ -1935,7 +1935,7 @@
         65
       ],
       "faith": 65,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         1,
@@ -2038,7 +2038,7 @@
       "city_id": 1,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         55,
         70,
@@ -2047,7 +2047,7 @@
         44
       ],
       "faith": 60,
-      "liquor_capacity": 44,
+      "vitality": 44,
       "appearance_state": 0,
       "skills": [
         3,
@@ -2150,7 +2150,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         86,
         36,
@@ -2159,7 +2159,7 @@
         56
       ],
       "faith": 66,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 3,
       "skills": [
         0,
@@ -2262,7 +2262,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         65,
         59,
@@ -2271,7 +2271,7 @@
         60
       ],
       "faith": 71,
-      "liquor_capacity": 50,
+      "vitality": 50,
       "appearance_state": 2,
       "skills": [
         1,
@@ -2374,7 +2374,7 @@
       "city_id": 101,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         58,
         64,
@@ -2383,7 +2383,7 @@
         61
       ],
       "faith": 41,
-      "liquor_capacity": 48,
+      "vitality": 48,
       "appearance_state": 2,
       "skills": [
         3,
@@ -2486,7 +2486,7 @@
       "city_id": 150,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         62,
         55,
@@ -2495,7 +2495,7 @@
         65
       ],
       "faith": 78,
-      "liquor_capacity": 45,
+      "vitality": 45,
       "appearance_state": 1,
       "skills": [
         2,
@@ -2598,7 +2598,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         44,
         68,
@@ -2607,7 +2607,7 @@
         51
       ],
       "faith": 71,
-      "liquor_capacity": 44,
+      "vitality": 44,
       "appearance_state": 0,
       "skills": [
         0,
@@ -2710,7 +2710,7 @@
       "city_id": 100,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         37,
         59,
@@ -2719,7 +2719,7 @@
         37
       ],
       "faith": 75,
-      "liquor_capacity": 31,
+      "vitality": 31,
       "appearance_state": 1,
       "skills": [
         0,
@@ -2822,7 +2822,7 @@
       "city_id": 102,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         63,
         55,
@@ -2831,7 +2831,7 @@
         39
       ],
       "faith": 53,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 2,
       "skills": [
         1,
@@ -2934,7 +2934,7 @@
       "city_id": 160,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         60,
         52,
@@ -2943,7 +2943,7 @@
         70
       ],
       "faith": 67,
-      "liquor_capacity": 49,
+      "vitality": 49,
       "appearance_state": 2,
       "skills": [
         2,
@@ -3046,7 +3046,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         59,
         45,
@@ -3055,7 +3055,7 @@
         57
       ],
       "faith": 63,
-      "liquor_capacity": 73,
+      "vitality": 73,
       "appearance_state": 2,
       "skills": [
         2,
@@ -3158,7 +3158,7 @@
       "city_id": 6,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         96,
         65,
@@ -3167,7 +3167,7 @@
         66
       ],
       "faith": 81,
-      "liquor_capacity": 90,
+      "vitality": 90,
       "appearance_state": 3,
       "skills": [
         0,
@@ -3270,7 +3270,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         72,
         49,
@@ -3279,7 +3279,7 @@
         42
       ],
       "faith": 59,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         1,
@@ -3382,7 +3382,7 @@
       "city_id": 11,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         60,
         42,
@@ -3391,7 +3391,7 @@
         49
       ],
       "faith": 61,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         0,
@@ -3494,7 +3494,7 @@
       "city_id": 5,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         52,
         49,
@@ -3503,7 +3503,7 @@
         62
       ],
       "faith": 56,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 1,
       "skills": [
         2,
@@ -3606,7 +3606,7 @@
       "city_id": 2,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         72,
         52,
@@ -3615,7 +3615,7 @@
         41
       ],
       "faith": 43,
-      "liquor_capacity": 46,
+      "vitality": 46,
       "appearance_state": 1,
       "skills": [
         0,
@@ -3718,7 +3718,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         83,
         19,
@@ -3727,7 +3727,7 @@
         58
       ],
       "faith": 41,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 3,
       "skills": [
         0,
@@ -3830,7 +3830,7 @@
       "city_id": 8,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         47,
         66,
@@ -3839,7 +3839,7 @@
         50
       ],
       "faith": 46,
-      "liquor_capacity": 43,
+      "vitality": 43,
       "appearance_state": 2,
       "skills": [
         1,
@@ -3942,7 +3942,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         69,
         57,
@@ -3951,7 +3951,7 @@
         52
       ],
       "faith": 63,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         0,
@@ -4054,7 +4054,7 @@
       "city_id": 12,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         69,
         73,
@@ -4063,7 +4063,7 @@
         75
       ],
       "faith": 59,
-      "liquor_capacity": 78,
+      "vitality": 78,
       "appearance_state": 1,
       "skills": [
         3,
@@ -4166,7 +4166,7 @@
       "city_id": 13,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         60,
         20,
@@ -4175,7 +4175,7 @@
         37
       ],
       "faith": 55,
-      "liquor_capacity": 79,
+      "vitality": 79,
       "appearance_state": 2,
       "skills": [
         1,
@@ -4278,7 +4278,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         68,
         65,
@@ -4287,7 +4287,7 @@
         44
       ],
       "faith": 75,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 1,
       "skills": [
         1,
@@ -4390,7 +4390,7 @@
       "city_id": 2,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         71,
         62,
@@ -4399,7 +4399,7 @@
         54
       ],
       "faith": 77,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 1,
       "skills": [
         1,
@@ -4502,7 +4502,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         77,
         44,
@@ -4511,7 +4511,7 @@
         67
       ],
       "faith": 54,
-      "liquor_capacity": 69,
+      "vitality": 69,
       "appearance_state": 2,
       "skills": [
         1,
@@ -4614,7 +4614,7 @@
       "city_id": 8,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         55,
@@ -4623,7 +4623,7 @@
         79
       ],
       "faith": 38,
-      "liquor_capacity": 73,
+      "vitality": 73,
       "appearance_state": 2,
       "skills": [
         0,
@@ -4726,7 +4726,7 @@
       "city_id": 12,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         58,
@@ -4735,7 +4735,7 @@
         76
       ],
       "faith": 61,
-      "liquor_capacity": 69,
+      "vitality": 69,
       "appearance_state": 1,
       "skills": [
         2,
@@ -4838,7 +4838,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         73,
         21,
@@ -4847,7 +4847,7 @@
         49
       ],
       "faith": 35,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 1,
       "skills": [
         0,
@@ -4950,7 +4950,7 @@
       "city_id": 5,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         67,
@@ -4959,7 +4959,7 @@
         61
       ],
       "faith": 49,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 2,
       "skills": [
         2,
@@ -5062,7 +5062,7 @@
       "city_id": 6,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         75,
         75,
@@ -5071,7 +5071,7 @@
         62
       ],
       "faith": 67,
-      "liquor_capacity": 73,
+      "vitality": 73,
       "appearance_state": 2,
       "skills": [
         0,
@@ -5174,7 +5174,7 @@
       "city_id": 88,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         62,
         26,
@@ -5183,7 +5183,7 @@
         52
       ],
       "faith": 48,
-      "liquor_capacity": 63,
+      "vitality": 63,
       "appearance_state": 2,
       "skills": [
         0,
@@ -5286,7 +5286,7 @@
       "city_id": 9,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         64,
         39,
@@ -5295,7 +5295,7 @@
         50
       ],
       "faith": 47,
-      "liquor_capacity": 40,
+      "vitality": 40,
       "appearance_state": 3,
       "skills": [
         0,
@@ -5398,7 +5398,7 @@
       "city_id": 10,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         64,
         44,
@@ -5407,7 +5407,7 @@
         53
       ],
       "faith": 61,
-      "liquor_capacity": 66,
+      "vitality": 66,
       "appearance_state": 1,
       "skills": [
         0,
@@ -5510,7 +5510,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         43,
         54,
@@ -5519,7 +5519,7 @@
         42
       ],
       "faith": 87,
-      "liquor_capacity": 37,
+      "vitality": 37,
       "appearance_state": 0,
       "skills": [
         0,
@@ -5622,7 +5622,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         63,
         69,
@@ -5631,7 +5631,7 @@
         55
       ],
       "faith": 73,
-      "liquor_capacity": 76,
+      "vitality": 76,
       "appearance_state": 1,
       "skills": [
         3,
@@ -5734,7 +5734,7 @@
       "city_id": 11,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         69,
         82,
@@ -5743,7 +5743,7 @@
         73
       ],
       "faith": 78,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         3,
@@ -5846,7 +5846,7 @@
       "city_id": 21,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         88,
         52,
@@ -5855,7 +5855,7 @@
         41
       ],
       "faith": 39,
-      "liquor_capacity": 76,
+      "vitality": 76,
       "appearance_state": 3,
       "skills": [
         2,
@@ -5958,7 +5958,7 @@
       "city_id": 28,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         51,
         48,
@@ -5967,7 +5967,7 @@
         61
       ],
       "faith": 67,
-      "liquor_capacity": 27,
+      "vitality": 27,
       "appearance_state": 3,
       "skills": [
         0,
@@ -6070,7 +6070,7 @@
       "city_id": 29,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         74,
@@ -6079,7 +6079,7 @@
         41
       ],
       "faith": 74,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 1,
       "skills": [
         3,
@@ -6182,7 +6182,7 @@
       "city_id": 38,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         66,
         78,
@@ -6191,7 +6191,7 @@
         61
       ],
       "faith": 56,
-      "liquor_capacity": 39,
+      "vitality": 39,
       "appearance_state": 1,
       "skills": [
         2,
@@ -6294,7 +6294,7 @@
       "city_id": 38,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         82,
         44,
@@ -6303,7 +6303,7 @@
         57
       ],
       "faith": 47,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 3,
       "skills": [
         2,
@@ -6406,7 +6406,7 @@
       "city_id": 44,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         74,
         56,
@@ -6415,7 +6415,7 @@
         45
       ],
       "faith": 46,
-      "liquor_capacity": 63,
+      "vitality": 63,
       "appearance_state": 3,
       "skills": [
         0,
@@ -6518,7 +6518,7 @@
       "city_id": 78,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         68,
         40,
@@ -6527,7 +6527,7 @@
         46
       ],
       "faith": 88,
-      "liquor_capacity": 55,
+      "vitality": 55,
       "appearance_state": 2,
       "skills": [
         2,
@@ -6630,7 +6630,7 @@
       "city_id": 82,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         85,
         41,
@@ -6639,7 +6639,7 @@
         46
       ],
       "faith": 86,
-      "liquor_capacity": 78,
+      "vitality": 78,
       "appearance_state": 3,
       "skills": [
         2,
@@ -6742,7 +6742,7 @@
       "city_id": 112,
       "building_id": 5,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         95,
         47,
@@ -6751,7 +6751,7 @@
         53
       ],
       "faith": 85,
-      "liquor_capacity": 87,
+      "vitality": 87,
       "appearance_state": 0,
       "skills": [
         1,
@@ -6854,7 +6854,7 @@
       "city_id": 124,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         89,
         83,
@@ -6863,7 +6863,7 @@
         90
       ],
       "faith": 95,
-      "liquor_capacity": 98,
+      "vitality": 98,
       "appearance_state": 3,
       "skills": [
         3,
@@ -6966,7 +6966,7 @@
       "city_id": 83,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         100,
         69,
@@ -6975,7 +6975,7 @@
         88
       ],
       "faith": 90,
-      "liquor_capacity": 90,
+      "vitality": 90,
       "appearance_state": 3,
       "skills": [
         2,
@@ -7078,7 +7078,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 134,
+      "hire_cost_coefficient": 134,
       "abilities": [
         66,
         66,
@@ -7087,7 +7087,7 @@
         59
       ],
       "faith": 70,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 2,
       "skills": [
         0,
@@ -7190,7 +7190,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 129,
+      "hire_cost_coefficient": 129,
       "abilities": [
         57,
         63,
@@ -7199,7 +7199,7 @@
         53
       ],
       "faith": 63,
-      "liquor_capacity": 49,
+      "vitality": 49,
       "appearance_state": 2,
       "skills": [
         0,
@@ -7302,7 +7302,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 160,
+      "hire_cost_coefficient": 160,
       "abilities": [
         50,
         75,
@@ -7311,7 +7311,7 @@
         46
       ],
       "faith": 80,
-      "liquor_capacity": 51,
+      "vitality": 51,
       "appearance_state": 2,
       "skills": [
         0,
@@ -7414,7 +7414,7 @@
       "city_id": 1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         54,
         61,
@@ -7423,7 +7423,7 @@
         41
       ],
       "faith": 66,
-      "liquor_capacity": 50,
+      "vitality": 50,
       "appearance_state": 1,
       "skills": [
         3,
@@ -7526,7 +7526,7 @@
       "city_id": 86,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 125,
+      "hire_cost_coefficient": 125,
       "abilities": [
         62,
         53,
@@ -7535,7 +7535,7 @@
         61
       ],
       "faith": 61,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 3,
       "skills": [
         2,
@@ -7638,7 +7638,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         71,
         66,
@@ -7647,7 +7647,7 @@
         51
       ],
       "faith": 63,
-      "liquor_capacity": 52,
+      "vitality": 52,
       "appearance_state": 3,
       "skills": [
         0,
@@ -7750,7 +7750,7 @@
       "city_id": 84,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         65,
         65,
@@ -7759,7 +7759,7 @@
         69
       ],
       "faith": 61,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 1,
       "skills": [
         0,
@@ -7862,7 +7862,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 114,
+      "hire_cost_coefficient": 114,
       "abilities": [
         56,
         57,
@@ -7871,7 +7871,7 @@
         59
       ],
       "faith": 57,
-      "liquor_capacity": 61,
+      "vitality": 61,
       "appearance_state": 2,
       "skills": [
         1,
@@ -7974,7 +7974,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 115,
+      "hire_cost_coefficient": 115,
       "abilities": [
         52,
         56,
@@ -7983,7 +7983,7 @@
         61
       ],
       "faith": 66,
-      "liquor_capacity": 56,
+      "vitality": 56,
       "appearance_state": 3,
       "skills": [
         0,
@@ -8086,7 +8086,7 @@
       "city_id": 1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         51,
         54,
@@ -8095,7 +8095,7 @@
         52
       ],
       "faith": 77,
-      "liquor_capacity": 49,
+      "vitality": 49,
       "appearance_state": 0,
       "skills": [
         0,
@@ -8198,7 +8198,7 @@
       "city_id": 87,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         59,
         40,
@@ -8207,7 +8207,7 @@
         62
       ],
       "faith": 71,
-      "liquor_capacity": 61,
+      "vitality": 61,
       "appearance_state": 2,
       "skills": [
         0,
@@ -8310,7 +8310,7 @@
       "city_id": 86,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         53,
         49,
@@ -8319,7 +8319,7 @@
         43
       ],
       "faith": 50,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 1,
       "skills": [
         2,
@@ -8422,7 +8422,7 @@
       "city_id": 90,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 114,
+      "hire_cost_coefficient": 114,
       "abilities": [
         75,
         51,
@@ -8431,7 +8431,7 @@
         51
       ],
       "faith": 58,
-      "liquor_capacity": 51,
+      "vitality": 51,
       "appearance_state": 2,
       "skills": [
         1,
@@ -8534,7 +8534,7 @@
       "city_id": 1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         64,
         27,
@@ -8543,7 +8543,7 @@
         42
       ],
       "faith": 54,
-      "liquor_capacity": 74,
+      "vitality": 74,
       "appearance_state": 1,
       "skills": [
         0,
@@ -8646,7 +8646,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 127,
+      "hire_cost_coefficient": 127,
       "abilities": [
         67,
         71,
@@ -8655,7 +8655,7 @@
         69
       ],
       "faith": 56,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 1,
       "skills": [
         2,
@@ -8758,7 +8758,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         60,
         68,
@@ -8767,7 +8767,7 @@
         43
       ],
       "faith": 70,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         3,
@@ -8870,7 +8870,7 @@
       "city_id": 90,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         49,
         63,
@@ -8879,7 +8879,7 @@
         66
       ],
       "faith": 57,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 2,
       "skills": [
         2,
@@ -8982,7 +8982,7 @@
       "city_id": 89,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 133,
+      "hire_cost_coefficient": 133,
       "abilities": [
         74,
         69,
@@ -8991,7 +8991,7 @@
         51
       ],
       "faith": 62,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 3,
       "skills": [
         2,
@@ -9094,7 +9094,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         65,
         66,
@@ -9103,7 +9103,7 @@
         62
       ],
       "faith": 57,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 3,
       "skills": [
         3,
@@ -9206,7 +9206,7 @@
       "city_id": 1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 121,
+      "hire_cost_coefficient": 121,
       "abilities": [
         63,
         58,
@@ -9215,7 +9215,7 @@
         58
       ],
       "faith": 57,
-      "liquor_capacity": 55,
+      "vitality": 55,
       "appearance_state": 2,
       "skills": [
         0,
@@ -9318,7 +9318,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 148,
+      "hire_cost_coefficient": 148,
       "abilities": [
         70,
         70,
@@ -9327,7 +9327,7 @@
         82
       ],
       "faith": 75,
-      "liquor_capacity": 84,
+      "vitality": 84,
       "appearance_state": 2,
       "skills": [
         0,
@@ -9430,7 +9430,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 144,
+      "hire_cost_coefficient": 144,
       "abilities": [
         51,
         71,
@@ -9439,7 +9439,7 @@
         77
       ],
       "faith": 68,
-      "liquor_capacity": 40,
+      "vitality": 40,
       "appearance_state": 0,
       "skills": [
         0,
@@ -9542,7 +9542,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         60,
         64,
@@ -9551,7 +9551,7 @@
         56
       ],
       "faith": 46,
-      "liquor_capacity": 66,
+      "vitality": 66,
       "appearance_state": 2,
       "skills": [
         2,
@@ -9654,7 +9654,7 @@
       "city_id": 87,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         70,
         45,
@@ -9663,7 +9663,7 @@
         29
       ],
       "faith": 39,
-      "liquor_capacity": 63,
+      "vitality": 63,
       "appearance_state": 2,
       "skills": [
         1,
@@ -9766,7 +9766,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 146,
+      "hire_cost_coefficient": 146,
       "abilities": [
         80,
         71,
@@ -9775,7 +9775,7 @@
         65
       ],
       "faith": 54,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 1,
       "skills": [
         3,
@@ -9878,7 +9878,7 @@
       "city_id": 100,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 136,
+      "hire_cost_coefficient": 136,
       "abilities": [
         55,
         62,
@@ -9887,7 +9887,7 @@
         57
       ],
       "faith": 79,
-      "liquor_capacity": 57,
+      "vitality": 57,
       "appearance_state": 0,
       "skills": [
         0,
@@ -9990,7 +9990,7 @@
       "city_id": 102,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         61,
         55,
@@ -9999,7 +9999,7 @@
         56
       ],
       "faith": 68,
-      "liquor_capacity": 67,
+      "vitality": 67,
       "appearance_state": 2,
       "skills": [
         1,
@@ -10102,7 +10102,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 152,
+      "hire_cost_coefficient": 152,
       "abilities": [
         61,
         49,
@@ -10111,7 +10111,7 @@
         90
       ],
       "faith": 53,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 2,
       "skills": [
         0,
@@ -10214,7 +10214,7 @@
       "city_id": 97,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 123,
+      "hire_cost_coefficient": 123,
       "abilities": [
         66,
         46,
@@ -10223,7 +10223,7 @@
         63
       ],
       "faith": 54,
-      "liquor_capacity": 57,
+      "vitality": 57,
       "appearance_state": 1,
       "skills": [
         0,
@@ -10326,7 +10326,7 @@
       "city_id": 1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         66,
         59,
@@ -10335,7 +10335,7 @@
         48
       ],
       "faith": 50,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         2,
@@ -10438,7 +10438,7 @@
       "city_id": 150,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 160,
+      "hire_cost_coefficient": 160,
       "abilities": [
         78,
         61,
@@ -10447,7 +10447,7 @@
         83
       ],
       "faith": 56,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 2,
       "skills": [
         1,
@@ -10550,7 +10550,7 @@
       "city_id": 1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 125,
+      "hire_cost_coefficient": 125,
       "abilities": [
         48,
         49,
@@ -10559,7 +10559,7 @@
         64
       ],
       "faith": 58,
-      "liquor_capacity": 51,
+      "vitality": 51,
       "appearance_state": 2,
       "skills": [
         0,
@@ -10662,7 +10662,7 @@
       "city_id": 151,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 127,
+      "hire_cost_coefficient": 127,
       "abilities": [
         57,
         41,
@@ -10671,7 +10671,7 @@
         45
       ],
       "faith": 54,
-      "liquor_capacity": 57,
+      "vitality": 57,
       "appearance_state": 1,
       "skills": [
         2,
@@ -10774,7 +10774,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         56,
         24,
@@ -10783,7 +10783,7 @@
         67
       ],
       "faith": 54,
-      "liquor_capacity": 56,
+      "vitality": 56,
       "appearance_state": 3,
       "skills": [
         0,
@@ -10886,7 +10886,7 @@
       "city_id": 84,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         76,
         46,
@@ -10895,7 +10895,7 @@
         65
       ],
       "faith": 64,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 2,
       "skills": [
         0,
@@ -10998,7 +10998,7 @@
       "city_id": 97,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 103,
+      "hire_cost_coefficient": 103,
       "abilities": [
         52,
         43,
@@ -11007,7 +11007,7 @@
         26
       ],
       "faith": 44,
-      "liquor_capacity": 46,
+      "vitality": 46,
       "appearance_state": 2,
       "skills": [
         0,
@@ -11110,7 +11110,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         57,
         49,
@@ -11119,7 +11119,7 @@
         57
       ],
       "faith": 78,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 2,
       "skills": [
         2,
@@ -11222,7 +11222,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 120,
+      "hire_cost_coefficient": 120,
       "abilities": [
         51,
         61,
@@ -11231,7 +11231,7 @@
         56
       ],
       "faith": 59,
-      "liquor_capacity": 58,
+      "vitality": 58,
       "appearance_state": 0,
       "skills": [
         3,
@@ -11334,7 +11334,7 @@
       "city_id": 155,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 114,
+      "hire_cost_coefficient": 114,
       "abilities": [
         54,
         43,
@@ -11343,7 +11343,7 @@
         51
       ],
       "faith": 62,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 3,
       "skills": [
         0,
@@ -11446,7 +11446,7 @@
       "city_id": 1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 146,
+      "hire_cost_coefficient": 146,
       "abilities": [
         72,
         75,
@@ -11455,7 +11455,7 @@
         71
       ],
       "faith": 78,
-      "liquor_capacity": 69,
+      "vitality": 69,
       "appearance_state": 1,
       "skills": [
         2,
@@ -11558,7 +11558,7 @@
       "city_id": 171,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 130,
+      "hire_cost_coefficient": 130,
       "abilities": [
         58,
         71,
@@ -11567,7 +11567,7 @@
         63
       ],
       "faith": 58,
-      "liquor_capacity": 53,
+      "vitality": 53,
       "appearance_state": 0,
       "skills": [
         0,
@@ -11670,7 +11670,7 @@
       "city_id": 150,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         59,
         53,
@@ -11679,7 +11679,7 @@
         65
       ],
       "faith": 61,
-      "liquor_capacity": 45,
+      "vitality": 45,
       "appearance_state": 1,
       "skills": [
         1,
@@ -11782,7 +11782,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 143,
+      "hire_cost_coefficient": 143,
       "abilities": [
         63,
         55,
@@ -11791,7 +11791,7 @@
         86
       ],
       "faith": 41,
-      "liquor_capacity": 67,
+      "vitality": 67,
       "appearance_state": 1,
       "skills": [
         0,
@@ -11894,7 +11894,7 @@
       "city_id": 5,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         50,
         57,
@@ -11903,7 +11903,7 @@
         73
       ],
       "faith": 74,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         1,
@@ -12006,7 +12006,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 188,
+      "hire_cost_coefficient": 188,
       "abilities": [
         69,
         70,
@@ -12015,7 +12015,7 @@
         66
       ],
       "faith": 71,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 2,
       "skills": [
         3,
@@ -12118,7 +12118,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 171,
+      "hire_cost_coefficient": 171,
       "abilities": [
         75,
         59,
@@ -12127,7 +12127,7 @@
         69
       ],
       "faith": 76,
-      "liquor_capacity": 73,
+      "vitality": 73,
       "appearance_state": 3,
       "skills": [
         2,
@@ -12230,7 +12230,7 @@
       "city_id": 12,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 162,
+      "hire_cost_coefficient": 162,
       "abilities": [
         48,
         85,
@@ -12239,7 +12239,7 @@
         50
       ],
       "faith": 68,
-      "liquor_capacity": 38,
+      "vitality": 38,
       "appearance_state": 0,
       "skills": [
         0,
@@ -12342,7 +12342,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 160,
+      "hire_cost_coefficient": 160,
       "abilities": [
         85,
         52,
@@ -12351,7 +12351,7 @@
         55
       ],
       "faith": 50,
-      "liquor_capacity": 78,
+      "vitality": 78,
       "appearance_state": 1,
       "skills": [
         0,
@@ -12454,7 +12454,7 @@
       "city_id": 8,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 152,
+      "hire_cost_coefficient": 152,
       "abilities": [
         41,
         49,
@@ -12463,7 +12463,7 @@
         65
       ],
       "faith": 79,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 0,
       "skills": [
         1,
@@ -12566,7 +12566,7 @@
       "city_id": 11,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 164,
+      "hire_cost_coefficient": 164,
       "abilities": [
         69,
         69,
@@ -12575,7 +12575,7 @@
         87
       ],
       "faith": 62,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 3,
       "skills": [
         3,
@@ -12678,7 +12678,7 @@
       "city_id": 5,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 134,
+      "hire_cost_coefficient": 134,
       "abilities": [
         54,
         64,
@@ -12687,7 +12687,7 @@
         45
       ],
       "faith": 67,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 1,
       "skills": [
         0,
@@ -12790,7 +12790,7 @@
       "city_id": 8,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         49,
         46,
@@ -12799,7 +12799,7 @@
         48
       ],
       "faith": 79,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 1,
       "skills": [
         2,
@@ -12902,7 +12902,7 @@
       "city_id": 2,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 126,
+      "hire_cost_coefficient": 126,
       "abilities": [
         66,
         58,
@@ -12911,7 +12911,7 @@
         61
       ],
       "faith": 60,
-      "liquor_capacity": 79,
+      "vitality": 79,
       "appearance_state": 2,
       "skills": [
         3,
@@ -13014,7 +13014,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 117,
+      "hire_cost_coefficient": 117,
       "abilities": [
         55,
         63,
@@ -13023,7 +13023,7 @@
         63
       ],
       "faith": 57,
-      "liquor_capacity": 76,
+      "vitality": 76,
       "appearance_state": 0,
       "skills": [
         0,
@@ -13126,7 +13126,7 @@
       "city_id": 13,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 138,
+      "hire_cost_coefficient": 138,
       "abilities": [
         42,
         68,
@@ -13135,7 +13135,7 @@
         60
       ],
       "faith": 83,
-      "liquor_capacity": 74,
+      "vitality": 74,
       "appearance_state": 2,
       "skills": [
         0,
@@ -13238,7 +13238,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 155,
+      "hire_cost_coefficient": 155,
       "abilities": [
         54,
         49,
@@ -13247,7 +13247,7 @@
         66
       ],
       "faith": 82,
-      "liquor_capacity": 51,
+      "vitality": 51,
       "appearance_state": 0,
       "skills": [
         0,
@@ -13350,7 +13350,7 @@
       "city_id": 2,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 125,
+      "hire_cost_coefficient": 125,
       "abilities": [
         78,
         61,
@@ -13359,7 +13359,7 @@
         70
       ],
       "faith": 66,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 2,
       "skills": [
         3,
@@ -13462,7 +13462,7 @@
       "city_id": 3,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 162,
+      "hire_cost_coefficient": 162,
       "abilities": [
         68,
         41,
@@ -13471,7 +13471,7 @@
         83
       ],
       "faith": 71,
-      "liquor_capacity": 68,
+      "vitality": 68,
       "appearance_state": 2,
       "skills": [
         0,
@@ -13574,7 +13574,7 @@
       "city_id": 10,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 142,
+      "hire_cost_coefficient": 142,
       "abilities": [
         59,
         51,
@@ -13583,7 +13583,7 @@
         58
       ],
       "faith": 78,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 2,
       "skills": [
         2,
@@ -13686,7 +13686,7 @@
       "city_id": 6,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 177,
+      "hire_cost_coefficient": 177,
       "abilities": [
         90,
         39,
@@ -13695,7 +13695,7 @@
         62
       ],
       "faith": 71,
-      "liquor_capacity": 88,
+      "vitality": 88,
       "appearance_state": 2,
       "skills": [
         0,
@@ -13798,7 +13798,7 @@
       "city_id": 9,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         62,
         63,
@@ -13807,7 +13807,7 @@
         76
       ],
       "faith": 66,
-      "liquor_capacity": 55,
+      "vitality": 55,
       "appearance_state": 1,
       "skills": [
         2,
@@ -13910,7 +13910,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 174,
+      "hire_cost_coefficient": 174,
       "abilities": [
         55,
         61,
@@ -13919,7 +13919,7 @@
         76
       ],
       "faith": 95,
-      "liquor_capacity": 51,
+      "vitality": 51,
       "appearance_state": 0,
       "skills": [
         0,
@@ -14022,7 +14022,7 @@
       "city_id": 88,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 162,
+      "hire_cost_coefficient": 162,
       "abilities": [
         44,
         83,
@@ -14031,7 +14031,7 @@
         36
       ],
       "faith": 61,
-      "liquor_capacity": 39,
+      "vitality": 39,
       "appearance_state": 0,
       "skills": [
         0,
@@ -14134,7 +14134,7 @@
       "city_id": 2,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 164,
+      "hire_cost_coefficient": 164,
       "abilities": [
         85,
         66,
@@ -14143,7 +14143,7 @@
         73
       ],
       "faith": 69,
-      "liquor_capacity": 87,
+      "vitality": 87,
       "appearance_state": 1,
       "skills": [
         2,
@@ -14246,7 +14246,7 @@
       "city_id": 10,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 148,
+      "hire_cost_coefficient": 148,
       "abilities": [
         44,
         71,
@@ -14255,7 +14255,7 @@
         58
       ],
       "faith": 94,
-      "liquor_capacity": 55,
+      "vitality": 55,
       "appearance_state": 0,
       "skills": [
         0,
@@ -14358,7 +14358,7 @@
       "city_id": 6,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         62,
         67,
@@ -14367,7 +14367,7 @@
         41
       ],
       "faith": 68,
-      "liquor_capacity": 74,
+      "vitality": 74,
       "appearance_state": 3,
       "skills": [
         2,
@@ -14470,7 +14470,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 172,
+      "hire_cost_coefficient": 172,
       "abilities": [
         56,
         50,
@@ -14479,7 +14479,7 @@
         90
       ],
       "faith": 39,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 3,
       "skills": [
         2,
@@ -14582,7 +14582,7 @@
       "city_id": 88,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         51,
         60,
@@ -14591,7 +14591,7 @@
         58
       ],
       "faith": 81,
-      "liquor_capacity": 60,
+      "vitality": 60,
       "appearance_state": 1,
       "skills": [
         0,
@@ -14694,7 +14694,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 129,
+      "hire_cost_coefficient": 129,
       "abilities": [
         52,
         68,
@@ -14703,7 +14703,7 @@
         44
       ],
       "faith": 70,
-      "liquor_capacity": 50,
+      "vitality": 50,
       "appearance_state": 1,
       "skills": [
         1,
@@ -14806,7 +14806,7 @@
       "city_id": 194,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         62,
         64,
@@ -14815,7 +14815,7 @@
         44
       ],
       "faith": 66,
-      "liquor_capacity": 61,
+      "vitality": 61,
       "appearance_state": 0,
       "skills": [
         0,
@@ -14918,7 +14918,7 @@
       "city_id": 10,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         67,
         70,
@@ -14927,7 +14927,7 @@
         26
       ],
       "faith": 79,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 0,
       "skills": [
         0,
@@ -15030,7 +15030,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 124,
+      "hire_cost_coefficient": 124,
       "abilities": [
         50,
         41,
@@ -15039,7 +15039,7 @@
         70
       ],
       "faith": 55,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 1,
       "skills": [
         0,
@@ -15142,7 +15142,7 @@
       "city_id": 3,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         59,
         72,
@@ -15151,7 +15151,7 @@
         51
       ],
       "faith": 97,
-      "liquor_capacity": 34,
+      "vitality": 34,
       "appearance_state": 0,
       "skills": [
         0,
@@ -15254,7 +15254,7 @@
       "city_id": 195,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 155,
+      "hire_cost_coefficient": 155,
       "abilities": [
         57,
         69,
@@ -15263,7 +15263,7 @@
         85
       ],
       "faith": 86,
-      "liquor_capacity": 74,
+      "vitality": 74,
       "appearance_state": 1,
       "skills": [
         0,
@@ -15366,7 +15366,7 @@
       "city_id": 9,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 125,
+      "hire_cost_coefficient": 125,
       "abilities": [
         66,
         32,
@@ -15375,7 +15375,7 @@
         56
       ],
       "faith": 53,
-      "liquor_capacity": 68,
+      "vitality": 68,
       "appearance_state": 1,
       "skills": [
         0,
@@ -15478,7 +15478,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         55,
         60,
@@ -15487,7 +15487,7 @@
         39
       ],
       "faith": 74,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 2,
       "skills": [
         2,
@@ -15590,7 +15590,7 @@
       "city_id": 194,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 185,
+      "hire_cost_coefficient": 185,
       "abilities": [
         50,
         66,
@@ -15599,7 +15599,7 @@
         37
       ],
       "faith": 82,
-      "liquor_capacity": 42,
+      "vitality": 42,
       "appearance_state": 1,
       "skills": [
         0,
@@ -15702,7 +15702,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         50,
         29,
@@ -15711,7 +15711,7 @@
         35
       ],
       "faith": 32,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 3,
       "skills": [
         0,
@@ -15814,7 +15814,7 @@
       "city_id": 4,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 133,
+      "hire_cost_coefficient": 133,
       "abilities": [
         73,
         57,
@@ -15823,7 +15823,7 @@
         62
       ],
       "faith": 74,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 1,
       "skills": [
         0,
@@ -15926,7 +15926,7 @@
       "city_id": 8,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 116,
+      "hire_cost_coefficient": 116,
       "abilities": [
         61,
         62,
@@ -15935,7 +15935,7 @@
         21
       ],
       "faith": 61,
-      "liquor_capacity": 72,
+      "vitality": 72,
       "appearance_state": 3,
       "skills": [
         0,
@@ -16038,7 +16038,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 112,
+      "hire_cost_coefficient": 112,
       "abilities": [
         56,
         68,
@@ -16047,7 +16047,7 @@
         61
       ],
       "faith": 50,
-      "liquor_capacity": 47,
+      "vitality": 47,
       "appearance_state": 1,
       "skills": [
         0,
@@ -16150,7 +16150,7 @@
       "city_id": 3,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 132,
+      "hire_cost_coefficient": 132,
       "abilities": [
         55,
         56,
@@ -16159,7 +16159,7 @@
         73
       ],
       "faith": 55,
-      "liquor_capacity": 83,
+      "vitality": 83,
       "appearance_state": 0,
       "skills": [
         0,
@@ -16262,7 +16262,7 @@
       "city_id": 13,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 145,
+      "hire_cost_coefficient": 145,
       "abilities": [
         55,
         60,
@@ -16271,7 +16271,7 @@
         80
       ],
       "faith": 35,
-      "liquor_capacity": 52,
+      "vitality": 52,
       "appearance_state": 2,
       "skills": [
         3,
@@ -16374,7 +16374,7 @@
       "city_id": 2,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 139,
+      "hire_cost_coefficient": 139,
       "abilities": [
         49,
         75,
@@ -16383,7 +16383,7 @@
         69
       ],
       "faith": 47,
-      "liquor_capacity": 47,
+      "vitality": 47,
       "appearance_state": 2,
       "skills": [
         0,
@@ -16486,7 +16486,7 @@
       "city_id": 4,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 175,
+      "hire_cost_coefficient": 175,
       "abilities": [
         74,
         69,
@@ -16495,7 +16495,7 @@
         89
       ],
       "faith": 82,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         3,
@@ -16598,7 +16598,7 @@
       "city_id": 9,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 138,
+      "hire_cost_coefficient": 138,
       "abilities": [
         68,
         71,
@@ -16607,7 +16607,7 @@
         62
       ],
       "faith": 33,
-      "liquor_capacity": 73,
+      "vitality": 73,
       "appearance_state": 2,
       "skills": [
         0,
@@ -16710,7 +16710,7 @@
       "city_id": 10,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 139,
+      "hire_cost_coefficient": 139,
       "abilities": [
         51,
         55,
@@ -16719,7 +16719,7 @@
         47
       ],
       "faith": 70,
-      "liquor_capacity": 43,
+      "vitality": 43,
       "appearance_state": 2,
       "skills": [
         1,
@@ -16822,7 +16822,7 @@
       "city_id": 88,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 142,
+      "hire_cost_coefficient": 142,
       "abilities": [
         66,
         39,
@@ -16831,7 +16831,7 @@
         79
       ],
       "faith": 67,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 2,
       "skills": [
         0,
@@ -16934,7 +16934,7 @@
       "city_id": 11,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 174,
+      "hire_cost_coefficient": 174,
       "abilities": [
         40,
         57,
@@ -16943,7 +16943,7 @@
         46
       ],
       "faith": 90,
-      "liquor_capacity": 44,
+      "vitality": 44,
       "appearance_state": 0,
       "skills": [
         0,
@@ -17046,7 +17046,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 134,
+      "hire_cost_coefficient": 134,
       "abilities": [
         56,
         61,
@@ -17055,7 +17055,7 @@
         65
       ],
       "faith": 75,
-      "liquor_capacity": 41,
+      "vitality": 41,
       "appearance_state": 0,
       "skills": [
         3,
@@ -17158,7 +17158,7 @@
       "city_id": 11,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 126,
+      "hire_cost_coefficient": 126,
       "abilities": [
         64,
         60,
@@ -17167,7 +17167,7 @@
         51
       ],
       "faith": 60,
-      "liquor_capacity": 58,
+      "vitality": 58,
       "appearance_state": 1,
       "skills": [
         0,
@@ -17270,7 +17270,7 @@
       "city_id": 8,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 140,
+      "hire_cost_coefficient": 140,
       "abilities": [
         76,
         66,
@@ -17279,7 +17279,7 @@
         70
       ],
       "faith": 66,
-      "liquor_capacity": 78,
+      "vitality": 78,
       "appearance_state": 2,
       "skills": [
         0,
@@ -17382,7 +17382,7 @@
       "city_id": 198,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 174,
+      "hire_cost_coefficient": 174,
       "abilities": [
         90,
         53,
@@ -17391,7 +17391,7 @@
         70
       ],
       "faith": 61,
-      "liquor_capacity": 62,
+      "vitality": 62,
       "appearance_state": 3,
       "skills": [
         0,
@@ -17494,7 +17494,7 @@
       "city_id": 12,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 180,
+      "hire_cost_coefficient": 180,
       "abilities": [
         89,
         64,
@@ -17503,7 +17503,7 @@
         42
       ],
       "faith": 67,
-      "liquor_capacity": 85,
+      "vitality": 85,
       "appearance_state": 3,
       "skills": [
         1,
@@ -17606,7 +17606,7 @@
       "city_id": 9,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 139,
+      "hire_cost_coefficient": 139,
       "abilities": [
         72,
         43,
@@ -17615,7 +17615,7 @@
         80
       ],
       "faith": 61,
-      "liquor_capacity": 88,
+      "vitality": 88,
       "appearance_state": 1,
       "skills": [
         0,
@@ -17718,7 +17718,7 @@
       "city_id": 194,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 135,
+      "hire_cost_coefficient": 135,
       "abilities": [
         68,
         46,
@@ -17727,7 +17727,7 @@
         42
       ],
       "faith": 68,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 2,
       "skills": [
         2,
@@ -17830,7 +17830,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 170,
+      "hire_cost_coefficient": 170,
       "abilities": [
         82,
         33,
@@ -17839,7 +17839,7 @@
         82
       ],
       "faith": 56,
-      "liquor_capacity": 78,
+      "vitality": 78,
       "appearance_state": 2,
       "skills": [
         0,
@@ -17942,7 +17942,7 @@
       "city_id": 8,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 130,
+      "hire_cost_coefficient": 130,
       "abilities": [
         65,
         69,
@@ -17951,7 +17951,7 @@
         68
       ],
       "faith": 60,
-      "liquor_capacity": 57,
+      "vitality": 57,
       "appearance_state": 1,
       "skills": [
         1,
@@ -18054,7 +18054,7 @@
       "city_id": 195,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 136,
+      "hire_cost_coefficient": 136,
       "abilities": [
         57,
         75,
@@ -18063,7 +18063,7 @@
         56
       ],
       "faith": 43,
-      "liquor_capacity": 59,
+      "vitality": 59,
       "appearance_state": 2,
       "skills": [
         1,
@@ -18166,7 +18166,7 @@
       "city_id": 197,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 185,
+      "hire_cost_coefficient": 185,
       "abilities": [
         88,
         61,
@@ -18175,7 +18175,7 @@
         76
       ],
       "faith": 84,
-      "liquor_capacity": 90,
+      "vitality": 90,
       "appearance_state": 1,
       "skills": [
         0,
@@ -18278,7 +18278,7 @@
       "city_id": 195,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 170,
+      "hire_cost_coefficient": 170,
       "abilities": [
         63,
         31,
@@ -18287,7 +18287,7 @@
         75
       ],
       "faith": 73,
-      "liquor_capacity": 88,
+      "vitality": 88,
       "appearance_state": 2,
       "skills": [
         0,
@@ -18390,7 +18390,7 @@
       "city_id": 194,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 192,
+      "hire_cost_coefficient": 192,
       "abilities": [
         84,
         65,
@@ -18399,7 +18399,7 @@
         63
       ],
       "faith": 74,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 2,
       "skills": [
         1,
@@ -18502,7 +18502,7 @@
       "city_id": 5,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 144,
+      "hire_cost_coefficient": 144,
       "abilities": [
         74,
         41,
@@ -18511,7 +18511,7 @@
         66
       ],
       "faith": 80,
-      "liquor_capacity": 67,
+      "vitality": 67,
       "appearance_state": 2,
       "skills": [
         0,
@@ -18614,7 +18614,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 180,
+      "hire_cost_coefficient": 180,
       "abilities": [
         42,
         69,
@@ -18623,7 +18623,7 @@
         62
       ],
       "faith": 97,
-      "liquor_capacity": 43,
+      "vitality": 43,
       "appearance_state": 0,
       "skills": [
         0,
@@ -18726,7 +18726,7 @@
       "city_id": 210,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 115,
+      "hire_cost_coefficient": 115,
       "abilities": [
         56,
         46,
@@ -18735,7 +18735,7 @@
         29
       ],
       "faith": 53,
-      "liquor_capacity": 41,
+      "vitality": 41,
       "appearance_state": 2,
       "skills": [
         3,
@@ -18838,7 +18838,7 @@
       "city_id": 198,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 121,
+      "hire_cost_coefficient": 121,
       "abilities": [
         71,
         45,
@@ -18847,7 +18847,7 @@
         37
       ],
       "faith": 50,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 3,
       "skills": [
         0,
@@ -18950,7 +18950,7 @@
       "city_id": 195,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 195,
+      "hire_cost_coefficient": 195,
       "abilities": [
         32,
         75,
@@ -18959,7 +18959,7 @@
         61
       ],
       "faith": 93,
-      "liquor_capacity": 49,
+      "vitality": 49,
       "appearance_state": 0,
       "skills": [
         0,
@@ -19062,7 +19062,7 @@
       "city_id": 197,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 160,
+      "hire_cost_coefficient": 160,
       "abilities": [
         58,
         55,
@@ -19071,7 +19071,7 @@
         82
       ],
       "faith": 51,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 2,
       "skills": [
         0,
@@ -19174,7 +19174,7 @@
       "city_id": 6,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 172,
+      "hire_cost_coefficient": 172,
       "abilities": [
         78,
         55,
@@ -19183,7 +19183,7 @@
         61
       ],
       "faith": 41,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         0,
@@ -19286,7 +19286,7 @@
       "city_id": 196,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 125,
+      "hire_cost_coefficient": 125,
       "abilities": [
         56,
         61,
@@ -19295,7 +19295,7 @@
         67
       ],
       "faith": 56,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 1,
       "skills": [
         1,
@@ -19398,7 +19398,7 @@
       "city_id": 194,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 155,
+      "hire_cost_coefficient": 155,
       "abilities": [
         76,
         52,
@@ -19407,7 +19407,7 @@
         80
       ],
       "faith": 47,
-      "liquor_capacity": 86,
+      "vitality": 86,
       "appearance_state": 2,
       "skills": [
         0,
@@ -19510,7 +19510,7 @@
       "city_id": 14,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 176,
+      "hire_cost_coefficient": 176,
       "abilities": [
         68,
         70,
@@ -19519,7 +19519,7 @@
         65
       ],
       "faith": 99,
-      "liquor_capacity": 77,
+      "vitality": 77,
       "appearance_state": 1,
       "skills": [
         2,
@@ -19622,7 +19622,7 @@
       "city_id": 198,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 146,
+      "hire_cost_coefficient": 146,
       "abilities": [
         55,
         52,
@@ -19631,7 +19631,7 @@
         42
       ],
       "faith": 77,
-      "liquor_capacity": 44,
+      "vitality": 44,
       "appearance_state": 1,
       "skills": [
         3,
@@ -19734,7 +19734,7 @@
       "city_id": 199,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 108,
+      "hire_cost_coefficient": 108,
       "abilities": [
         57,
         43,
@@ -19743,7 +19743,7 @@
         47
       ],
       "faith": 46,
-      "liquor_capacity": 52,
+      "vitality": 52,
       "appearance_state": 2,
       "skills": [
         2,
@@ -19846,7 +19846,7 @@
       "city_id": 28,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 122,
+      "hire_cost_coefficient": 122,
       "abilities": [
         49,
         64,
@@ -19855,7 +19855,7 @@
         61
       ],
       "faith": 65,
-      "liquor_capacity": 43,
+      "vitality": 43,
       "appearance_state": 3,
       "skills": [
         0,
@@ -19958,7 +19958,7 @@
       "city_id": 28,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 134,
+      "hire_cost_coefficient": 134,
       "abilities": [
         56,
         60,
@@ -19967,7 +19967,7 @@
         75
       ],
       "faith": 73,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 1,
       "skills": [
         0,
@@ -20070,7 +20070,7 @@
       "city_id": 29,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 166,
+      "hire_cost_coefficient": 166,
       "abilities": [
         62,
         89,
@@ -20079,7 +20079,7 @@
         76
       ],
       "faith": 72,
-      "liquor_capacity": 86,
+      "vitality": 86,
       "appearance_state": 2,
       "skills": [
         3,
@@ -20182,7 +20182,7 @@
       "city_id": 29,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 175,
+      "hire_cost_coefficient": 175,
       "abilities": [
         70,
         81,
@@ -20191,7 +20191,7 @@
         88
       ],
       "faith": 59,
-      "liquor_capacity": 80,
+      "vitality": 80,
       "appearance_state": 0,
       "skills": [
         0,
@@ -20294,7 +20294,7 @@
       "city_id": 33,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 180,
+      "hire_cost_coefficient": 180,
       "abilities": [
         59,
         59,
@@ -20303,7 +20303,7 @@
         77
       ],
       "faith": 87,
-      "liquor_capacity": 65,
+      "vitality": 65,
       "appearance_state": 1,
       "skills": [
         0,
@@ -20406,7 +20406,7 @@
       "city_id": 34,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 156,
+      "hire_cost_coefficient": 156,
       "abilities": [
         75,
         35,
@@ -20415,7 +20415,7 @@
         68
       ],
       "faith": 75,
-      "liquor_capacity": 68,
+      "vitality": 68,
       "appearance_state": 0,
       "skills": [
         0,
@@ -20518,7 +20518,7 @@
       "city_id": 38,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 135,
+      "hire_cost_coefficient": 135,
       "abilities": [
         71,
         60,
@@ -20527,7 +20527,7 @@
         60
       ],
       "faith": 54,
-      "liquor_capacity": 53,
+      "vitality": 53,
       "appearance_state": 1,
       "skills": [
         3,
@@ -20630,7 +20630,7 @@
       "city_id": 39,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 140,
+      "hire_cost_coefficient": 140,
       "abilities": [
         73,
         25,
@@ -20639,7 +20639,7 @@
         80
       ],
       "faith": 42,
-      "liquor_capacity": 69,
+      "vitality": 69,
       "appearance_state": 2,
       "skills": [
         0,
@@ -20742,7 +20742,7 @@
       "city_id": 38,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 115,
+      "hire_cost_coefficient": 115,
       "abilities": [
         58,
         62,
@@ -20751,7 +20751,7 @@
         48
       ],
       "faith": 59,
-      "liquor_capacity": 56,
+      "vitality": 56,
       "appearance_state": 2,
       "skills": [
         3,
@@ -20854,7 +20854,7 @@
       "city_id": 44,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 127,
+      "hire_cost_coefficient": 127,
       "abilities": [
         61,
         56,
@@ -20863,7 +20863,7 @@
         49
       ],
       "faith": 68,
-      "liquor_capacity": 58,
+      "vitality": 58,
       "appearance_state": 1,
       "skills": [
         0,
@@ -20966,7 +20966,7 @@
       "city_id": 102,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 160,
+      "hire_cost_coefficient": 160,
       "abilities": [
         66,
         69,
@@ -20975,7 +20975,7 @@
         57
       ],
       "faith": 62,
-      "liquor_capacity": 69,
+      "vitality": 69,
       "appearance_state": 0,
       "skills": [
         3,
@@ -21078,7 +21078,7 @@
       "city_id": 108,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 129,
+      "hire_cost_coefficient": 129,
       "abilities": [
         64,
         54,
@@ -21087,7 +21087,7 @@
         66
       ],
       "faith": 52,
-      "liquor_capacity": 54,
+      "vitality": 54,
       "appearance_state": 1,
       "skills": [
         3,
@@ -21190,7 +21190,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         79,
         81,
@@ -21199,7 +21199,7 @@
         91
       ],
       "faith": 81,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 2,
       "skills": [
         3,
@@ -21302,7 +21302,7 @@
       "city_id": 0,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 180,
+      "hire_cost_coefficient": 180,
       "abilities": [
         92,
         59,
@@ -21311,7 +21311,7 @@
         70
       ],
       "faith": 71,
-      "liquor_capacity": 85,
+      "vitality": 85,
       "appearance_state": 3,
       "skills": [
         2,
@@ -21414,7 +21414,7 @@
       "city_id": 0,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         66,
         68,
@@ -21423,7 +21423,7 @@
         76
       ],
       "faith": 83,
-      "liquor_capacity": 71,
+      "vitality": 71,
       "appearance_state": 1,
       "skills": [
         1,
@@ -21526,7 +21526,7 @@
       "city_id": 7,
       "building_id": 5,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         71,
         68,
@@ -21535,7 +21535,7 @@
         71
       ],
       "faith": 79,
-      "liquor_capacity": 80,
+      "vitality": 80,
       "appearance_state": 1,
       "skills": [
         1,
@@ -21638,7 +21638,7 @@
       "city_id": 7,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         75,
         61,
@@ -21647,7 +21647,7 @@
         49
       ],
       "faith": 69,
-      "liquor_capacity": 68,
+      "vitality": 68,
       "appearance_state": 2,
       "skills": [
         1,
@@ -21750,7 +21750,7 @@
       "city_id": 38,
       "building_id": 4,
       "blood_id": 1,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         87,
         56,
@@ -21759,7 +21759,7 @@
         66
       ],
       "faith": 66,
-      "liquor_capacity": 84,
+      "vitality": 84,
       "appearance_state": 2,
       "skills": [
         1,
@@ -21862,7 +21862,7 @@
       "city_id": 28,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         70,
         75,
@@ -21871,7 +21871,7 @@
         80
       ],
       "faith": 53,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 1,
       "skills": [
         2,
@@ -21974,7 +21974,7 @@
       "city_id": 29,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         64,
         74,
@@ -21983,7 +21983,7 @@
         80
       ],
       "faith": 70,
-      "liquor_capacity": 67,
+      "vitality": 67,
       "appearance_state": 1,
       "skills": [
         1,
@@ -22086,7 +22086,7 @@
       "city_id": 24,
       "building_id": 5,
       "blood_id": 3,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         63,
         81,
@@ -22095,7 +22095,7 @@
         59
       ],
       "faith": 62,
-      "liquor_capacity": 64,
+      "vitality": 64,
       "appearance_state": 0,
       "skills": [
         3,
@@ -22198,7 +22198,7 @@
       "city_id": 112,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         67,
         79,
@@ -22207,7 +22207,7 @@
         85
       ],
       "faith": 86,
-      "liquor_capacity": 74,
+      "vitality": 74,
       "appearance_state": 0,
       "skills": [
         3,
@@ -22310,7 +22310,7 @@
       "city_id": -1,
       "building_id": 4,
       "blood_id": 0,
-      "vitality": 180,
+      "hire_cost_coefficient": 180,
       "abilities": [
         89,
         65,
@@ -22319,7 +22319,7 @@
         83
       ],
       "faith": 57,
-      "liquor_capacity": 88,
+      "vitality": 88,
       "appearance_state": 2,
       "skills": [
         0,
@@ -22422,7 +22422,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 100,
+      "hire_cost_coefficient": 100,
       "abilities": [
         41,
         71,
@@ -22431,7 +22431,7 @@
         79
       ],
       "faith": 51,
-      "liquor_capacity": 40,
+      "vitality": 40,
       "appearance_state": 0,
       "skills": [
         0,
@@ -22534,7 +22534,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         51,
         76,
@@ -22543,7 +22543,7 @@
         76
       ],
       "faith": 76,
-      "liquor_capacity": 70,
+      "vitality": 70,
       "appearance_state": 1,
       "skills": [
         0,
@@ -22646,7 +22646,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         46,
         100,
@@ -22655,7 +22655,7 @@
         66
       ],
       "faith": 66,
-      "liquor_capacity": 75,
+      "vitality": 75,
       "appearance_state": 1,
       "skills": [
         0,
@@ -22758,7 +22758,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         100,
         71,
@@ -22767,7 +22767,7 @@
         36
       ],
       "faith": 1,
-      "liquor_capacity": 99,
+      "vitality": 99,
       "appearance_state": 1,
       "skills": [
         0,
@@ -22870,7 +22870,7 @@
       "city_id": -1,
       "building_id": 5,
       "blood_id": 0,
-      "vitality": 200,
+      "hire_cost_coefficient": 200,
       "abilities": [
         36,
         96,
@@ -22879,7 +22879,7 @@
         61
       ],
       "faith": 46,
-      "liquor_capacity": 50,
+      "vitality": 50,
       "appearance_state": 0,
       "skills": [
         0,

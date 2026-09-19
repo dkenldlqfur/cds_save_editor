@@ -198,12 +198,10 @@ class GameExecutableLimitTests(unittest.TestCase):
     def test_limits_use_same_canonical_operand_as_executable_patcher(self):
         cash_values = [1000000] * len(LIMIT_OPERANDS['cash'])
         cash_values[0] = 9999999
-        image = _OperandImage({'cash': tuple(cash_values), 'deposit': 2000000, 'fame': 100000, 'infamy': 10000})
+        image = _OperandImage({'cash': tuple(cash_values), 'deposit': 2000000})
         limits, warnings = _read_limits(image)
         self.assertEqual(9999999, limits['cash'])
         self.assertEqual(2000000, limits['deposit'])
-        self.assertEqual(100000, limits['fame'])
-        self.assertEqual(10000, limits['infamy'])
         self.assertEqual([], warnings)
 
 class GameExecutableSponsorTests(unittest.TestCase):

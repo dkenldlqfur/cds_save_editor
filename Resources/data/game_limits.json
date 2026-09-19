@@ -6,7 +6,7 @@
     "language": 3,
     "cash": 99999999,
     "deposit": 99999999,
-    "contract": 99999999,
+    "contract": 4294967295,
     "fame": 99999999,
     "infamy": 99999999
   },

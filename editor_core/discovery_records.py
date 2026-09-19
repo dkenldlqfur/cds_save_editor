@@ -5,6 +5,7 @@ DISCOVERY_DISCOVERED = 2
 DISCOVERY_REPORTED = 3
 STATE_MARKERS = {DISCOVERY_UNSPAWNED: 0, DISCOVERY_UNDISCOVERED: 12, DISCOVERY_DISCOVERED: 76, DISCOVERY_REPORTED: 204}
 HINT_ACQUIRED_AND_CONTRACT_BITS = 5
+HINT_COMPLETED_BIT = 2
 
 def state_from_marker(marker):
     """세이브 상태 마커를 화면용 0~3 상태값으로 변환한다."""
@@ -24,5 +25,6 @@ def hint_is_acquired_and_contract_linked(value):
     return int(value) & HINT_ACQUIRED_AND_CONTRACT_BITS == HINT_ACQUIRED_AND_CONTRACT_BITS
 
 def set_hint_acquired(value, acquired):
-    """발견 완료 비트 등 다른 힌트 상태는 보존하고 획득/계약 비트만 설정한다."""
-    return int(value) | HINT_ACQUIRED_AND_CONTRACT_BITS if acquired else int(value) & ~HINT_ACQUIRED_AND_CONTRACT_BITS
+    """명시적으로 힌트를 변경할 때 완료 상태를 해제하고 획득 여부를 설정한다."""
+    state = int(value) & ~(HINT_ACQUIRED_AND_CONTRACT_BITS | HINT_COMPLETED_BIT)
+    return state | HINT_ACQUIRED_AND_CONTRACT_BITS if acquired else state

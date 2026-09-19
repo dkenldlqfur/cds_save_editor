@@ -57,7 +57,7 @@ class GameDataProfileTests(unittest.TestCase):
         executable.overlay_mapping('limits', {'player': player_limits}, source='CDS_95.EXE:limits')
         self.assertEqual(1000000, executable.limits['player']['cash'])
         self.assertEqual(99999, executable.limits['player']['fame'])
-        self.assertEqual(99999999, executable.limits['player']['contract'])
+        self.assertEqual(4294967295, executable.limits['player']['contract'])
         self.assertEqual(2000, executable.limits['person']['vitality'])
 if __name__ == '__main__':
     unittest.main()

@@ -349,7 +349,10 @@ def load_navigation_map_marker_settings():
         with open(_theme_settings_path(), 'r', encoding='utf-8') as settings_file:
             settings = json.load(settings_file)
         marker_size = normalize_navigation_map_marker_size(settings.get('navigation_map_marker_size', 1))
-        zoom_limit = normalize_navigation_map_zoom_limit(settings.get('navigation_map_zoom_limit', NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT))
+        stored_zoom_limit = settings.get('navigation_map_zoom_limit', NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT)
+        if isinstance(stored_zoom_limit, (int, float)) and stored_zoom_limit < 100:
+            stored_zoom_limit = NAVIGATION_MAP_DEFAULT_ZOOM_LIMIT_PERCENT
+        zoom_limit = normalize_navigation_map_zoom_limit(stored_zoom_limit)
         saved_colors = settings.get('navigation_map_marker_colors', {})
         saved_visibility = settings.get('navigation_map_marker_visibility', {})
         colors = {}
@@ -379,7 +382,7 @@ def save_navigation_map_marker_settings(marker_size, zoom_limit, city_colors, di
         except (OSError, ValueError, TypeError):
             pass
         data['navigation_map_marker_size'] = normalize_navigation_map_marker_size(marker_size)
-        data['navigation_map_zoom_limit'] = normalize_navigation_map_zoom_limit(zoom_limit)
+        data['navigation_map_zoom_limit'] = round(normalize_navigation_map_zoom_limit(zoom_limit * 100) * 100)
         data['navigation_map_marker_colors'] = {'city': dict(city_colors), 'discovery': dict(discovery_colors)}
         data['navigation_map_marker_visibility'] = {'city': dict(city_visibility), 'discovery': dict(discovery_visibility)}
         with open(path, 'w', encoding='utf-8') as settings_file:
@@ -594,13 +597,14 @@ ROLE_SLOT_BY_KEY = {'officer': 165, 'navigator': 167, 'surveyor': 169, 'interpre
 CHARACTER_LAYOUT = RecordTableLayout(37450, 144, max(CHARACTER_BY_ID, default=-1) + 1)
 CHARACTER_SAVE_TABLE_OFFSET = CHARACTER_LAYOUT.base_offset
 CHARACTER_SAVE_RECORD_SIZE = CHARACTER_LAYOUT.record_size
-CHARACTER_SPECIAL_STAT_OFFSET = 6
+PERSON_VITALITY_OFFSET = 6
+PERSON_HIRE_COST_OFFSET = 102
 PLAYER_ABILITY_MAX = int(GAME_LIMITS['player']['ability'])
-CHARACTER_SPECIAL_STAT_MAX = int(GAME_LIMITS['player']['vitality'])
+PLAYER_VITALITY_MAX = int(GAME_LIMITS['player']['vitality'])
 PLAYER_SKILL_MAX = int(GAME_LIMITS['player']['skill'])
 PLAYER_LANGUAGE_MAX = int(GAME_LIMITS['player']['language'])
 PERSON_ABILITY_MAX = int(GAME_LIMITS['person']['ability'])
-PERSON_SPECIAL_STAT_MAX = int(GAME_LIMITS['person']['vitality'])
+PERSON_VITALITY_MAX = int(GAME_LIMITS['person']['vitality'])
 PERSON_REPUTATION_MAX = int(GAME_LIMITS['person']['reputation'])
 PERSON_SKILL_MAX = int(GAME_LIMITS['person']['skill'])
 PERSON_LANGUAGE_MAX = int(GAME_LIMITS['person']['language'])
@@ -5445,7 +5449,11 @@ class CDS3SaveEditorApp:
 
     @classmethod
     def _navigation_map_range_text(cls, min_x, min_y, max_x, max_y):
-        return ui('ui_0572', cls._navigation_map_latitude_text(min_y), cls._navigation_map_latitude_text(max_y), cls._navigation_map_longitude_text(min_x), cls._navigation_map_longitude_text(max_x))
+        latitudes = [(90.0 - float(value) * 180.0 / cls.WORLD_MAP_HEIGHT, value) for value in (min_y, max_y)]
+        longitudes = [(float(value) * 360.0 / cls.WORLD_MAP_WIDTH - 180.0, value) for value in (min_x, max_x)]
+        latitudes.sort(key=lambda endpoint: (0 if endpoint[0] > 0 else 1 if endpoint[0] == 0 else 2, abs(endpoint[0])))
+        longitudes.sort(key=lambda endpoint: (0 if endpoint[0] < 0 else 1 if endpoint[0] == 0 else 2, abs(endpoint[0])))
+        return ui('ui_0572', cls._navigation_map_latitude_text(latitudes[0][1]), cls._navigation_map_latitude_text(latitudes[1][1]), cls._navigation_map_longitude_text(longitudes[0][1]), cls._navigation_map_longitude_text(longitudes[1][1]))
 
     def _draw_navigation_map_markers(self, image):
         """EXE에서 추출해 내장한 세계 좌표를 상태별 마커로 그린다."""
@@ -5476,7 +5484,7 @@ class CDS3SaveEditorApp:
             max_x, max_y = (int(region['max_x']), int(region['max_y']))
             center_x = int(round((min_x + max_x) * render_scale / 8.0))
             center_y = int(round((min_y + max_y) * render_scale / 8.0))
-            is_range = max_x - min_x + 1 >= 8 or max_y - min_y + 1 >= 8
+            is_range = True
             marker = {'x': center_x, 'y': center_y, 'kind': ui('ui_0570'), 'name': DISCOVERY_NAME_BY_NO.get(discovery_id, ui('ui_0295', discovery_id)), 'state': discovery_state_text(state), 'hit_radius': marker_radius, 'group': 'discovery', 'state_key': state_key, 'marker_flags': self.MAP_DISCOVERY_STATE_FLAGS[state_key]}
             if is_range:
                 bounds = tuple((int(round(value * render_scale / 4.0)) for value in (min_x, min_y, max_x, max_y)))
@@ -6135,7 +6143,7 @@ class CDS3SaveEditorApp:
         self.tree_reputation.bind('<Return>', lambda e: self.on_money_edit_request(tree=self.tree_reputation))
         self.tree_reputation.bind('<Double-1>', lambda e: self.on_money_edit_request(e, self.tree_reputation))
         self.tree_reputation.bind('<Button-3>', lambda e: self.on_money_edit_request(e, self.tree_reputation))
-        self.stat_values = [PLAYER_ABILITY_MAX] * 6 + [CHARACTER_SPECIAL_STAT_MAX]
+        self.stat_values = [PLAYER_ABILITY_MAX] * 6 + [PLAYER_VITALITY_MAX]
         self.money_values = [0] * 5
         self.update_player_face_display()
         self.update_wife_display()
@@ -6620,7 +6628,7 @@ class CDS3SaveEditorApp:
     @staticmethod
     def _character_stat_rows(record, record_offset):
         """인물 레코드의 공통 능력치 필드를 화면 표시 순서로 읽는다."""
-        values = read_character_stat_values(record, record_offset, CHARACTER_SPECIAL_STAT_OFFSET)
+        values = read_character_stat_values(record, record_offset, PERSON_VITALITY_OFFSET)
         return tuple(zip(PERSON_STAT_NAMES, values))
 
     @staticmethod
@@ -6673,7 +6681,7 @@ class CDS3SaveEditorApp:
         basic_rows = [(ui('ui_0062'), name), (ui('ui_0493'), ui('ui_0502', age)), (ui('ui_0463'), ui('ui_0466') if age < 18 else ui('ui_0500') if age > 60 else ui('ui_0411')), (ui('ui_0066'), blood_name), (ui('ui_0491'), NATION_NAMES[nation_id] if 0 <= nation_id < len(NATION_NAMES) else UI_EMPTY_VALUE), (ui('ui_0492'), JOB_NAMES[job_id] if 0 <= job_id < len(JOB_NAMES) else UI_EMPTY_VALUE), (ui('ui_0494'), city_name), (ui('ui_0409'), building_name)]
         if include_hire_state:
             if hire_state == 2:
-                base_hire_cost = int(character.get('vitality', 0)) * 10 // 3
+                base_hire_cost = int(record[record_offset + PERSON_HIRE_COST_OFFSET]) * 10 // 3
                 basic_rows.append((ui('ui_0442'), ui('ui_0591', base_hire_cost)))
             hire_text = {0: ui('ui_0436'), 1: ui('ui_0403'), 2: ui('ui_0404'), 3: ui('ui_0405')}.get(hire_state, str(hire_state))
             basic_rows.append((ui('ui_0495'), hire_text))
@@ -6698,7 +6706,7 @@ class CDS3SaveEditorApp:
             self.cbo_person_current_city.configure(state='disabled')
         stat_rows = self._character_stat_rows(record, record_offset)
         for index, row in enumerate(stat_rows):
-            maximum = PERSON_SPECIAL_STAT_MAX if index == len(stat_rows) - 1 else PERSON_ABILITY_MAX
+            maximum = PERSON_VITALITY_MAX if index == 6 else (255 if index == 7 else PERSON_ABILITY_MAX)
             self._person_detail_trees[1].insert('', tk.END, values=(index,) + tuple(row) + (maximum,), tags=(EDITABLE_ROW_TAG,))
         self._person_detail_trees[2].insert('', tk.END, values=(0, ui('ui_0387'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 38)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)), tags=(EDITABLE_ROW_TAG,))
         self._person_detail_trees[2].insert('', tk.END, values=(1, ui('ui_0497'), '{0:,}'.format(struct.unpack_from('<H', record, record_offset + 42)[0]), '{0:,}'.format(PERSON_REPUTATION_MAX)), tags=(EDITABLE_ROW_TAG,))
@@ -6853,15 +6861,15 @@ class CDS3SaveEditorApp:
             return 'break' if event is not None else None
         field_name = values[1] if len(values) > 1 else ''
         if detail_index == 1:
-            stat_offsets = (0, 1, 2, 3, 4, 5, 102, CHARACTER_SPECIAL_STAT_OFFSET)
+            stat_offsets = (0, 1, 2, 3, 4, 5, PERSON_VITALITY_OFFSET, PERSON_HIRE_COST_OFFSET)
             if not 0 <= row_index < len(stat_offsets):
                 return 'break' if event is not None else None
-            is_special_stat = row_index == len(stat_offsets) - 1
-            maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
-            current = struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0] if is_special_stat else self.file_buffer[record_offset + stat_offsets[row_index]]
+            is_vitality = row_index == 6
+            maximum = PERSON_VITALITY_MAX if is_vitality else (255 if row_index == 7 else PERSON_ABILITY_MAX)
+            current = struct.unpack_from('<I', self.file_buffer, record_offset + stat_offsets[row_index])[0] if is_vitality else self.file_buffer[record_offset + stat_offsets[row_index]]
             value = self.ask_bounded_integer(ui('ui_0201'), ui('ui_0033', field_name), current, 0, maximum)
             if value is not None:
-                if is_special_stat:
+                if is_vitality:
                     struct.pack_into('<I', self.file_buffer, record_offset + stat_offsets[row_index], value)
                 else:
                     self.file_buffer[record_offset + stat_offsets[row_index]] = value
@@ -6913,17 +6921,17 @@ class CDS3SaveEditorApp:
         spinner.set(str(value))
         tree = self._person_detail_trees[detail_index]
         if detail_index == 1:
-            offsets = (0, 1, 2, 3, 4, 5, 102, CHARACTER_SPECIAL_STAT_OFFSET)
+            offsets = (0, 1, 2, 3, 4, 5, PERSON_VITALITY_OFFSET, PERSON_HIRE_COST_OFFSET)
             for row_index, offset in enumerate(offsets):
-                is_special_stat = row_index == len(offsets) - 1
-                if is_special_stat:
+                is_vitality = row_index == 6
+                if is_vitality:
                     struct.pack_into('<I', self.file_buffer, record_offset + offset, value)
                 else:
                     self.file_buffer[record_offset + offset] = value
                 item = tree.get_children()[row_index] if row_index < len(tree.get_children()) else None
                 if item:
                     field_name = tree.item(item, 'values')[1]
-                    maximum = PERSON_SPECIAL_STAT_MAX if is_special_stat else PERSON_ABILITY_MAX
+                    maximum = PERSON_VITALITY_MAX if is_vitality else (255 if row_index == 7 else PERSON_ABILITY_MAX)
                     tree.item(item, values=(row_index, field_name, value, maximum))
         elif detail_index == 2:
             for row_index, offset in enumerate((38, 42)):
@@ -8064,7 +8072,7 @@ class CDS3SaveEditorApp:
         stat_defs = EDITOR_MAPPINGS['profile_stat_definitions']
         for i, (name, desc) in enumerate(stat_defs):
             val = self.stat_values[i] if self.file_buffer else UI_EMPTY_VALUE
-            maximum = CHARACTER_SPECIAL_STAT_MAX if i == 6 else PLAYER_ABILITY_MAX
+            maximum = PLAYER_VITALITY_MAX if i == 6 else PLAYER_ABILITY_MAX
             self.tree_stats.insert('', tk.END, iid=str(i), values=(i, name, val, '{0:,}'.format(maximum)), tags=(EDITABLE_ROW_TAG,))
         self._schedule_treeview_autofit(self.tree_stats)
         self._update_player_restore_state()
@@ -8159,13 +8167,13 @@ class CDS3SaveEditorApp:
             if sel:
                 idx = int(sel[0])
                 stat_names = [definition[0] for definition in EDITOR_MAPPINGS['profile_stat_definitions']]
-                max_value = CHARACTER_SPECIAL_STAT_MAX if idx == 6 else PLAYER_ABILITY_MAX
+                max_value = PLAYER_VITALITY_MAX if idx == 6 else PLAYER_ABILITY_MAX
                 prompt = ui('ui_0034', stat_names[idx], max_value) if idx == 6 else ui('ui_0033', stat_names[idx])
                 new_v = self.ask_bounded_integer(ui('ui_0201'), prompt, self.stat_values[idx], 0, max_value)
                 if new_v is not None:
                     self.stat_values[idx] = new_v
                     if idx == 0:
-                        self.stat_values[6] = min(CHARACTER_SPECIAL_STAT_MAX, new_v * 20)
+                        self.stat_values[6] = min(PLAYER_VITALITY_MAX, new_v * 20)
                     self.refresh_stats_table()
                     self.tree_stats.selection_set(str(idx))
 
@@ -8198,7 +8206,7 @@ class CDS3SaveEditorApp:
             target_v = PLAYER_ABILITY_MAX
         for i in range(6):
             self.stat_values[i] = target_v
-        self.stat_values[6] = min(CHARACTER_SPECIAL_STAT_MAX, self.stat_values[0] * 20)
+        self.stat_values[6] = min(PLAYER_VITALITY_MAX, self.stat_values[0] * 20)
         self.refresh_stats_table()
 
     def apply_batch_money(self):
@@ -9449,9 +9457,9 @@ class CDS3SaveEditorApp:
     def _rebuild_game_data_indexes(self):
         """Rebuild derived lookups after the active static profile changes."""
         global SPOUSE_APTITUDE_RECORDS, UNEMPLOYABLE_CHARACTER_IDS, ITEM_STATS_TABLE
-        global PLAYER_ABILITY_MAX, CHARACTER_SPECIAL_STAT_MAX
+        global PLAYER_ABILITY_MAX, PLAYER_VITALITY_MAX
         global PLAYER_SKILL_MAX, PLAYER_LANGUAGE_MAX, PLAYER_REPUTATION_MAX
-        global PERSON_ABILITY_MAX, PERSON_SPECIAL_STAT_MAX, PERSON_REPUTATION_MAX
+        global PERSON_ABILITY_MAX, PERSON_VITALITY_MAX, PERSON_REPUTATION_MAX
         global PERSON_SKILL_MAX, PERSON_LANGUAGE_MAX, SPONSOR_REMAINING_DAYS_MAX
         BARMAID_BY_ID.clear()
         BARMAID_BY_ID.update(GAME_DATA_PROFILE.barmaid_by_id)
@@ -9489,11 +9497,11 @@ class CDS3SaveEditorApp:
         for cached_method in (self._fleet_ship_type_name, self._fleet_ship_type_options, self._fleet_figurehead_map):
             cached_method.cache_clear()
         PLAYER_ABILITY_MAX = game_limit('player.ability')
-        CHARACTER_SPECIAL_STAT_MAX = game_limit('player.vitality')
+        PLAYER_VITALITY_MAX = game_limit('player.vitality')
         PLAYER_SKILL_MAX = game_limit('player.skill')
         PLAYER_LANGUAGE_MAX = game_limit('player.language')
         PERSON_ABILITY_MAX = game_limit('person.ability')
-        PERSON_SPECIAL_STAT_MAX = game_limit('person.vitality')
+        PERSON_VITALITY_MAX = game_limit('person.vitality')
         PERSON_REPUTATION_MAX = game_limit('person.reputation')
         PERSON_SKILL_MAX = game_limit('person.skill')
         PERSON_LANGUAGE_MAX = game_limit('person.language')
@@ -9538,6 +9546,7 @@ class CDS3SaveEditorApp:
         reputation_batch_max = min(money_limits[3:5])
         self.lbl_batch_stats_limit.config(text=ui('ui_0390', PLAYER_ABILITY_MAX))
         self.spn_batch_stats.configure(to=PLAYER_ABILITY_MAX)
+        self._configure_bounded_spinbox(self.spn_batch_stats, 0, PLAYER_ABILITY_MAX)
         self.spn_batch_stats.set(str(PLAYER_ABILITY_MAX))
         self.lbl_batch_money_limit.config(text=ui('ui_0390', '{0:,}'.format(money_batch_max)))
         self.spn_batch_money.configure(to=money_batch_max)
@@ -9563,6 +9572,7 @@ class CDS3SaveEditorApp:
         for detail_index, (maximum, label_text) in person_limits.items():
             spinner = self._person_batch_spinners[detail_index]
             spinner.configure(to=maximum)
+            self._configure_bounded_spinbox(spinner, 0, maximum)
             spinner.set(str(maximum))
             self._person_batch_labels[detail_index].configure(text=label_text)
         self.cbo_job.configure(values=JOB_NAMES)
@@ -9827,7 +9837,7 @@ class CDS3SaveEditorApp:
                     write_spouse_barmaid_id(self.file_buffer, wife_data['id'])
             for i in range(6):
                 self.file_buffer[45 + i] = min(PLAYER_ABILITY_MAX, max(0, self.stat_values[i]))
-            struct.pack_into('<I', self.file_buffer, 51, min(CHARACTER_SPECIAL_STAT_MAX, max(0, self.stat_values[6])))
+            struct.pack_into('<I', self.file_buffer, 51, min(PLAYER_VITALITY_MAX, max(0, self.stat_values[6])))
             money_limits = [int(definition[1]) for definition in EDITOR_MAPPINGS['money_definitions']]
             struct.pack_into('<I', self.file_buffer, 153, min(money_limits[0], max(0, self.money_values[0])))
             struct.pack_into('<I', self.file_buffer, 157, min(money_limits[1], max(0, self.money_values[1])))

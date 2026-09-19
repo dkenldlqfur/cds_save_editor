@@ -65,6 +65,6 @@ def read_character_name(buffer, record_offset, fallback, encoding='cp949'):
     last_name = last_name.split(b'\x00')[0].decode(encoding, errors='ignore').strip()
     return ' '.join((part for part in (first_name, last_name) if part)) or fallback
 
-def read_character_stat_values(buffer, record_offset, special_stat_offset):
-    """인물 공통 능력치 8개를 저장 순서대로 반환한다."""
-    return (buffer[record_offset + 0], buffer[record_offset + 1], buffer[record_offset + 2], buffer[record_offset + 3], buffer[record_offset + 4], buffer[record_offset + 5], buffer[record_offset + 102], struct.unpack_from('<I', buffer, record_offset + special_stat_offset)[0])
+def read_character_stat_values(buffer, record_offset, vitality_offset):
+    """여섯 능력·생명력·고용비 계수를 화면 표시 순서대로 반환한다."""
+    return (buffer[record_offset + 0], buffer[record_offset + 1], buffer[record_offset + 2], buffer[record_offset + 3], buffer[record_offset + 4], buffer[record_offset + 5], struct.unpack_from('<I', buffer, record_offset + vitality_offset)[0], buffer[record_offset + 102])
